@@ -36,6 +36,17 @@ public:
         git_repository_init_options_init(&options, GIT_REPOSITORY_INIT_OPTIONS_VERSION);
         options.initial_head = "main";
         EXPECT_EQ(git_repository_init_ext(&repo_, path_.string().c_str(), &options), 0);
+
+        // Line endings as written, whatever this machine's config says. Git for
+        // Windows — and GitHub's Windows runners — set core.autocrlf=true
+        // system-wide, so a file restored by a discard came back as "one\r\n"
+        // and the byte-for-byte comparisons below failed. Gity honouring that
+        // setting is correct; the test just must not depend on it.
+        git_config* config = nullptr;
+        if (git_repository_config(&config, repo_) == 0) {
+            EXPECT_EQ(git_config_set_bool(config, "core.autocrlf", 0), 0);
+            git_config_free(config);
+        }
     }
 
     ~Repo() {
