@@ -8,7 +8,7 @@ pkgdesc='Git client with undo, previews before pull, merge, rebase and push, and
 arch=('x86_64' 'aarch64')
 url='https://github.com/cahitburak/gity-git-gui'
 license=('MIT')
-depends=('gcc-libs' 'glibc' 'git' 'hicolor-icon-theme' 'libgit2' 'qt6-base' 'qt6-svg')
+depends=('git' 'glibc' 'hicolor-icon-theme' 'libgcc' 'libgit2' 'libstdc++' 'qt6-base' 'qt6-svg')
 makedepends=('cmake' 'git' 'gtest' 'ninja')
 optdepends=('git-lfs: LFS locks and pointers'
             'github-cli: sign in and switch accounts through GitHub CLI'
