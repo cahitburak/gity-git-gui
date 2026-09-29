@@ -1,0 +1,28 @@
+build/
+out/
+.cache/
+compile_commands.json
+
+# vcpkg manifest-mode install tree
+vcpkg_installed/
+
+# editors
+.vs/
+.vscode/
+.idea/
+*.user
+*.user.*
+*.swp
+
+# Qt Creator writes its own kit/preset overrides and generated preset shims
+# here; all machine-local
+CMakeUserPresets.json
+CMakeLists.txt.user
+.qtc_clangd/
+.qtcreator/
+
+# macOS
+.DS_Store
+
+# bench scratch
+bench-repo/

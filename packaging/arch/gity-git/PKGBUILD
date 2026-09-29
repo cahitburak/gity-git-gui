@@ -1,0 +1,42 @@
+# Maintainer: Cahit Burak Küçüksütcü <3697261+cahitburak@users.noreply.github.com>
+
+pkgname=gity-git
+_name=gity
+pkgver=0.1.0
+pkgrel=1
+pkgdesc='Git client with undo, previews before pull, merge, rebase and push, and every command shown (latest main)'
+arch=('x86_64' 'aarch64')
+url='https://github.com/cahitburak/gity-git-gui'
+license=('MIT')
+depends=('gcc-libs' 'glibc' 'git' 'hicolor-icon-theme' 'libgit2' 'qt6-base' 'qt6-svg')
+makedepends=('cmake' 'git' 'gtest' 'ninja')
+optdepends=('git-lfs: LFS locks and pointers'
+            'github-cli: sign in and switch accounts through GitHub CLI'
+            'libsecret: keep credentials in the desktop keyring')
+provides=("$_name")
+conflicts=("$_name")
+source=("$_name::git+$url.git")
+sha256sums=('SKIP')
+
+pkgver() {
+  cd "$_name"
+  git describe --long --tags --abbrev=7 | sed 's/^v//;s/\([^-]*-g\)/r\1/;s/-/./g'
+}
+
+build() {
+  cmake -S "$_name" -B build -G Ninja \
+    -DCMAKE_BUILD_TYPE=None \
+    -DCMAKE_INSTALL_PREFIX=/usr \
+    -DGITY_BUILD_BENCH=OFF \
+    -DGITY_BUILD_TESTS=ON
+  cmake --build build
+}
+
+check() {
+  ctest --test-dir build --output-on-failure
+}
+
+package() {
+  DESTDIR="$pkgdir" cmake --install build
+  install -Dm644 "$_name/LICENSE" "$pkgdir/usr/share/licenses/$pkgname/LICENSE"
+}

@@ -1,0 +1,4 @@
+# Source archives (git archive, GitHub's "Source code" downloads) leave out the
+# distribution build recipes: a recipe records the checksum of the archive, so
+# it cannot be inside it.
+packaging/arch export-ignore

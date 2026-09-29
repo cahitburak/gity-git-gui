@@ -1,0 +1,11 @@
+[Desktop Entry]
+Type=Application
+Name=Gity
+GenericName=Git Client
+Comment=A fast, cross-platform Git client
+Exec=gity %f
+Icon=io.github.cahitburak.gity_git_gui
+Terminal=false
+Categories=Development;RevisionControl;
+Keywords=git;version control;vcs;
+StartupWMClass=gity

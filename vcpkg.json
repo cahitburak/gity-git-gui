@@ -1,0 +1,16 @@
+{
+  "$schema": "https://raw.githubusercontent.com/microsoft/vcpkg-tool/main/docs/vcpkg.schema.json",
+  "name": "gity",
+  "version": "0.1.0",
+  "description": "A fast, cross-platform Git client",
+  "$comment": "ADR-006 — vcpkg carries the small C libraries on Windows and macOS. Qt is NOT here: building it from source costs hours per cold CI run and diverges from the binaries Qt supports. Linux uses system packages. Pin builtin-baseline to a real vcpkg commit before the first Windows/macOS build.",
+  "dependencies": [
+    {
+      "name": "libgit2",
+      "default-features": false,
+      "$comment": "pcre2 is not optional: with default-features off, libgit2's port fails outright with 'Must choose pcre or pcre2 regex backend'. ssh gives us libssh2 for the fetch/push paths libgit2 still handles.",
+      "features": ["ssh", "pcre2"]
+    },
+    "gtest"
+  ]
+}

@@ -1,0 +1,547 @@
+/* The application stylesheet.
+ *
+ * Chrome only. Anything painted by hand — the graph, the diff, the delegates —
+ * reads tokens directly from Tokens.h and is not styled here; a stylesheet
+ * cannot reach a QPainter and pretending otherwise would split one appearance
+ * across two mechanisms.
+ *
+ * Colours are named, not written: a token name between at-signs is
+ * substituted at load from the table generated out of TOKENS.json, so a value
+ * the designer changes reaches this file without anyone editing it, and a name
+ * that does not exist is reported rather than silently becoming no colour.
+ *
+ * That substitution runs over the whole file, comments included — which is how
+ * this comment used to name a token that does not exist and get itself
+ * reported. Do not write an example placeholder here.
+ */
+
+QWidget {
+    color: @textDefault@;
+}
+
+QMainWindow,
+QDialog {
+    background: @surfaceWindow@;
+}
+
+/* --- menu bar ---------------------------------------------------------- */
+
+QMenuBar {
+    background: @surfaceWindow@;
+    border: none;
+    padding: 1px 4px;
+}
+
+QMenuBar::item {
+    padding: 4px 9px;
+    border-radius: 3px;
+    color: @textMuted@;
+    background: transparent;
+}
+
+QMenuBar::item:selected,
+QMenuBar::item:pressed {
+    background: @selectionControlHover@;
+    color: @textStrong@;
+}
+
+QMenu {
+    background: @surfacePanel@;
+    border: 1px solid @borderHard@;
+    padding: 4px;
+}
+
+QMenu::item {
+    padding: 5px 22px 5px 12px;
+    border-radius: 3px;
+}
+
+QMenu::item:selected {
+    background: @selectionBg@;
+    color: @textSelectedPrimary@;
+}
+
+QMenu::item:disabled {
+    color: @textLabelDim@;
+}
+
+QMenu::separator {
+    height: 1px;
+    background: @borderPanelDivider@;
+    margin: 4px 8px;
+}
+
+/* --- toolbar ----------------------------------------------------------- */
+
+QToolBar {
+    background: @surfaceToolbar@;
+    border: none;
+    spacing: 3px;
+    padding: 2px 6px;
+}
+
+QToolBar::separator {
+    width: 1px;
+    background: @borderDivider@;
+    margin: 7px;
+}
+
+QToolButton {
+    border: 1px solid transparent;
+    border-radius: 4px;
+    padding: 4px 10px;
+    color: @textDefault@;
+}
+
+QToolButton:hover:enabled {
+    background: @selectionControlHover@;
+    border-color: @borderControl@;
+}
+
+QToolButton:disabled {
+    color: @textLabelDim@;
+}
+
+/* --- inputs and buttons ------------------------------------------------ */
+
+QLineEdit,
+QPlainTextEdit,
+QTextEdit {
+    background: @surfaceSunken@;
+    border: 1px solid @borderDivider@;
+    border-radius: 4px;
+    padding: 5px 8px;
+    color: @textDefault@;
+    selection-background-color: @selectionBg@;
+    selection-color: @textSelectedPrimary@;
+}
+
+QLineEdit:focus,
+QPlainTextEdit:focus,
+QTextEdit:focus {
+    border-color: @accentPrimary@;
+}
+
+QLineEdit:disabled {
+    color: @textLabelDim@;
+}
+
+QPushButton {
+    background: @selectionControlBg@;
+    border: 1px solid @borderControl@;
+    border-radius: 4px;
+    padding: 5px 13px;
+    color: @textDefault@;
+}
+
+QPushButton:hover:enabled {
+    background: @selectionControlHover@;
+}
+
+QPushButton:disabled {
+    color: @textDisabled@;
+    border-color: @borderSoft@;
+}
+
+QComboBox {
+    background: @surfaceSunken@;
+    border: 1px solid @borderDivider@;
+    border-radius: 4px;
+    padding: 4px 8px;
+}
+
+QComboBox QAbstractItemView {
+    background: @surfacePanel@;
+    border: 1px solid @borderHard@;
+    selection-background-color: @selectionBg@;
+}
+
+QCheckBox {
+    spacing: 7px;
+}
+
+/* --- lists and trees --------------------------------------------------- */
+
+QTreeWidget,
+QTreeView,
+QListWidget,
+QListView {
+    background: @surfaceWindow@;
+    border: 1px solid @borderPanelDivider@;
+    border-radius: 4px;
+    outline: none;
+}
+
+QTreeView::item,
+QListView::item {
+    padding: 2px;
+}
+
+QTreeView::item:hover,
+QListView::item:hover {
+    background: @selectionHover@;
+}
+
+QTreeView::item:selected,
+QListView::item:selected {
+    background: @selectionBg@;
+    color: @textSelectedPrimary@;
+}
+
+/* --- keyboard focus ----------------------------------------------------
+ *
+ * Visible wherever focus can land, and separate from selection: a selected
+ * row in a list that does not have focus must not look like the place the
+ * keyboard is. The painted views draw the same marker themselves.
+ */
+
+QTreeView:focus,
+QListView:focus,
+QComboBox:focus {
+    border-color: @selectionMarker@;
+}
+
+QPushButton:focus,
+QToolButton:focus,
+QPushButton[gityRole="primary"]:focus,
+QPushButton[gityRole="destructive"]:focus {
+    border: 1px solid @selectionMarker@;
+}
+
+QCheckBox:focus,
+QRadioButton:focus {
+    color: @textStrong@;
+}
+
+QHeaderView::section {
+    background: @surfaceHeader@;
+    color: @textLabelDim@;
+    border: none;
+    border-bottom: 1px solid @borderPanelDivider@;
+    padding: 4px 8px;
+}
+
+/* --- scroll bars ------------------------------------------------------- */
+
+QScrollBar:vertical {
+    background: transparent;
+    width: 11px;
+    margin: 0;
+}
+
+QScrollBar:horizontal {
+    background: transparent;
+    height: 11px;
+    margin: 0;
+}
+
+QScrollBar::handle:vertical,
+QScrollBar::handle:horizontal {
+    background: @borderControl@;
+    border-radius: 5px;
+    min-height: 28px;
+    min-width: 28px;
+}
+
+QScrollBar::handle:hover {
+    background: @textLabel@;
+}
+
+QScrollBar::add-line,
+QScrollBar::sub-line {
+    height: 0;
+    width: 0;
+}
+
+QScrollBar::add-page,
+QScrollBar::sub-page {
+    background: transparent;
+}
+
+/* --- splitters and status bar ------------------------------------------ */
+
+QSplitter::handle {
+    background: @borderHard@;
+}
+
+QSplitter::handle:hover {
+    background: @accentPrimary@;
+}
+
+QStatusBar {
+    background: @surfaceHeader@;
+    color: @textDim@;
+}
+
+QStatusBar::item {
+    border: none;
+}
+
+QToolTip {
+    background: @surfacePanel@;
+    color: @textDefault@;
+    border: 1px solid @borderHard@;
+    padding: 4px 7px;
+}
+
+/* --- named surfaces ----------------------------------------------------
+ *
+ * A handful of widgets need something other than the default for their class.
+ * They are addressed by object name rather than by a stylesheet set on the
+ * widget itself, so every colour in the chrome is in this one file.
+ */
+
+#refsSidebar,
+#settingsSections {
+    background: @surfacePanel@;
+    border: none;
+    border-radius: 0;
+}
+
+#refFilter {
+    padding: 4px 7px;
+}
+
+/* --- repository tabs ---------------------------------------------------- */
+
+QTabBar {
+    background: @surfaceHeader@;
+}
+
+/* Above the graph: "All commits" and the search over them. */
+#historyHeader {
+    background: @surfaceHeader@;
+    border-bottom: 1px solid @borderHard@;
+}
+
+#historyTitle {
+    color: @textStrong@;
+    font-weight: bold;
+}
+
+/* The line above the Commit and Changes tabs. */
+#commitSummary {
+    background: @surfaceHeader@;
+    border-top: 1px solid @borderHard@;
+}
+
+#commitSummaryTitle {
+    color: @textStrong@;
+    font-weight: bold;
+}
+
+#welcomePanel {
+    background: @surfaceWindow@;
+}
+
+/* One band across the window, above sidebar and content alike. */
+#repositoryTabs {
+    background: @surfaceHeader@;
+    border-bottom: 1px solid @borderHard@;
+}
+
+QTabBar::tab {
+    background: @surfaceHeader@;
+    color: @textDim@;
+    padding: 5px 10px;
+    border: 1px solid transparent;
+    border-bottom: 2px solid transparent;
+}
+
+QTabBar::tab:selected {
+    color: @textStrong@;
+    background: @surfaceWindow@;
+    border-bottom: 2px solid @selectionMarker@;
+}
+
+QTabBar::tab:hover:!selected {
+    background: @selectionHover@;
+}
+
+/* --- action roles -------------------------------------------------------
+ *
+ * Three tiers, not two. Destructive is red because it destroys something;
+ * primary is the accent because it is the action the dialog exists for; the
+ * rest stay neutral.
+ *
+ * Green is deliberately absent. It already means "added" here — added lines,
+ * the add chip — and spending it on ordinary buttons would both collide with
+ * that and leave green meaning nothing in particular.
+ *
+ * Colour is never the only signal: a destructive button also carries the verb,
+ * because a red/green distinction alone is invisible to roughly one man in
+ * twelve.
+ */
+
+QPushButton[gityRole="destructive"] {
+    background: @fillRemoveChip@;
+    border: 1px solid @fillRemoveChipBorder@;
+    color: @semanticRemove@;
+}
+
+QPushButton[gityRole="destructive"]:hover:enabled {
+    background: @fillRemoveRow@;
+    border-color: @semanticRemove@;
+}
+
+QPushButton[gityRole="primary"] {
+    background: @accentButtonBg@;
+    border: 1px solid @accentButtonBg@;
+    color: @accentButtonFg@;
+}
+
+QPushButton[gityRole="primary"]:hover:enabled {
+    background: @accentButtonHover@;
+    border-color: @accentButtonHover@;
+}
+
+QPushButton[gityRole="primary"]:disabled,
+QPushButton[gityRole="destructive"]:disabled {
+    background: @selectionControlBg@;
+    border-color: @borderSoft@;
+    color: @textDisabled@;
+}
+
+/* --- the staging screen -------------------------------------------------
+ *
+ * These were styled from the widgets themselves, which meant a sheet set on
+ * the widget won over this file and became a second place the colours lived.
+ */
+
+#workingCopyList {
+    background: @surfacePanel@;
+    border: none;
+    border-radius: 0;
+}
+
+#sectionHeader {
+    background: @surfaceHeader@;
+}
+
+#sectionLabel {
+    color: @textLabelDim@;
+    background: transparent;
+}
+
+#sectionAction {
+    border: none;
+    background: transparent;
+    color: @accentPrimary@;
+    padding: 0;
+}
+
+#sectionAction:disabled {
+    color: @textLabelDim@;
+}
+
+#commitBox {
+    border-top: 1px solid @borderHard@;
+}
+
+#commitMessage {
+    background: @surfaceSunken@;
+    border: 1px solid @borderDivider@;
+    border-radius: 4px;
+    padding: 9px 10px;
+    color: @textDefault@;
+}
+
+/* --- long-lived widgets -------------------------------------------------
+ *
+ * These outlive a theme change, unlike a dialog which is rebuilt each time it
+ * opens. Styled from here, they follow the theme; styled from their own
+ * constructors they kept whatever colours were current when the window was
+ * built, which is what "the style is not applied" looked like.
+ */
+
+#paneHeader {
+    background: @surfaceWindow@;
+    border-bottom: 1px solid @borderHard@;
+}
+
+#panePath {
+    color: @textDefault@;
+    border: none;
+}
+
+#lfsChip {
+    color: @semanticWarn@;
+    border: 1px solid @semanticWarn@;
+    border-radius: 3px;
+    padding: 1px 6px;
+}
+
+#operationBanner {
+    background: @fillWarnChip@;
+    border-bottom: 1px solid @borderHard@;
+}
+
+#operationGlyph {
+    color: @semanticWarn@;
+    font-weight: bold;
+    border: none;
+}
+
+#operationText {
+    color: @textDefault@;
+    border: none;
+}
+
+QLabel[gityRole="error"] {
+    color: @semanticRemove@;
+}
+
+QLabel[gityRole="muted"] {
+    color: @textMuted@;
+}
+
+/* Explanatory text under a control: quieter than the text it explains. */
+QLabel[gityRole="note"] {
+    color: @textLabel@;
+}
+
+QLabel[gityRole="warn"] {
+    color: @semanticWarn@;
+}
+
+/* A choice that destroys work, such as a hard reset, reads as one before it
+   is picked. */
+QRadioButton[gityRole="error"] {
+    color: @semanticRemove@;
+}
+
+/* Buttons that apply an action, coloured by how much the action changes —
+   the rebase dialog's Keep … Drop. The same fills as the chips in its list. */
+QPushButton[gityChip="neutral"] {
+    background: @fillNeutralChip@;
+    border: 1px solid @fillNeutralChipBorder@;
+    color: @textDefault@;
+}
+
+QPushButton[gityChip="info"] {
+    background: @fillInfoChip@;
+    border: 1px solid @fillInfoChipBorder@;
+    color: @semanticInfo@;
+}
+
+QPushButton[gityChip="meta"] {
+    background: @fillMetaChip@;
+    border: 1px solid @fillMetaChipBorder@;
+    color: @semanticMeta@;
+}
+
+QPushButton[gityChip="warn"] {
+    background: @fillWarnChip@;
+    border: 1px solid @fillWarnChipBorder@;
+    color: @semanticWarn@;
+}
+
+QPushButton[gityChip="remove"] {
+    background: @fillRemoveChip@;
+    border: 1px solid @fillRemoveChipBorder@;
+    color: @semanticRemove@;
+}
+
+QPushButton[gityChip]:hover:enabled {
+    border-color: @textMuted@;
+}

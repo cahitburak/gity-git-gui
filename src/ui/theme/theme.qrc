@@ -1,0 +1,7 @@
+<!DOCTYPE RCC>
+<RCC version="1.0">
+    <qresource prefix="/gity/theme">
+        <file alias="gity.qss">gity.qss</file>
+        <file alias="icon.svg">../../../packaging/io.github.cahitburak.gity_git_gui.svg</file>
+    </qresource>
+</RCC>

@@ -1,0 +1,16 @@
+name: Feature request
+description: Something Gity should do.
+labels: [enhancement]
+body:
+  - type: textarea
+    id: problem
+    attributes:
+      label: What you are trying to do
+      description: The task, and what gets in the way today. How you would like it solved is welcome, but the problem matters most.
+    validations:
+      required: true
+  - type: textarea
+    id: elsewhere
+    attributes:
+      label: How other tools do it
+      description: Optional — the git command, or another client that gets this right.

@@ -1,0 +1,43 @@
+name: Bug report
+description: Something Gity did wrong.
+labels: [bug]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thanks for reporting. **Security problems go through the Security tab, not here** — see SECURITY.md.
+        Please do not paste tokens, passwords, or private repository URLs.
+  - type: textarea
+    id: what
+    attributes:
+      label: What happened
+      description: What you did, what you expected, and what happened instead.
+    validations:
+      required: true
+  - type: textarea
+    id: steps
+    attributes:
+      label: Steps to reproduce
+      placeholder: |
+        1. Open a repository with …
+        2. Click …
+  - type: textarea
+    id: commands
+    attributes:
+      label: Command log
+      description: View ▸ Command Log shows every git command Gity ran. The lines around the problem help most.
+      render: text
+  - type: input
+    id: version
+    attributes:
+      label: Gity version or commit
+      description: Settings ▸ About, or the commit you built.
+    validations:
+      required: true
+  - type: input
+    id: platform
+    attributes:
+      label: OS, git version, Qt version
+      placeholder: Ubuntu 24.04, git 2.43, Qt 6.8
+    validations:
+      required: true

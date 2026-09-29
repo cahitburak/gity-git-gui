@@ -1,0 +1,102 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!-- AppStream metadata: what software centres (Discover, GNOME Software,
+     Pamac) show for Gity. Installed to share/metainfo. Validate with
+     appstreamcli validate, in pedantic mode. -->
+<component type="desktop-application">
+  <id>io.github.cahitburak.gity_git_gui</id>
+  <metadata_license>CC0-1.0</metadata_license>
+  <project_license>MIT</project_license>
+
+  <name>Gity</name>
+  <summary>Git client with undo, previews and every command shown</summary>
+  <developer id="io.github.cahitburak">
+    <name>Cahit Burak Küçüksütcü</name>
+  </developer>
+
+  <description>
+    <p>
+      Gity is a desktop Git client for Linux, macOS and Windows: a fast commit graph, staging by
+      file, hunk or line, merge, rebase and stash, and submodules opened as repositories of their
+      own. It runs the git already on your system, so your credential helper, SSH agent, LFS
+      and hooks behave exactly as they do in a terminal.
+    </p>
+    <ul>
+      <li>Undo and redo for commits, merges, rebases, resets, checkouts, deleted branches and discards</li>
+      <li>A preview before every pull, merge, rebase and push, and force push only with a lease</li>
+      <li>Every git command shown, as you could type it yourself</li>
+      <li>Interactive rebase with reword, squash, fixup, drop and stop-to-edit</li>
+      <li>History filters by text, author and date, and branch comparison</li>
+      <li>Credentials kept only in git's own credential helper, never by Gity</li>
+      <li>Seven themes, light and dark</li>
+    </ul>
+    <p>
+      Gity is early and largely untested. Try it on a copy of a repository before trusting it with
+      one that matters.
+    </p>
+  </description>
+
+  <launchable type="desktop-id">io.github.cahitburak.gity_git_gui.desktop</launchable>
+  <provides>
+    <binary>gity</binary>
+  </provides>
+
+  <url type="homepage">https://github.com/cahitburak/gity-git-gui</url>
+  <url type="bugtracker">https://github.com/cahitburak/gity-git-gui/issues</url>
+  <url type="vcs-browser">https://github.com/cahitburak/gity-git-gui</url>
+  <url type="contribute">https://github.com/cahitburak/gity-git-gui/blob/main/CONTRIBUTING.md</url>
+
+  <screenshots>
+    <screenshot type="default">
+      <caption>History, with the commit graph and the selected commit's diff</caption>
+      <image>https://raw.githubusercontent.com/cahitburak/gity-git-gui/v0.1.0/docs/screenshots/theme-gity-dark.png</image>
+    </screenshot>
+    <screenshot>
+      <caption>Interactive rebase, with each action coloured by how much it changes</caption>
+      <image>https://raw.githubusercontent.com/cahitburak/gity-git-gui/v0.1.0/docs/screenshots/interactive-rebase.png</image>
+    </screenshot>
+    <screenshot>
+      <caption>Local changes: staging by file, hunk or line</caption>
+      <image>https://raw.githubusercontent.com/cahitburak/gity-git-gui/v0.1.0/docs/screenshots/local-changes.png</image>
+    </screenshot>
+    <screenshot>
+      <caption>The Navy Light theme</caption>
+      <image>https://raw.githubusercontent.com/cahitburak/gity-git-gui/v0.1.0/docs/screenshots/theme-navy-light.png</image>
+    </screenshot>
+  </screenshots>
+
+  <branding>
+    <color type="primary" scheme_preference="light">#DDE7F5</color>
+    <color type="primary" scheme_preference="dark">#2C3646</color>
+  </branding>
+
+  <categories>
+    <category>Development</category>
+    <category>RevisionControl</category>
+  </categories>
+  <keywords>
+    <keyword>git</keyword>
+    <keyword>version control</keyword>
+    <keyword>vcs</keyword>
+    <keyword>commit</keyword>
+    <keyword>rebase</keyword>
+  </keywords>
+
+  <supports>
+    <control>pointing</control>
+    <control>keyboard</control>
+  </supports>
+  <requires>
+    <display_length compare="ge">768</display_length>
+  </requires>
+
+  <content_rating type="oars-1.1"/>
+
+  <releases>
+    <release version="0.1.0" date="2026-09-29" type="stable">
+      <description>
+        <p>The first public release. Early and largely untested — please report what breaks.</p>
+      </description>
+      <url type="details">https://github.com/cahitburak/gity-git-gui/releases/tag/v0.1.0</url>
+    </release>
+  </releases>
+</component>

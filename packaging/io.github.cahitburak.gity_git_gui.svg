@@ -1,0 +1,18 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 256 256" width="256" height="256">
+  <!-- Gity's icon: a branch leaving a line and a commit on each, in the Navy theme's colours. -->
+  <defs>
+    <linearGradient id="ground" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#2A303B"/>
+      <stop offset="1" stop-color="#171A20"/>
+    </linearGradient>
+  </defs>
+  <rect x="8" y="8" width="240" height="240" rx="56" fill="url(#ground)"/>
+  <rect x="8.5" y="8.5" width="239" height="239" rx="55.5" fill="none" stroke="#3A4250" stroke-width="1"/>
+  <g fill="none" stroke-linecap="round" stroke-width="16">
+    <path d="M100 70 V186" stroke="#6AA9E0"/>
+    <path d="M100 160 C100 120 162 128 162 92" stroke="#E6A94F"/>
+  </g>
+  <circle cx="100" cy="62" r="22" fill="#6AA9E0"/>
+  <circle cx="100" cy="194" r="22" fill="#82C48D"/>
+  <circle cx="162" cy="84" r="22" fill="#E6A94F"/>
+</svg>
