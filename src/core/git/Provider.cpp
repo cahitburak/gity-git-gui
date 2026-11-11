@@ -20,8 +20,8 @@ bool startsWith(const std::string& host, std::string_view prefix) {
 } // namespace
 
 std::vector<Provider> allProviders() {
-    return {Provider::GitHub, Provider::GitLab, Provider::Bitbucket, Provider::Gitea,
-            Provider::AzureDevOps, Provider::Other};
+    return {Provider::GitHub, Provider::GitLab,      Provider::Bitbucket,
+            Provider::Gitea,  Provider::AzureDevOps, Provider::Other};
 }
 
 std::string_view providerName(Provider provider) {
@@ -135,8 +135,7 @@ std::string hostOfRemote(std::string_view url) {
             return {};
         }
         text = text.substr(scheme + 3);
-    } else if (text.front() == '/' || text.front() == '.' ||
-               (text.size() > 1 && text[1] == ':')) {
+    } else if (text.front() == '/' || text.front() == '.' || (text.size() > 1 && text[1] == ':')) {
         // A local path — absolute, relative, or a Windows drive letter.
         return {};
     }

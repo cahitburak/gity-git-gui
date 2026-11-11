@@ -18,8 +18,7 @@ bool contains(const std::vector<StashEntry>& list, const std::string& oid) {
 
 } // namespace
 
-RefRestorePlan planRefRestore(const RefMap& before, const RefMap& after,
-                              const RefMap& current) {
+RefRestorePlan planRefRestore(const RefMap& before, const RefMap& after, const RefMap& current) {
     std::set<std::string> names;
     for (const auto& [name, oid] : before) {
         names.insert(name);

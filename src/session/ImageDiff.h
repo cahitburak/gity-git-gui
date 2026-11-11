@@ -22,8 +22,8 @@ struct ImageSide {
     QString label;    ///< "HEAD · 7b902ea" or "Working copy".
     QString metadata; ///< Dimensions · format · size, from the bytes we have.
 
-    bool present = false;   ///< The path exists on this side at all.
-    bool decoded = false;   ///< ...and Qt could read it as an image.
+    bool present = false; ///< The path exists on this side at all.
+    bool decoded = false; ///< ...and Qt could read it as an image.
     bool lfsPointer = false;
     QString lfsOid;
     qint64 byteSize = 0;
@@ -37,8 +37,7 @@ struct ImageDiff {
     /// True when both sides decoded, which is what the difference and
     /// onion-skin modes require.
     [[nodiscard]] bool comparable() const {
-        return before.decoded && after.decoded &&
-               before.image.size() == after.image.size();
+        return before.decoded && after.decoded && before.image.size() == after.image.size();
     }
 
     /// Percentage of pixels that differ, for the difference mode caption.

@@ -2,25 +2,25 @@
 
 #include "core/git/MergePrediction.h"
 #include "core/git/NetworkOutcome.h"
+#include "core/git/OperationState.h"
 #include "core/git/Provider.h"
+#include "core/git/RebaseTodo.h"
 #include "core/git/RepoAccount.h"
 #include "core/git/Submodules.h"
-#include "core/git/OperationState.h"
-#include "core/git/RebaseTodo.h"
 
+#include "Background.h"
+#include "CredentialInventory.h"
+#include "GitProcess.h"
+#include "IndexWrites.h"
+#include "RepoWatcher.h"
 #include "core/git/HistoryStream.h"
 #include "core/git/Repository.h"
 #include "core/git/WorkingCopy.h"
-#include "GitProcess.h"
-#include "IndexWrites.h"
-#include "Background.h"
-#include "RepoWatcher.h"
-#include "CredentialInventory.h"
 
 #include <QDir>
+#include <QFile>
 #include <QFileInfo>
 #include <QImageReader>
-#include <QFile>
 #include <QTemporaryDir>
 #include <QTextStream>
 
@@ -88,8 +88,8 @@ void RepoWorker::open(const QString& path) {
         // repository tabs did, and every reopen after a branch delete, merge or
         // fetch looked like a different repository and wiped the tab set. One
         // spelling leaves here.
-        info.workdir = QDir(workdirRaw != nullptr ? QString::fromUtf8(workdirRaw) : path)
-                           .absolutePath();
+        info.workdir =
+            QDir(workdirRaw != nullptr ? QString::fromUtf8(workdirRaw) : path).absolutePath();
         workdir_ = info.workdir;
         info.headRef = headRefName(repo);
         emit opened(info);
@@ -112,8 +112,8 @@ void RepoWorker::open(const QString& path) {
         gity::git::StreamOptions options;
         options.filter = filter_;
         options.cancel = &cancel_;
-        const auto stats = gity::git::streamHistory(
-            repo, options, [this](model::HistoryChunk&& chunk) {
+        const auto stats =
+            gity::git::streamHistory(repo, options, [this](model::HistoryChunk&& chunk) {
                 if (cancel_.load(std::memory_order_relaxed)) {
                     return false;
                 }
@@ -153,8 +153,7 @@ void RepoWorker::watchRepository() {
     // match directories ("build/") apply.
     auto ignored = [this](const QString& relative, bool isDirectory) {
         int result = 0;
-        const QByteArray path =
-            (isDirectory ? relative + QChar('/') : relative).toUtf8();
+        const QByteArray path = (isDirectory ? relative + QChar('/') : relative).toUtf8();
         return git_ignore_path_is_ignored(&result, repo_.get(), path.constData()) == 0 &&
                result != 0;
     };
@@ -195,10 +194,10 @@ void RepoWorker::loadCommitPeek(const QString& oidHex, const QString& path) {
             emit commitPeekReady(oidHex, std::make_shared<const gity::git::CommitDetail>(
                                              gity::git::loadCommitDetail(repo_.get(), oid)));
         } else {
-            emit commitPeekDiffReady(oidHex, path,
-                                     std::make_shared<const gity::git::FileDiff>(
-                                         gity::git::loadFileDiff(repo_.get(), oid,
-                                                                 path.toStdString())));
+            emit commitPeekDiffReady(
+                oidHex, path,
+                std::make_shared<const gity::git::FileDiff>(
+                    gity::git::loadFileDiff(repo_.get(), oid, path.toStdString())));
         }
     } catch (const gity::git::GitException&) {
         // As loadDetail: the pane shows nothing, and the next pick tries again.
@@ -214,8 +213,8 @@ void RepoWorker::loadFileDiff(const QString& oidHex, const QString& path, quint6
         return;
     }
     try {
-        emit fileDiffReady(std::make_shared<const gity::git::FileDiff>(gity::git::loadFileDiff(
-                               repo_.get(), oid, path.toStdString())),
+        emit fileDiffReady(std::make_shared<const gity::git::FileDiff>(
+                               gity::git::loadFileDiff(repo_.get(), oid, path.toStdString())),
                            generation);
     } catch (const gity::git::GitException&) {
         // Same reasoning as loadDetail: the pane shows nothing and the next
@@ -223,8 +222,7 @@ void RepoWorker::loadFileDiff(const QString& oidHex, const QString& path, quint6
     }
 }
 
-void RepoWorker::loadComparison(const QString& fromHex, const QString& toHex,
-                                quint64 generation) {
+void RepoWorker::loadComparison(const QString& fromHex, const QString& toHex, quint64 generation) {
     if (!repo_) {
         return;
     }
@@ -255,10 +253,10 @@ void RepoWorker::loadFileDiffBetween(const QString& fromHex, const QString& toHe
         return;
     }
     try {
-        emit fileDiffReady(std::make_shared<const gity::git::FileDiff>(
-                               gity::git::loadFileDiffBetween(repo_.get(), from, to,
-                                                              path.toStdString())),
-                           generation);
+        emit fileDiffReady(
+            std::make_shared<const gity::git::FileDiff>(
+                gity::git::loadFileDiffBetween(repo_.get(), from, to, path.toStdString())),
+            generation);
     } catch (const gity::git::GitException&) {
         // As loadFileDiff: the pane shows nothing, the next selection retries.
     }
@@ -336,7 +334,7 @@ QStringList describeCommits(const std::vector<gity::git::ComparedCommit>& commit
         char buffer[GIT_OID_SHA1_HEXSIZE + 1] = {};
         git_oid_tostr(buffer, sizeof(buffer), &commits[i].oid);
         lines << QStringLiteral("%1  %2").arg(QString::fromLatin1(buffer).left(8),
-                                               QString::fromStdString(commits[i].summary));
+                                              QString::fromStdString(commits[i].summary));
     }
     return lines;
 }
@@ -366,21 +364,21 @@ void RepoWorker::computePreview(int kindValue, const QString& target, const QStr
     const GitProcess::InternalScope internal;
     const auto resolve = [this](const QString& rev) {
         const GitResult result = GitProcess::run(
-            workdir_, {QStringLiteral("rev-parse"), QStringLiteral("-q"), QStringLiteral("--verify"),
-                       rev + QStringLiteral("^{commit}")});
+            workdir_, {QStringLiteral("rev-parse"), QStringLiteral("-q"),
+                       QStringLiteral("--verify"), rev + QStringLiteral("^{commit}")});
         return result.ok() ? trimmedOutput(result) : QString();
     };
     const auto config = [this](const QString& key) {
-        return trimmedOutput(GitProcess::run(
-            workdir_, {QStringLiteral("config"), QStringLiteral("--get"), key}));
+        return trimmedOutput(
+            GitProcess::run(workdir_, {QStringLiteral("config"), QStringLiteral("--get"), key}));
     };
 
     // The branch acted on: the one named, or the one checked out.
     QString branch = branchName;
     if (branch.isEmpty()) {
-        const GitResult head = GitProcess::run(
-            workdir_, {QStringLiteral("symbolic-ref"), QStringLiteral("-q"), QStringLiteral("--short"),
-                       QStringLiteral("HEAD")});
+        const GitResult head =
+            GitProcess::run(workdir_, {QStringLiteral("symbolic-ref"), QStringLiteral("-q"),
+                                       QStringLiteral("--short"), QStringLiteral("HEAD")});
         branch = head.ok() ? trimmedOutput(head) : QString();
     }
     if (branch.isEmpty()) {
@@ -395,12 +393,13 @@ void RepoWorker::computePreview(int kindValue, const QString& target, const QStr
     const bool isPush = preview->kind == Preview::Kind::Push;
     QString other = target;
     if (isPull || isPush) {
-        const GitResult upstream = GitProcess::run(
-            workdir_, {QStringLiteral("rev-parse"), QStringLiteral("--abbrev-ref"),
-                       QStringLiteral("--symbolic-full-name"), branch + QStringLiteral("@{upstream}")});
+        const GitResult upstream =
+            GitProcess::run(workdir_, {QStringLiteral("rev-parse"), QStringLiteral("--abbrev-ref"),
+                                       QStringLiteral("--symbolic-full-name"),
+                                       branch + QStringLiteral("@{upstream}")});
         preview->remote = config(QStringLiteral("branch.%1.remote").arg(branch));
-        preview->remoteBranch =
-            config(QStringLiteral("branch.%1.merge").arg(branch)).remove(QStringLiteral("refs/heads/"));
+        preview->remoteBranch = config(QStringLiteral("branch.%1.merge").arg(branch))
+                                    .remove(QStringLiteral("refs/heads/"));
         if (!upstream.ok() || preview->remote.isEmpty() || preview->remote == QStringLiteral(".")) {
             if (isPull) {
                 preview->problem = QObject::tr("%1 tracks no remote branch, so there is nothing "
@@ -424,9 +423,9 @@ void RepoWorker::computePreview(int kindValue, const QString& target, const QStr
                 // "--" last: a branch named like a top-level folder ("docs")
                 // is otherwise ambiguous, and git refuses — and the preview
                 // said nothing was going out.
-                workdir_, {QStringLiteral("rev-list"), QStringLiteral("--count"), branch,
-                           QStringLiteral("--not"), QStringLiteral("--remotes"),
-                           QStringLiteral("--")});
+                workdir_,
+                {QStringLiteral("rev-list"), QStringLiteral("--count"), branch,
+                 QStringLiteral("--not"), QStringLiteral("--remotes"), QStringLiteral("--")});
             preview->outgoing = trimmedOutput(count).toInt();
             const GitResult log = GitProcess::run(
                 workdir_, {QStringLiteral("log"), QStringLiteral("-10"),
@@ -434,8 +433,7 @@ void RepoWorker::computePreview(int kindValue, const QString& target, const QStr
                            QStringLiteral("--remotes"), QStringLiteral("--")});
             for (const QString& line : log.output.split(QChar('\n'), Qt::SkipEmptyParts)) {
                 preview->outgoingCommits << line.section(QChar('\0'), 0, 0).leftJustified(8) +
-                                                QStringLiteral("  ") +
-                                                line.section(QChar('\0'), 1);
+                                                QStringLiteral("  ") + line.section(QChar('\0'), 1);
             }
             finish();
             return;
@@ -496,12 +494,13 @@ void RepoWorker::computePreview(int kindValue, const QString& target, const QStr
         static const QStringList sharedNames{QStringLiteral("main"), QStringLiteral("master"),
                                              QStringLiteral("develop"), QStringLiteral("trunk")};
         const QString remoteHead = trimmedOutput(GitProcess::run(
-            workdir_, {QStringLiteral("symbolic-ref"), QStringLiteral("-q"), QStringLiteral("--short"),
-                       QStringLiteral("refs/remotes/%1/HEAD").arg(preview->remote)}));
-        preview->shared = sharedNames.contains(preview->remoteBranch) ||
-                          preview->remoteBranch.startsWith(QStringLiteral("release/")) ||
-                          remoteHead == QStringLiteral("%1/%2").arg(preview->remote,
-                                                                     preview->remoteBranch);
+            workdir_,
+            {QStringLiteral("symbolic-ref"), QStringLiteral("-q"), QStringLiteral("--short"),
+             QStringLiteral("refs/remotes/%1/HEAD").arg(preview->remote)}));
+        preview->shared =
+            sharedNames.contains(preview->remoteBranch) ||
+            preview->remoteBranch.startsWith(QStringLiteral("release/")) ||
+            remoteHead == QStringLiteral("%1/%2").arg(preview->remote, preview->remoteBranch);
         finish();
         return;
     }
@@ -570,8 +569,7 @@ void RepoWorker::runForcePush(const QString& branch, const QString& remote,
     runNetwork(QObject::tr("Force push"),
                {QStringLiteral("push"), QStringLiteral("--progress"),
                 QStringLiteral("--force-with-lease=refs/heads/%1:%2").arg(remoteBranch, leaseOid),
-                remote,
-                QStringLiteral("refs/heads/%1:refs/heads/%2").arg(branch, remoteBranch)});
+                remote, QStringLiteral("refs/heads/%1:refs/heads/%2").arg(branch, remoteBranch)});
 }
 
 namespace {
@@ -613,17 +611,18 @@ void RepoWorker::loadAccountChoice() {
     }
     const QString url = QStringLiteral("https://%1").arg(host);
     // Who answers for this host — GitHub CLI, or a keyring or store file.
-    const QString helper = configValue(
-        workdir_, {QStringLiteral("config"), QStringLiteral("--get-urlmatch"),
-                   QStringLiteral("credential.helper"), url});
+    const QString helper =
+        configValue(workdir_, {QStringLiteral("config"), QStringLiteral("--get-urlmatch"),
+                               QStringLiteral("credential.helper"), url});
     const bool viaGh = helper.contains(QStringLiteral("gh auth"));
 
     // What this repository has chosen, in its own config.
     QString chosen;
     if (viaGh) {
-        const GitResult helpers = GitProcess::run(
-            workdir_, {QStringLiteral("config"), QStringLiteral("--local"), QStringLiteral("--get-all"),
-                       QStringLiteral("credential.%1.helper").arg(url)});
+        const GitResult helpers =
+            GitProcess::run(workdir_, {QStringLiteral("config"), QStringLiteral("--local"),
+                                       QStringLiteral("--get-all"),
+                                       QStringLiteral("credential.%1.helper").arg(url)});
         for (const QString& line : helpers.output.split(QChar('\n'), Qt::SkipEmptyParts)) {
             const QString account =
                 QString::fromStdString(gity::git::accountOfGhHelper(line.toStdString()));
@@ -668,17 +667,18 @@ void RepoWorker::setAccountChoice(const QString& account) {
         return;
     }
     const QString host = httpsHostOf(gity::git::listRemotes(repo_.get()));
-    if (host.isEmpty() || (!account.isEmpty() && !gity::git::isSafeAccountName(account.toStdString()))) {
-        emit historyEditFinished(verb, false, false,
-                                 QObject::tr("%1 is not an account name git can be told to use.")
-                                     .arg(account));
+    if (host.isEmpty() ||
+        (!account.isEmpty() && !gity::git::isSafeAccountName(account.toStdString()))) {
+        emit historyEditFinished(
+            verb, false, false,
+            QObject::tr("%1 is not an account name git can be told to use.").arg(account));
         return;
     }
     const QString url = QStringLiteral("https://%1").arg(host);
-    const bool viaGh = configValue(workdir_, {QStringLiteral("config"),
-                                              QStringLiteral("--get-urlmatch"),
-                                              QStringLiteral("credential.helper"), url})
-                           .contains(QStringLiteral("gh auth"));
+    const bool viaGh =
+        configValue(workdir_, {QStringLiteral("config"), QStringLiteral("--get-urlmatch"),
+                               QStringLiteral("credential.helper"), url})
+            .contains(QStringLiteral("gh auth"));
 
     // This repository, and every initialised submodule on the same host: a
     // submodule is a repository with its own config, and one left on the old
@@ -689,8 +689,8 @@ void RepoWorker::setAccountChoice(const QString& account) {
             continue;
         }
         const QString path = QDir(workdir_).filePath(QString::fromStdString(submodule.path));
-        const QString subUrl = configValue(path, {QStringLiteral("remote"), QStringLiteral("get-url"),
-                                                  QStringLiteral("origin")});
+        const QString subUrl = configValue(
+            path, {QStringLiteral("remote"), QStringLiteral("get-url"), QStringLiteral("origin")});
         if (QString::fromStdString(gity::git::hostOfRemote(subUrl.toStdString()))
                     .compare(host, Qt::CaseInsensitive) == 0 &&
             subUrl.startsWith(QStringLiteral("https://"), Qt::CaseInsensitive)) {
@@ -700,13 +700,13 @@ void RepoWorker::setAccountChoice(const QString& account) {
 
     const QString helperKey = QStringLiteral("credential.%1.helper").arg(url);
     const QString userKey = QStringLiteral("credential.%1.username").arg(url);
-    const QString helper =
-        QString::fromStdString(gity::git::ghAccountHelper(host.toStdString(), account.toStdString()));
+    const QString helper = QString::fromStdString(
+        gity::git::ghAccountHelper(host.toStdString(), account.toStdString()));
     QStringList failed;
     for (const QString& target : targets) {
         const auto set = [&target](const QStringList& args) {
-            return GitProcess::run(target, QStringList{QStringLiteral("config"),
-                                                       QStringLiteral("--local")} + args);
+            return GitProcess::run(
+                target, QStringList{QStringLiteral("config"), QStringLiteral("--local")} + args);
         };
         // Clear what Gity set before, then set the new choice. Unsetting
         // something absent fails harmlessly, so its result is not checked.
@@ -731,9 +731,9 @@ void RepoWorker::setAccountChoice(const QString& account) {
     }
 
     if (!failed.isEmpty()) {
-        emit historyEditFinished(verb, false, false,
-                                 QObject::tr("Could not set the account in %1.")
-                                     .arg(failed.join(QStringLiteral(", "))));
+        emit historyEditFinished(
+            verb, false, false,
+            QObject::tr("Could not set the account in %1.").arg(failed.join(QStringLiteral(", "))));
         return;
     }
     const int submodules = static_cast<int>(targets.size()) - 1;
@@ -800,9 +800,9 @@ void RepoWorker::runCreateBranch(const QString& name, const QString& startPoint,
 }
 
 bool RepoWorker::localBranchExists(const QString& name) const {
-    return GitProcess::run(workdir_, {QStringLiteral("show-ref"), QStringLiteral("--verify"),
-                                      QStringLiteral("--quiet"),
-                                      QStringLiteral("refs/heads/%1").arg(name)})
+    return GitProcess::run(workdir_,
+                           {QStringLiteral("show-ref"), QStringLiteral("--verify"),
+                            QStringLiteral("--quiet"), QStringLiteral("refs/heads/%1").arg(name)})
         .ok();
 }
 
@@ -831,11 +831,12 @@ void RepoWorker::runSwitch(const QString& verb, QStringList args, const QString&
     bool stashed = false;
     if (changes == Changes::StashAndReapply) {
         const GitResult stash = GitProcess::run(
-            workdir_, {QStringLiteral("stash"), QStringLiteral("push"),
-                       QStringLiteral("--include-untracked"), QStringLiteral("--message"),
-                       QObject::tr("Gity: before switching to %1").arg(target)});
+            workdir_,
+            {QStringLiteral("stash"), QStringLiteral("push"), QStringLiteral("--include-untracked"),
+             QStringLiteral("--message"), QObject::tr("Gity: before switching to %1").arg(target)});
         if (!stash.ok()) {
-            finish(false, QObject::tr("Could not stash the changes: %1").arg(stash.firstProblemLine()));
+            finish(false,
+                   QObject::tr("Could not stash the changes: %1").arg(stash.firstProblemLine()));
             return;
         }
         stashed = !stash.output.contains(QStringLiteral("No local changes"));
@@ -845,7 +846,8 @@ void RepoWorker::runSwitch(const QString& verb, QStringList args, const QString&
     if (!switched.ok()) {
         // Nothing switched: the stash goes straight back where it came from.
         if (stashed) {
-            static_cast<void>(GitProcess::run(workdir_, {QStringLiteral("stash"), QStringLiteral("pop")}));
+            static_cast<void>(
+                GitProcess::run(workdir_, {QStringLiteral("stash"), QStringLiteral("pop")}));
         }
         finish(false, switched.firstProblemLine());
         return;
@@ -853,14 +855,14 @@ void RepoWorker::runSwitch(const QString& verb, QStringList args, const QString&
 
     QStringList notes;
     if (updateSubmodules) {
-        const GitResult submodules = GitProcess::run(
-            workdir_, {QStringLiteral("submodule"), QStringLiteral("update"), QStringLiteral("--init"),
-                       QStringLiteral("--recursive")},
-            600000);
-        notes << (submodules.ok()
-                      ? QObject::tr("submodules moved to the commits it records")
-                      : QObject::tr("a submodule could not be updated: %1")
-                            .arg(submodules.firstProblemLine()));
+        const GitResult submodules =
+            GitProcess::run(workdir_,
+                            {QStringLiteral("submodule"), QStringLiteral("update"),
+                             QStringLiteral("--init"), QStringLiteral("--recursive")},
+                            600000);
+        notes << (submodules.ok() ? QObject::tr("submodules moved to the commits it records")
+                                  : QObject::tr("a submodule could not be updated: %1")
+                                        .arg(submodules.firstProblemLine()));
     }
     if (stashed) {
         const GitResult popped =
@@ -869,9 +871,10 @@ void RepoWorker::runSwitch(const QString& verb, QStringList args, const QString&
                               : QObject::tr("reapplying your changes conflicted — resolve them; "
                                             "the stash is kept until you do"));
     }
-    finish(true, notes.isEmpty()
-                     ? QObject::tr("Switched to %1.").arg(target)
-                     : QObject::tr("Switched to %1: %2.").arg(target, notes.join(QStringLiteral("; "))));
+    finish(true,
+           notes.isEmpty()
+               ? QObject::tr("Switched to %1.").arg(target)
+               : QObject::tr("Switched to %1: %2.").arg(target, notes.join(QStringLiteral("; "))));
 }
 
 void RepoWorker::refreshStatus() {
@@ -978,9 +981,9 @@ namespace {
 QStringList followRemoteHeadArgs(const QString& dir) {
     const GitProcess::InternalScope internal;
     const GitResult remotes = GitProcess::run(dir, {QStringLiteral("remote")});
-    const GitResult configured = GitProcess::run(
-        dir, {QStringLiteral("config"), QStringLiteral("--get-regexp"),
-              QStringLiteral("^remote\\..*\\.followremotehead$")});
+    const GitResult configured =
+        GitProcess::run(dir, {QStringLiteral("config"), QStringLiteral("--get-regexp"),
+                              QStringLiteral("^remote\\..*\\.followremotehead$")});
     QStringList args;
     for (const QString& name : remotes.output.split(QChar('\n'), Qt::SkipEmptyParts)) {
         const QString key = QStringLiteral("remote.%1.followremotehead ").arg(name.trimmed());
@@ -1035,10 +1038,10 @@ void RepoWorker::runFetch(bool withSubmodules) {
         QStringList paths;
         {
             const GitProcess::InternalScope internal;
-            const GitResult listed = GitProcess::run(
-                workdir_, {QStringLiteral("submodule"), QStringLiteral("foreach"),
-                           QStringLiteral("--recursive"), QStringLiteral("--quiet"),
-                           QStringLiteral("echo \"$displaypath\"")});
+            const GitResult listed =
+                GitProcess::run(workdir_, {QStringLiteral("submodule"), QStringLiteral("foreach"),
+                                           QStringLiteral("--recursive"), QStringLiteral("--quiet"),
+                                           QStringLiteral("echo \"$displaypath\"")});
             paths = listed.output.split(QChar('\n'), Qt::SkipEmptyParts);
         }
         QStringList failed;
@@ -1112,9 +1115,8 @@ void RepoWorker::runNetwork(const QString& verb, const QStringList& args) {
         result.ok(), result.output.toStdString(), result.errorOutput.toStdString());
 
     if (result.ok()) {
-        const QString summary = outcome.summary.empty()
-                                    ? QObject::tr("already up to date")
-                                    : QString::fromStdString(outcome.summary);
+        const QString summary = outcome.summary.empty() ? QObject::tr("already up to date")
+                                                        : QString::fromStdString(outcome.summary);
         emit networkFinished(verb, true, summary, result.errorOutput);
         refreshStatus();
         return;
@@ -1221,8 +1223,7 @@ void RepoWorker::runClone(const QString& url, const QString& parentDir, const QS
         // `--` before the URL: a pasted "URL" beginning with a dash would
         // otherwise be read as an option, and clone has options that run
         // commands.
-        {QStringLiteral("clone"), QStringLiteral("--progress"), QStringLiteral("--"), url,
-         folder},
+        {QStringLiteral("clone"), QStringLiteral("--progress"), QStringLiteral("--"), url, folder},
         [this](const QString& line) { reportProgress(line); }, 3600000);
 
     const gity::git::NetworkOutcome outcome = gity::git::classifyNetwork(
@@ -1252,9 +1253,8 @@ void RepoWorker::loadRemotes() {
     if (!repo_) {
         return;
     }
-    emit remotesReady(
-        std::make_shared<const std::vector<gity::git::RemoteEntry>>(
-            gity::git::listRemotes(repo_.get())));
+    emit remotesReady(std::make_shared<const std::vector<gity::git::RemoteEntry>>(
+        gity::git::listRemotes(repo_.get())));
 }
 
 void RepoWorker::runRemoteCommand(const QStringList& args) {
@@ -1296,15 +1296,15 @@ void RepoWorker::reportOperation() {
         }
         clearEditStop();
     }
-    const QString editing =
-        own.exists(QStringLiteral("edit-stop-message"))
-            ? readTrimmed(own.filePath(QStringLiteral("edit-stop-message"))).section(QChar('\n'), 0, 0)
-            : QString();
+    const QString editing = own.exists(QStringLiteral("edit-stop-message"))
+                                ? readTrimmed(own.filePath(QStringLiteral("edit-stop-message")))
+                                      .section(QChar('\n'), 0, 0)
+                                : QString();
     emit editStopChanged(editing);
-    emit operationChanged(static_cast<int>(operation),
-                          QString::fromUtf8(gity::git::operationNoun(operation).data(),
-                                            static_cast<qsizetype>(
-                                                gity::git::operationNoun(operation).size())));
+    emit operationChanged(
+        static_cast<int>(operation),
+        QString::fromUtf8(gity::git::operationNoun(operation).data(),
+                          static_cast<qsizetype>(gity::git::operationNoun(operation).size())));
 }
 
 void RepoWorker::runHistoryEdit(const QString& verb, const QStringList& args) {
@@ -1336,8 +1336,8 @@ void RepoWorker::runHistoryEdit(const QString& verb, const QStringList& args) {
     // A bisect is not something these verbs start or finish; it can be running
     // underneath any of them, and counting it would report every merge made
     // during one as "stopped".
-    const bool stopped = operation != gity::git::Operation::None &&
-                         operation != gity::git::Operation::Bisect;
+    const bool stopped =
+        operation != gity::git::Operation::None && operation != gity::git::Operation::Bisect;
 
     if (result.ok() && !stopped) {
         // One line, because the status bar shows one. Which line depends on
@@ -1385,9 +1385,9 @@ QString RepoWorker::publishRemote(QString* problem) const {
     // origin unless the repository has exactly one other remote; guessing
     // beyond that would publish somewhere the user did not choose.
     const std::vector<gity::git::RemoteEntry> remotes = gity::git::listRemotes(repo_.get());
-    const bool hasOrigin = std::any_of(
-        remotes.begin(), remotes.end(),
-        [](const gity::git::RemoteEntry& entry) { return entry.name == "origin"; });
+    const bool hasOrigin =
+        std::any_of(remotes.begin(), remotes.end(),
+                    [](const gity::git::RemoteEntry& entry) { return entry.name == "origin"; });
     if (hasOrigin) {
         return QStringLiteral("origin");
     }
@@ -1438,9 +1438,8 @@ void RepoWorker::runPushBranch(const QString& branch) {
         git_config* rawConfig = nullptr;
         if (git_repository_config_snapshot(&rawConfig, repo_.get()) == 0) {
             const gity::git::Handle<git_config, git_config_free> config(rawConfig);
-            const QByteArray keys[] = {
-                QStringLiteral("branch.%1.pushRemote").arg(branch).toUtf8(),
-                QByteArrayLiteral("remote.pushDefault")};
+            const QByteArray keys[] = {QStringLiteral("branch.%1.pushRemote").arg(branch).toUtf8(),
+                                       QByteArrayLiteral("remote.pushDefault")};
             for (const QByteArray& key : keys) {
                 const char* value = nullptr;
                 if (git_config_get_string(&value, config.get(), key.constData()) == 0 &&
@@ -1456,8 +1455,8 @@ void RepoWorker::runPushBranch(const QString& branch) {
     // pushed to; publishing it is the useful reading.
     if (tracked && trackedRemote != QStringLiteral(".")) {
         if (!pushRemote.isEmpty() && pushRemote != trackedRemote) {
-            runNetwork(verb, {QStringLiteral("push"), QStringLiteral("--progress"), pushRemote,
-                              branch});
+            runNetwork(verb,
+                       {QStringLiteral("push"), QStringLiteral("--progress"), pushRemote, branch});
         } else {
             runNetwork(verb,
                        {QStringLiteral("push"), QStringLiteral("--progress"), trackedRemote,
@@ -1553,23 +1552,25 @@ QString RepoWorker::prepareEditStop() {
         return {};
     }
     const GitProcess::InternalScope internal;
-    const GitResult head = GitProcess::run(workdir_, {QStringLiteral("rev-parse"), QStringLiteral("HEAD")});
+    const GitResult head =
+        GitProcess::run(workdir_, {QStringLiteral("rev-parse"), QStringLiteral("HEAD")});
     if (!head.ok() || head.output.trimmed() != stopped) {
         return {}; // already prepared, or the user moved on
     }
-    const GitResult unmerged = GitProcess::run(workdir_, {QStringLiteral("ls-files"), QStringLiteral("-u")});
-    const GitResult parent = GitProcess::run(
-        workdir_, {QStringLiteral("rev-parse"), QStringLiteral("-q"), QStringLiteral("--verify"),
-                   QStringLiteral("HEAD^")});
+    const GitResult unmerged =
+        GitProcess::run(workdir_, {QStringLiteral("ls-files"), QStringLiteral("-u")});
+    const GitResult parent =
+        GitProcess::run(workdir_, {QStringLiteral("rev-parse"), QStringLiteral("-q"),
+                                   QStringLiteral("--verify"), QStringLiteral("HEAD^")});
     if (!unmerged.output.trimmed().isEmpty() || !parent.ok()) {
         return {}; // a conflict, or a root commit with nothing to reset to
     }
     const GitResult who = GitProcess::run(
         workdir_, {QStringLiteral("show"), QStringLiteral("-s"), QStringLiteral("--date=raw"),
                    QStringLiteral("--format=%an%n%ae%n%ad"), QStringLiteral("HEAD")});
-    const GitResult message = GitProcess::run(
-        workdir_, {QStringLiteral("show"), QStringLiteral("-s"), QStringLiteral("--format=%B"),
-                   QStringLiteral("HEAD")});
+    const GitResult message =
+        GitProcess::run(workdir_, {QStringLiteral("show"), QStringLiteral("-s"),
+                                   QStringLiteral("--format=%B"), QStringLiteral("HEAD")});
     if (!who.ok() || !message.ok()) {
         return {};
     }
@@ -1629,9 +1630,10 @@ void RepoWorker::continueOperation(const QString& message) {
     // date, and the message as it stands in the commit box.
     const QStringList author = editStopAuthorArgs();
     if (!author.isEmpty()) {
-        const bool staged = !GitProcess::run(workdir_, {QStringLiteral("diff"), QStringLiteral("--cached"),
-                                                        QStringLiteral("--quiet")})
-                                 .ok();
+        const bool staged =
+            !GitProcess::run(workdir_, {QStringLiteral("diff"), QStringLiteral("--cached"),
+                                        QStringLiteral("--quiet")})
+                 .ok();
         if (staged) {
             QString text = message.trimmed();
             if (text.isEmpty()) {
@@ -1719,8 +1721,8 @@ void RepoWorker::runInteractiveRebase(const QString& baseOid,
         // TMPDIR, and a quote in that path broke the command — or ran
         // whatever followed it.
         {QStringLiteral("GIT_SEQUENCE_EDITOR"),
-         QStringLiteral("cp %1").arg(QString::fromStdString(
-             gity::git::shellQuote(todoPath.toStdString())))},
+         QStringLiteral("cp %1").arg(
+             QString::fromStdString(gity::git::shellQuote(todoPath.toStdString())))},
         // A squash asks for the combined message. `true` accepts git's default,
         // which is both messages concatenated — nothing is lost, and no editor
         // opens that the user cannot see.
@@ -1739,8 +1741,8 @@ void RepoWorker::runInteractiveRebase(const QString& baseOid,
     // A bisect is not something these verbs start or finish; it can be running
     // underneath any of them, and counting it would report every merge made
     // during one as "stopped".
-    const bool stopped = operation != gity::git::Operation::None &&
-                         operation != gity::git::Operation::Bisect;
+    const bool stopped =
+        operation != gity::git::Operation::None && operation != gity::git::Operation::Bisect;
 
     const QString editing = stopped ? prepareEditStop() : QString();
     if (result.ok() && !stopped) {
@@ -1770,10 +1772,9 @@ void RepoWorker::loadHeadAncestors(int limit) {
         return;
     }
     const GitResult result = GitProcess::run(
-        workdir_, {QStringLiteral("log"), QStringLiteral("--first-parent"),
-                   QStringLiteral("-n"), QString::number(limit),
-                   QStringLiteral("--format=%H%x00%s"), QStringLiteral("HEAD"),
-                   QStringLiteral("--")});
+        workdir_, {QStringLiteral("log"), QStringLiteral("--first-parent"), QStringLiteral("-n"),
+                   QString::number(limit), QStringLiteral("--format=%H%x00%s"),
+                   QStringLiteral("HEAD"), QStringLiteral("--")});
     QStringList oids;
     QStringList subjects;
     for (const QString& line : result.output.split(QChar('\n'), Qt::SkipEmptyParts)) {
@@ -1798,9 +1799,9 @@ void RepoWorker::loadCommitsSince(const QString& baseOid) {
     // never touched — and without merges, which `rebase -i` flattens rather
     // than picks. A `pick` of a merge stops the rebase partway with an error.
     const GitResult result = GitProcess::run(
-        workdir_, {QStringLiteral("log"), QStringLiteral("--topo-order"),
-                   QStringLiteral("--no-merges"), QStringLiteral("--format=%H%x00%s"),
-                   QStringLiteral("%1..HEAD").arg(baseOid)});
+        workdir_,
+        {QStringLiteral("log"), QStringLiteral("--topo-order"), QStringLiteral("--no-merges"),
+         QStringLiteral("--format=%H%x00%s"), QStringLiteral("%1..HEAD").arg(baseOid)});
     if (!result.ok()) {
         emit commitsSinceReady(baseOid, {}, {});
         return;
@@ -1819,7 +1820,6 @@ void RepoWorker::loadCommitsSince(const QString& baseOid) {
     emit commitsSinceReady(baseOid, oids, subjects);
 }
 
-
 void RepoWorker::runBranchCommand(const QString& verb, const QStringList& args) {
     if (!repo_) {
         emit historyEditFinished(verb, false, false, QObject::tr("No repository is open."));
@@ -1833,12 +1833,11 @@ void RepoWorker::runBranchCommand(const QString& verb, const QStringList& args) 
     endUndo(verb, std::move(undoBefore), result.ok());
 
     if (result.ok()) {
-        const std::vector<std::string> lines = gity::git::splitGitOutput(
-            result.output.isEmpty() ? result.errorOutput.toStdString()
-                                    : result.output.toStdString());
+        const std::vector<std::string> lines =
+            gity::git::splitGitOutput(result.output.isEmpty() ? result.errorOutput.toStdString()
+                                                              : result.output.toStdString());
         emit historyEditFinished(verb, true, false,
-                                 lines.empty() ? QString()
-                                               : QString::fromStdString(lines.front()));
+                                 lines.empty() ? QString() : QString::fromStdString(lines.front()));
     } else {
         emit historyEditFinished(verb, false, false, result.firstProblemLine());
     }
@@ -1880,8 +1879,7 @@ void RepoWorker::runLockCommand(const QString& verb, const QStringList& args) {
         const std::vector<std::string> lines =
             gity::git::splitGitOutput(result.output.toStdString());
         emit historyEditFinished(verb, true, false,
-                                 lines.empty() ? QString()
-                                               : QString::fromStdString(lines.front()));
+                                 lines.empty() ? QString() : QString::fromStdString(lines.front()));
     }
     loadLocks();
 }
@@ -1934,9 +1932,8 @@ void RepoWorker::discardPaths(const QStringList& paths) {
         // glob, discarding `[id].tsx` also reverts `d.tsx` — measured, and
         // with nothing to undo it.
         QStringList args{QStringLiteral("--literal-pathspecs"), QStringLiteral("restore"),
-                         QStringLiteral("--source=HEAD"),
-                         QStringLiteral("--staged"), QStringLiteral("--worktree"),
-                         QStringLiteral("--")};
+                         QStringLiteral("--source=HEAD"),       QStringLiteral("--staged"),
+                         QStringLiteral("--worktree"),          QStringLiteral("--")};
         args += tracked;
         const GitResult result = GitProcess::run(workdir_, args, 120000);
         if (!result.ok()) {
@@ -1971,9 +1968,9 @@ void RepoWorker::discardPaths(const QStringList& paths) {
     }
 
     endUndo(QObject::tr("Discard"), std::move(undoBefore), true);
-    emit historyEditFinished(QObject::tr("Discard"), true, false,
-                             QObject::tr("Discarded changes to %n file(s)", nullptr,
-                                         static_cast<int>(expanded.size())));
+    emit historyEditFinished(
+        QObject::tr("Discard"), true, false,
+        QObject::tr("Discarded changes to %n file(s)", nullptr, static_cast<int>(expanded.size())));
     refreshStatus();
 }
 
@@ -2007,8 +2004,8 @@ void fillSide(ImageSide& side, const gity::git::BlobContent& content, const QStr
     if (content.lfsPointer) {
         // The pointer is all we have without `git lfs pull`, so say that
         // rather than rendering 130 bytes of text as a broken image.
-        side.metadata = QObject::tr("LFS pointer · %1 · object not fetched")
-                            .arg(humanSize(side.byteSize));
+        side.metadata =
+            QObject::tr("LFS pointer · %1 · object not fetched").arg(humanSize(side.byteSize));
         return;
     }
 
@@ -2042,8 +2039,8 @@ double changedPercent(const QImage& a, const QImage& b) {
             }
         }
     }
-    return sampled == 0 ? 0.0 : (100.0 * static_cast<double>(differing) /
-                                 static_cast<double>(sampled));
+    return sampled == 0 ? 0.0
+                        : (100.0 * static_cast<double>(differing) / static_cast<double>(sampled));
 }
 
 } // namespace
@@ -2068,8 +2065,7 @@ void RepoWorker::loadImageDiff(const QString& path, const QString& commitOid,
             QString beforeLabel = QObject::tr("Before");
             gity::git::CommitHandle handle;
             git_oid base{};
-            if (!baseOid.isEmpty() &&
-                git_oid_fromstr(&base, baseOid.toLatin1().constData()) == 0) {
+            if (!baseOid.isEmpty() && git_oid_fromstr(&base, baseOid.toLatin1().constData()) == 0) {
                 // A comparison: the other tip, not the parent.
                 before = gity::git::readBlobAt(repo_.get(), base, native);
                 beforeLabel = baseOid.left(8);
@@ -2149,13 +2145,12 @@ RepoSession::RepoSession(QObject* parent) : QObject(parent) {
     connect(worker_, &RepoWorker::opened, this, &RepoSession::opened);
     connect(worker_, &RepoWorker::refsReady, this, &RepoSession::refsReady);
     connect(worker_, &RepoWorker::chunkReady, this, &RepoSession::chunkReady);
-    connect(worker_, &RepoWorker::detailReady, this,
-            [this](DetailPtr detail, quint64 generation) {
-                // Drop results the user has already scrolled past.
-                if (generation == detailGeneration_) {
-                    emit detailReady(std::move(detail));
-                }
-            });
+    connect(worker_, &RepoWorker::detailReady, this, [this](DetailPtr detail, quint64 generation) {
+        // Drop results the user has already scrolled past.
+        if (generation == detailGeneration_) {
+            emit detailReady(std::move(detail));
+        }
+    });
     connect(worker_, &RepoWorker::comparisonReady, this,
             [this](ComparisonPtr comparison, quint64 generation) {
                 if (generation == detailGeneration_) {
@@ -2179,11 +2174,9 @@ RepoSession::RepoSession(QObject* parent) : QObject(parent) {
         emit cloneFinished(path);
     });
     connect(worker_, &RepoWorker::remotesReady, this, &RepoSession::remotesReady);
-    connect(worker_, &RepoWorker::remoteCommandFailed, this,
-            &RepoSession::remoteCommandFailed);
+    connect(worker_, &RepoWorker::remoteCommandFailed, this, &RepoSession::remoteCommandFailed);
     connect(worker_, &RepoWorker::operationChanged, this, &RepoSession::operationChanged);
-    connect(worker_, &RepoWorker::historyEditFinished, this,
-            &RepoSession::historyEditFinished);
+    connect(worker_, &RepoWorker::historyEditFinished, this, &RepoSession::historyEditFinished);
     connect(worker_, &RepoWorker::commitsSinceReady, this, &RepoSession::commitsSinceReady);
     connect(worker_, &RepoWorker::headAncestorsReady, this, &RepoSession::headAncestorsReady);
     connect(worker_, &RepoWorker::externalChange, this, &RepoSession::externalChange);
@@ -2220,8 +2213,7 @@ RepoSession::RepoSession(QObject* parent) : QObject(parent) {
     thread_.start();
     // Registered on the worker thread itself, since the flag is per thread.
     QMetaObject::invokeMethod(
-        worker_, [this] { GitProcess::setThreadAbortFlag(&stopNetwork_); },
-        Qt::QueuedConnection);
+        worker_, [this] { GitProcess::setThreadAbortFlag(&stopNetwork_); }, Qt::QueuedConnection);
 }
 
 RepoSession::~RepoSession() {
@@ -2283,32 +2275,34 @@ void RepoSession::open(const QString& path, const gity::git::CommitFilter& filte
 
 void RepoSession::requestDetail(const QString& oidHex) {
     const quint64 generation = ++detailGeneration_;
-    postRead([this, oidHex, generation] {
-        if (generation == detailGeneration_) { // already superseded: skip it
-            worker_->loadDetail(oidHex, generation);
-        }
-    },
+    postRead(
+        [this, oidHex, generation] {
+            if (generation == detailGeneration_) { // already superseded: skip it
+                worker_->loadDetail(oidHex, generation);
+            }
+        },
         Qt::QueuedConnection);
 }
 
 void RepoSession::requestCommitPeek(const QString& oidHex, const QString& path) {
-    postRead([this, oidHex, path] { worker_->loadCommitPeek(oidHex, path); },
-        Qt::QueuedConnection);
+    postRead([this, oidHex, path] { worker_->loadCommitPeek(oidHex, path); }, Qt::QueuedConnection);
 }
 
 void RepoSession::requestFileDiff(const QString& oidHex, const QString& path) {
     const quint64 generation = ++diffGeneration_;
-    postRead([this, oidHex, path, generation] {
-        if (generation == diffGeneration_) {
-            worker_->loadFileDiff(oidHex, path, generation);
-        }
-    },
+    postRead(
+        [this, oidHex, path, generation] {
+            if (generation == diffGeneration_) {
+                worker_->loadFileDiff(oidHex, path, generation);
+            }
+        },
         Qt::QueuedConnection);
 }
 
 void RepoSession::requestComparison(const QString& fromHex, const QString& toHex) {
     const quint64 generation = ++detailGeneration_;
-    postRead([this, fromHex, toHex, generation] {
+    postRead(
+        [this, fromHex, toHex, generation] {
             if (generation == detailGeneration_) {
                 worker_->loadComparison(fromHex, toHex, generation);
             }
@@ -2319,7 +2313,8 @@ void RepoSession::requestComparison(const QString& fromHex, const QString& toHex
 void RepoSession::requestFileDiffBetween(const QString& fromHex, const QString& toHex,
                                          const QString& path) {
     const quint64 generation = ++diffGeneration_;
-    postRead([this, fromHex, toHex, path, generation] {
+    postRead(
+        [this, fromHex, toHex, path, generation] {
             if (generation == diffGeneration_) {
                 worker_->loadFileDiffBetween(fromHex, toHex, path, generation);
             }
@@ -2341,7 +2336,8 @@ void RepoSession::requestUnstage(const QStringList& paths) {
 
 void RepoSession::requestWorkingDiff(const QString& path, bool staged) {
     const quint64 generation = ++workingDiffGeneration_;
-    postRead([this, path, staged, generation] {
+    postRead(
+        [this, path, staged, generation] {
             if (generation == workingDiffGeneration_) {
                 worker_->loadWorkingFileDiff(path, staged, generation);
             }
@@ -2352,7 +2348,8 @@ void RepoSession::requestWorkingDiff(const QString& path, bool staged) {
 void RepoSession::requestImageDiff(const QString& path, const QString& commitOid,
                                    const QString& baseOid) {
     const quint64 generation = ++imageGeneration_;
-    postRead([this, path, commitOid, baseOid, generation] {
+    postRead(
+        [this, path, commitOid, baseOid, generation] {
             if (generation == imageGeneration_) {
                 worker_->loadImageDiff(path, commitOid, baseOid, generation);
             }
@@ -2361,14 +2358,12 @@ void RepoSession::requestImageDiff(const QString& path, const QString& commitOid
 }
 
 void RepoSession::requestFetch(bool withSubmodules) {
-    post([this, withSubmodules] {
-            worker_->runFetch(withSubmodules);
-        },
-        Qt::QueuedConnection);
+    post([this, withSubmodules] { worker_->runFetch(withSubmodules); }, Qt::QueuedConnection);
 }
 
 void RepoSession::requestPull() {
-    post([this] {
+    post(
+        [this] {
             // --ff-only rather than a merge: a client that silently creates
             // merge commits on pull is how a history fills with merges nobody
             // intended.
@@ -2390,7 +2385,7 @@ void RepoSession::requestPushRef(const QString& branch) {
 void RepoSession::requestClone(const QString& url, const QString& parentDir,
                                const QString& folder) {
     post([this, url, parentDir, folder] { worker_->runClone(url, parentDir, folder); },
-        Qt::QueuedConnection);
+         Qt::QueuedConnection);
 }
 
 void RepoSession::requestRemotes() {
@@ -2398,7 +2393,8 @@ void RepoSession::requestRemotes() {
 }
 
 void RepoSession::requestAddRemote(const QString& name, const QString& url) {
-    post([this, name, url] {
+    post(
+        [this, name, url] {
             worker_->runRemoteCommand(
                 {QStringLiteral("remote"), QStringLiteral("add"), QStringLiteral("--"), name, url});
         },
@@ -2406,15 +2402,16 @@ void RepoSession::requestAddRemote(const QString& name, const QString& url) {
 }
 
 void RepoSession::requestRemoveRemote(const QString& name) {
-    post([this, name] {
-            worker_->runRemoteCommand(
-                {QStringLiteral("remote"), QStringLiteral("remove"), name});
+    post(
+        [this, name] {
+            worker_->runRemoteCommand({QStringLiteral("remote"), QStringLiteral("remove"), name});
         },
         Qt::QueuedConnection);
 }
 
 void RepoSession::requestRenameRemote(const QString& from, const QString& to) {
-    post([this, from, to] {
+    post(
+        [this, from, to] {
             worker_->runRemoteCommand(
                 {QStringLiteral("remote"), QStringLiteral("rename"), from, to});
         },
@@ -2422,16 +2419,17 @@ void RepoSession::requestRenameRemote(const QString& from, const QString& to) {
 }
 
 void RepoSession::requestSetRemoteUrl(const QString& name, const QString& url) {
-    post([this, name, url] {
-            worker_->runRemoteCommand(
-                {QStringLiteral("remote"), QStringLiteral("set-url"), QStringLiteral("--"), name,
-                 url});
+    post(
+        [this, name, url] {
+            worker_->runRemoteCommand({QStringLiteral("remote"), QStringLiteral("set-url"),
+                                       QStringLiteral("--"), name, url});
         },
         Qt::QueuedConnection);
 }
 
 void RepoSession::requestMerge(const QString& ref) {
-    post([this, ref] {
+    post(
+        [this, ref] {
             // --no-ff is not forced: a fast-forward is what the user expects
             // when nothing has diverged. --no-edit keeps git from opening an
             // editor no one would see.
@@ -2442,15 +2440,16 @@ void RepoSession::requestMerge(const QString& ref) {
 }
 
 void RepoSession::requestRebaseOnto(const QString& ref) {
-    post([this, ref] {
-            worker_->runHistoryEdit(QStringLiteral("Rebase"),
-                                    {QStringLiteral("rebase"), ref});
+    post(
+        [this, ref] {
+            worker_->runHistoryEdit(QStringLiteral("Rebase"), {QStringLiteral("rebase"), ref});
         },
         Qt::QueuedConnection);
 }
 
 void RepoSession::requestCherryPick(const QString& oidHex) {
-    post([this, oidHex] {
+    post(
+        [this, oidHex] {
             worker_->runHistoryEdit(
                 QStringLiteral("Cherry-pick"),
                 {QStringLiteral("cherry-pick"), QStringLiteral("--no-edit"), oidHex});
@@ -2459,7 +2458,8 @@ void RepoSession::requestCherryPick(const QString& oidHex) {
 }
 
 void RepoSession::requestRevert(const QString& oidHex) {
-    post([this, oidHex] {
+    post(
+        [this, oidHex] {
             worker_->runHistoryEdit(
                 QStringLiteral("Revert"),
                 {QStringLiteral("revert"), QStringLiteral("--no-edit"), oidHex});
@@ -2472,7 +2472,8 @@ void RepoSession::requestContinueOperation(const QString& message) {
 }
 
 void RepoSession::requestAbortOperation() {
-    post([this] {
+    post(
+        [this] {
             // The verb comes from what is actually on disk. Assuming "merge"
             // here is how a stopped rebase gets abandoned with the wrong
             // command.
@@ -2511,7 +2512,7 @@ void RepoSession::requestOperationState() {
 void RepoSession::requestInteractiveRebase(const QString& baseOid,
                                            const std::vector<git::RebaseStep>& steps) {
     post([this, baseOid, steps] { worker_->runInteractiveRebase(baseOid, steps); },
-        Qt::QueuedConnection);
+         Qt::QueuedConnection);
 }
 
 void RepoSession::requestHeadAncestors(int limit) {
@@ -2523,29 +2524,30 @@ void RepoSession::requestCommitsSince(const QString& baseOid) {
 }
 
 void RepoSession::requestCheckout(const QString& ref) {
-    post([this, ref] {
+    post(
+        [this, ref] {
             // `switch` rather than `checkout`: it refuses to silently create a
             // detached HEAD or clobber local changes, which `checkout` will do
             // in some of its many modes.
-            worker_->runBranchCommand(QObject::tr("Checkout"),
-                                      {QStringLiteral("switch"), ref});
+            worker_->runBranchCommand(QObject::tr("Checkout"), {QStringLiteral("switch"), ref});
         },
         Qt::QueuedConnection);
 }
 
 void RepoSession::requestCheckout(const QString& ref, RefKind kind, LocalChanges changes,
                                   bool updateSubmodules) {
-    post([this, ref, kind, changes, updateSubmodules] {
+    post(
+        [this, ref, kind, changes, updateSubmodules] {
             worker_->runCheckout(ref, static_cast<int>(kind), static_cast<int>(changes),
                                  updateSubmodules);
         },
         Qt::QueuedConnection);
 }
 
-void RepoSession::requestCreateBranch(const QString& name, const QString& startPoint,
-                                      RefKind kind, bool checkout, LocalChanges changes,
-                                      bool updateSubmodules) {
-    post([this, name, startPoint, kind, checkout, changes, updateSubmodules] {
+void RepoSession::requestCreateBranch(const QString& name, const QString& startPoint, RefKind kind,
+                                      bool checkout, LocalChanges changes, bool updateSubmodules) {
+    post(
+        [this, name, startPoint, kind, checkout, changes, updateSubmodules] {
             worker_->runCreateBranch(name, startPoint, static_cast<int>(kind), checkout,
                                      static_cast<int>(changes), updateSubmodules);
         },
@@ -2553,18 +2555,19 @@ void RepoSession::requestCreateBranch(const QString& name, const QString& startP
 }
 
 void RepoSession::requestDeleteBranch(const QString& name, bool force) {
-    post([this, name, force] {
-            worker_->runBranchCommand(
-                QObject::tr("Delete branch"),
-                {QStringLiteral("branch"), force ? QStringLiteral("-D") : QStringLiteral("-d"),
-                 name});
+    post(
+        [this, name, force] {
+            worker_->runBranchCommand(QObject::tr("Delete branch"),
+                                      {QStringLiteral("branch"),
+                                       force ? QStringLiteral("-D") : QStringLiteral("-d"), name});
         },
         Qt::QueuedConnection);
 }
 
 void RepoSession::requestCreateTag(const QString& name, const QString& target,
                                    const QString& message) {
-    post([this, name, target, message] {
+    post(
+        [this, name, target, message] {
             QStringList args{QStringLiteral("tag")};
             if (!message.isEmpty()) {
                 // Annotated: an object of its own with an author and a date.
@@ -2580,10 +2583,10 @@ void RepoSession::requestCreateTag(const QString& name, const QString& target,
 }
 
 void RepoSession::requestDeleteTag(const QString& name) {
-    post([this, name] {
-            worker_->runBranchCommand(
-                QObject::tr("Delete tag"),
-                {QStringLiteral("tag"), QStringLiteral("--delete"), name});
+    post(
+        [this, name] {
+            worker_->runBranchCommand(QObject::tr("Delete tag"),
+                                      {QStringLiteral("tag"), QStringLiteral("--delete"), name});
         },
         Qt::QueuedConnection);
 }
@@ -2593,7 +2596,8 @@ void RepoSession::requestPushTag(const QString& name) {
 }
 
 void RepoSession::requestReset(const QString& target, const QString& mode) {
-    post([this, target, mode] {
+    post(
+        [this, target, mode] {
             worker_->runBranchCommand(
                 QObject::tr("Reset"),
                 {QStringLiteral("reset"), QStringLiteral("--%1").arg(mode), target});
@@ -2603,7 +2607,8 @@ void RepoSession::requestReset(const QString& target, const QString& mode) {
 
 void RepoSession::requestStashSave(const QString& message, bool includeUntracked,
                                    const QStringList& paths) {
-    post([this, message, includeUntracked, paths] {
+    post(
+        [this, message, includeUntracked, paths] {
             // --literal-pathspecs: file names, not patterns — "[id].tsx" is a
             // file, not a character class.
             QStringList args{QStringLiteral("--literal-pathspecs"), QStringLiteral("stash"),
@@ -2623,17 +2628,18 @@ void RepoSession::requestStashSave(const QString& message, bool includeUntracked
 }
 
 void RepoSession::requestStashApply(const QString& ref, bool pop) {
-    post([this, ref, pop] {
-            worker_->runBranchCommand(
-                pop ? QObject::tr("Pop stash") : QObject::tr("Apply stash"),
-                {QStringLiteral("stash"), pop ? QStringLiteral("pop") : QStringLiteral("apply"),
-                 ref});
+    post(
+        [this, ref, pop] {
+            worker_->runBranchCommand(pop ? QObject::tr("Pop stash") : QObject::tr("Apply stash"),
+                                      {QStringLiteral("stash"),
+                                       pop ? QStringLiteral("pop") : QStringLiteral("apply"), ref});
         },
         Qt::QueuedConnection);
 }
 
 void RepoSession::requestStashDrop(const QString& ref) {
-    post([this, ref] {
+    post(
+        [this, ref] {
             worker_->runBranchCommand(QObject::tr("Drop stash"),
                                       {QStringLiteral("stash"), QStringLiteral("drop"), ref});
         },
@@ -2649,7 +2655,8 @@ void RepoSession::requestLocks() {
 }
 
 void RepoSession::requestLock(const QString& path) {
-    post([this, path] {
+    post(
+        [this, path] {
             worker_->runLockCommand(
                 QObject::tr("Lock"),
                 {QStringLiteral("lfs"), QStringLiteral("lock"), QStringLiteral("--"), path});
@@ -2658,7 +2665,8 @@ void RepoSession::requestLock(const QString& path) {
 }
 
 void RepoSession::requestUnlock(const QString& path, bool force) {
-    post([this, path, force] {
+    post(
+        [this, path, force] {
             QStringList args{QStringLiteral("lfs"), QStringLiteral("unlock")};
             if (force) {
                 args << QStringLiteral("--force");
@@ -2678,8 +2686,7 @@ void RepoSession::requestApplyPatch(const QByteArray& patch) {
 }
 
 void RepoSession::requestCommit(const QString& message, bool amend) {
-    post([this, message, amend] { worker_->commit(message, amend); },
-        Qt::QueuedConnection);
+    post([this, message, amend] { worker_->commit(message, amend); }, Qt::QueuedConnection);
 }
 
 void RepoSession::requestUndo() {
@@ -2690,20 +2697,17 @@ void RepoSession::requestRedo() {
     post([this] { worker_->redo(); }, Qt::QueuedConnection);
 }
 
-void RepoSession::requestPreview(Preview::Kind kind, const QString& target,
-                                 const QString& branch) {
-    postRead([this, kind, target, branch] {
-            worker_->computePreview(static_cast<int>(kind), target, branch);
-        },
-        Qt::QueuedConnection);
+void RepoSession::requestPreview(Preview::Kind kind, const QString& target, const QString& branch) {
+    postRead([this, kind, target,
+              branch] { worker_->computePreview(static_cast<int>(kind), target, branch); },
+             Qt::QueuedConnection);
 }
 
 void RepoSession::requestForcePush(const QString& branch, const QString& remote,
                                    const QString& remoteBranch, const QString& leaseOid) {
-    post([this, branch, remote, remoteBranch, leaseOid] {
-            worker_->runForcePush(branch, remote, remoteBranch, leaseOid);
-        },
-        Qt::QueuedConnection);
+    post([this, branch, remote, remoteBranch,
+          leaseOid] { worker_->runForcePush(branch, remote, remoteBranch, leaseOid); },
+         Qt::QueuedConnection);
 }
 
 void RepoSession::requestAccountChoice() {

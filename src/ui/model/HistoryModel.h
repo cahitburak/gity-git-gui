@@ -28,6 +28,7 @@ struct RowView {
     std::size_t localRow = 0;
 
     [[nodiscard]] bool valid() const noexcept { return chunk != nullptr; }
+
     [[nodiscard]] const graph::GraphRow& row() const { return chunk->graph.rows[localRow]; }
 };
 
@@ -45,6 +46,7 @@ public:
     [[nodiscard]] const std::vector<RefLabel>* refsFor(std::size_t globalRow) const;
 
     [[nodiscard]] std::size_t rowCount() const noexcept { return rowCount_; }
+
     [[nodiscard]] std::uint16_t maxLanes() const noexcept { return maxLanes_; }
 
     [[nodiscard]] RowView at(std::size_t globalRow) const;

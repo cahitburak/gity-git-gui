@@ -6,23 +6,23 @@
 // the worker will not touch again.
 #pragma once
 
-#include "core/git/CommitDetail.h"
-#include "core/git/Compare.h"
 #include "ImageDiff.h"
 #include "core/git/BlobReader.h"
+#include "core/git/CommitDetail.h"
+#include "core/git/Compare.h"
 #include "core/git/FileDiff.h"
-#include "core/git/Staging.h"
-#include "core/git/WorkingCopy.h"
-#include "core/git/Refs.h"
 #include "core/git/HistoryStream.h"
 #include "core/git/HunkStaging.h"
 #include "core/git/LfsLocks.h"
 #include "core/git/NetworkOutcome.h"
-#include "session/GitProcess.h"
 #include "core/git/OperationState.h"
 #include "core/git/RebaseTodo.h"
+#include "core/git/Refs.h"
 #include "core/git/Remotes.h"
+#include "core/git/Staging.h"
+#include "core/git/WorkingCopy.h"
 #include "core/model/HistoryChunk.h"
+#include "session/GitProcess.h"
 #include "session/UndoLog.h"
 
 #include <QObject>
@@ -82,6 +82,7 @@ struct Preview {
     /// trunk, release/*, or the remote's default.
     bool shared = false;
 };
+
 using PreviewPtr = std::shared_ptr<const Preview>;
 
 struct RepoInfo {
@@ -132,9 +133,11 @@ public slots:
     void runLockCommand(const QString& verb, const QStringList& args);
     void discardPaths(const QStringList& paths);
     void reportOperation();
+
     /// The worker's repository handle, for callers that need to read state on
     /// the worker thread before choosing a command.
     [[nodiscard]] git_repository* repository() const { return repo_.get(); }
+
     void runRemoteCommand(const QStringList& args);
     void loadImageDiff(const QString& path, const QString& commitOid, const QString& baseOid,
                        quint64 generation);
@@ -171,8 +174,8 @@ signals:
     void fileDiffReady(gity::session::FileDiffPtr diff, quint64 generation);
     void statusReady(gity::session::StatusPtr status);
     void imageDiffReady(gity::session::ImageDiffPtr diff, quint64 generation);
-    void workingDiffReady(gity::session::FileDiffPtr diff,
-                          gity::session::HunkStagingPtr staging, quint64 generation);
+    void workingDiffReady(gity::session::FileDiffPtr diff, gity::session::HunkStagingPtr staging,
+                          quint64 generation);
     void committed(const QString& summary);
     void commitFailed(const QString& message, const QString& detail);
     void finished(quint64 commits, double firstChunkMs, double totalMs, bool cancelled);
@@ -186,8 +189,7 @@ signals:
     void remotesReady(gity::session::RemoteListPtr remotes);
     void remoteCommandFailed(const QString& message);
     void operationChanged(int operation, const QString& noun);
-    void historyEditFinished(const QString& verb, bool ok, bool conflicted,
-                             const QString& message);
+    void historyEditFinished(const QString& verb, bool ok, bool conflicted, const QString& message);
     void editStopPrepared(const QString& message, const QString& shortOid);
     void editStopChanged(const QString& subject);
     void commitPeekReady(const QString& oidHex, gity::session::DetailPtr detail);
@@ -267,15 +269,18 @@ public:
     /// Queues an open. A second call supersedes the first: the in-flight walk
     /// is cancelled rather than awaited (ADR-004, backpressure).
     void open(const QString& path);
+
     /// A change to the repository is queued or running. Closing now would
     /// have to wait for it — or, for a network command, stop it.
     [[nodiscard]] bool busy() const noexcept {
         return writesInFlight_.load(std::memory_order_relaxed) > 0;
     }
+
     /// A fetch, pull, push or clone is running.
     [[nodiscard]] bool networkBusy() const noexcept {
         return networkBusy_.load(std::memory_order_relaxed);
     }
+
     /// Stops the network command running now, and any queued behind it.
     /// Local commands are never interrupted.
     void cancelNetwork();
@@ -297,8 +302,7 @@ public:
     /// loading and the reverse.
     void requestComparison(const QString& fromHex, const QString& toHex);
     /// One file between two commits, `from` to `to`.
-    void requestFileDiffBetween(const QString& fromHex, const QString& toHex,
-                                const QString& path);
+    void requestFileDiffBetween(const QString& fromHex, const QString& toHex, const QString& path);
 
     /// Commits what is staged, through the git binary so hooks and signing
     /// run. `amend` replaces the last commit instead.
@@ -344,7 +348,6 @@ public:
     void requestRemoveRemote(const QString& name);
     void requestRenameRemote(const QString& from, const QString& to);
     void requestSetRemoteUrl(const QString& name, const QString& url);
-
 
     /// M6 — history editing. Each leaves the repository mid-operation when it
     /// conflicts, which is a normal outcome and is reported as such.
@@ -447,7 +450,6 @@ public:
     /// graph is no help: its rows include every other branch.
     void requestHeadAncestors(int limit);
 
-
     /// Decodes both sides of a binary asset. Supersedes like the other
     /// selection-driven requests.
     ///
@@ -457,7 +459,6 @@ public:
     /// With `baseOid` as well, the sides are that commit and `commitOid`.
     void requestImageDiff(const QString& path, const QString& commitOid = {},
                           const QString& baseOid = {});
-
 
     /// Puts back what the last recorded operation changed, or reverses the
     /// last undo.
@@ -476,11 +477,10 @@ public:
     /// see before it happens. `target` is the branch merged or rebased onto;
     /// `branch` the local branch pushed (empty: the current one). A pull
     /// fetches first, so its preview is of the remote as it is now.
-    void requestPreview(Preview::Kind kind, const QString& target = {},
-                        const QString& branch = {});
+    void requestPreview(Preview::Kind kind, const QString& target = {}, const QString& branch = {});
     /// Force push with a lease: see RepoWorker::runForcePush.
-    void requestForcePush(const QString& branch, const QString& remote,
-                          const QString& remoteBranch, const QString& leaseOid);
+    void requestForcePush(const QString& branch, const QString& remote, const QString& remoteBranch,
+                          const QString& leaseOid);
 
     void cancel();
 
@@ -499,8 +499,7 @@ signals:
     void imageDiffReady(gity::session::ImageDiffPtr diff);
     /// `staging` carries one entry per hunk; empty when the file has no
     /// staged changes to report against.
-    void workingDiffReady(gity::session::FileDiffPtr diff,
-                          gity::session::HunkStagingPtr staging);
+    void workingDiffReady(gity::session::FileDiffPtr diff, gity::session::HunkStagingPtr staging);
     void committed(const QString& summary);
     void commitFailed(const QString& message, const QString& detail);
     void finished(quint64 commits, double firstChunkMs, double totalMs, bool cancelled);
@@ -517,8 +516,7 @@ signals:
     void operationChanged(int operation, const QString& noun);
     /// `conflicted` distinguishes "stopped, needs you" from "failed"; the
     /// first is a normal outcome of these verbs, not an error.
-    void historyEditFinished(const QString& verb, bool ok, bool conflicted,
-                             const QString& message);
+    void historyEditFinished(const QString& verb, bool ok, bool conflicted, const QString& message);
     /// Commits reachable from HEAD but not from `baseOid`, newest first.
     /// A rebase stopped to edit a commit, whose changes are now staged:
     /// `message` is its message, for the commit box.
@@ -549,8 +547,7 @@ private:
     /// the newest one asked for.
     [[nodiscard]] bool startWalk(quint64 generation);
 
-    template <typename Fn>
-    void post(Fn&& fn, Qt::ConnectionType = Qt::QueuedConnection) {
+    template <typename Fn> void post(Fn&& fn, Qt::ConnectionType = Qt::QueuedConnection) {
         writesInFlight_.fetch_add(1, std::memory_order_relaxed);
         QMetaObject::invokeMethod(
             worker_,
@@ -560,9 +557,9 @@ private:
             },
             Qt::QueuedConnection);
     }
+
     /// Queues a read: nothing is lost if it never runs.
-    template <typename Fn>
-    void postRead(Fn&& fn, Qt::ConnectionType = Qt::QueuedConnection) {
+    template <typename Fn> void postRead(Fn&& fn, Qt::ConnectionType = Qt::QueuedConnection) {
         QMetaObject::invokeMethod(worker_, std::forward<Fn>(fn), Qt::QueuedConnection);
     }
 

@@ -16,9 +16,9 @@ bool contains(std::string_view haystack, std::string_view needle) {
 /// than its result. None of them is what a person wants in a status bar.
 bool isProgressNoise(const std::string& line) {
     static constexpr std::string_view kNoise[] = {
-        "Enumerating objects", "Counting objects",  "Compressing objects",
-        "Writing objects",     "Receiving objects", "Resolving deltas",
-        "Delta compression",   "Total ",            "Unpacking objects",
+        "Enumerating objects", "Counting objects", "Compressing objects", "Writing objects",
+        "Receiving objects",   "Resolving deltas", "Delta compression",   "Total ",
+        "Unpacking objects",
     };
     return std::any_of(std::begin(kNoise), std::end(kNoise),
                        [&](std::string_view noise) { return contains(line, noise); });
@@ -129,8 +129,7 @@ NetworkOutcome classifyNetwork(bool ok, std::string_view standardOutput,
     // Before the generic unknown case, and after auth: a host that challenged
     // and refused says "Authentication failed", while one that will not admit
     // the repository exists says this.
-    if (contains(errorOutput, "Repository not found") ||
-        contains(errorOutput, "' not found") ||
+    if (contains(errorOutput, "Repository not found") || contains(errorOutput, "' not found") ||
         contains(errorOutput, "does not appear to be a git repository") ||
         contains(errorOutput, "ERROR: Repository not found")) {
         outcome.failure = NetworkFailure::NotFoundOrNoAccess;

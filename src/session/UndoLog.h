@@ -30,7 +30,7 @@ struct RepoState {
     /// "refs/heads/x" when HEAD is on a branch; empty when detached or unborn.
     QString headRef;
     QString headOid;
-    git::RefMap refs; ///< refs/heads and refs/tags.
+    git::RefMap refs;                     ///< refs/heads and refs/tags.
     std::vector<git::StashEntry> stashes; ///< Newest first.
     /// The working copy, untracked files included, and the index, as trees.
     /// Captured only for the state an undo returns to.
@@ -89,6 +89,7 @@ public:
         bool ok = false;
         QString message;
     };
+
     Outcome undo(bool operationInProgress, bool worktreeClean);
     Outcome redo(bool operationInProgress, bool worktreeClean);
 

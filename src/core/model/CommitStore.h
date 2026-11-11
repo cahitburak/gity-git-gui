@@ -32,6 +32,7 @@ public:
     [[nodiscard]] std::size_t bytes() const noexcept { return data_.size(); }
 
     void reserve(std::size_t bytes) { data_.reserve(bytes); }
+
     void clear() { data_.clear(); }
 
 private:
@@ -53,15 +54,19 @@ public:
                        std::int64_t when);
 
     [[nodiscard]] std::size_t size() const noexcept { return oids_.size(); }
+
     [[nodiscard]] bool empty() const noexcept { return oids_.empty(); }
 
     [[nodiscard]] const git_oid& oid(CommitIndex i) const noexcept { return oids_[i]; }
+
     [[nodiscard]] std::string_view summary(CommitIndex i) const noexcept {
         return strings_.view(meta_[i].summary);
     }
+
     [[nodiscard]] std::string_view author(CommitIndex i) const noexcept {
         return strings_.view(meta_[i].author);
     }
+
     [[nodiscard]] std::int64_t when(CommitIndex i) const noexcept { return meta_[i].when; }
 
     /// Short hex form, for display.

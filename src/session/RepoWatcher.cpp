@@ -40,9 +40,8 @@ bool isGityRef(const QString& path) {
 
 RepoWatcher::RepoWatcher(const QString& workdir, const QString& gitDir, const QString& commonDir,
                          IgnoreTest ignored, QObject* parent)
-    : QObject(parent), workdir_(QDir(workdir).absolutePath()),
-      gitDir_(QDir(gitDir).absolutePath()), commonDir_(QDir(commonDir).absolutePath()),
-      ignored_(std::move(ignored)) {
+    : QObject(parent), workdir_(QDir(workdir).absolutePath()), gitDir_(QDir(gitDir).absolutePath()),
+      commonDir_(QDir(commonDir).absolutePath()), ignored_(std::move(ignored)) {
     debounce_ = new QTimer(this);
     debounce_->setSingleShot(true);
     debounce_->setInterval(kDebounceMs);
@@ -55,10 +54,13 @@ RepoWatcher::RepoWatcher(const QString& workdir, const QString& gitDir, const QS
     });
 
     // --- metadata ---------------------------------------------------------
-    const QStringList headFiles{QStringLiteral("HEAD"),        QStringLiteral("MERGE_HEAD"),
+    const QStringList headFiles{QStringLiteral("HEAD"),
+                                QStringLiteral("MERGE_HEAD"),
                                 QStringLiteral("CHERRY_PICK_HEAD"),
-                                QStringLiteral("REVERT_HEAD"), QStringLiteral("BISECT_LOG"),
-                                QStringLiteral("rebase-merge"), QStringLiteral("rebase-apply"),
+                                QStringLiteral("REVERT_HEAD"),
+                                QStringLiteral("BISECT_LOG"),
+                                QStringLiteral("rebase-merge"),
+                                QStringLiteral("rebase-apply"),
                                 QStringLiteral("sequencer")};
     for (const QString& name : headFiles) {
         stampKinds_.insert(QDir(gitDir_).filePath(name), Head);
@@ -73,8 +75,7 @@ RepoWatcher::RepoWatcher(const QString& workdir, const QString& gitDir, const QS
         metadata_->addPath(commonDir_);
     }
     watchRefs(QDir(commonDir_).filePath(QStringLiteral("refs")));
-    connect(metadata_, &QFileSystemWatcher::directoryChanged, this,
-            &RepoWatcher::metadataChanged);
+    connect(metadata_, &QFileSystemWatcher::directoryChanged, this, &RepoWatcher::metadataChanged);
     static_cast<void>(rescanMetadata());
 
     // --- working tree -----------------------------------------------------
@@ -82,8 +83,7 @@ RepoWatcher::RepoWatcher(const QString& workdir, const QString& gitDir, const QS
     inotify_ = inotify_init1(IN_NONBLOCK | IN_CLOEXEC);
     if (inotify_ >= 0) {
         notifier_ = new QSocketNotifier(inotify_, QSocketNotifier::Read, this);
-        connect(notifier_, &QSocketNotifier::activated, this,
-                [this] { readWorktreeEvents(true); });
+        connect(notifier_, &QSocketNotifier::activated, this, [this] { readWorktreeEvents(true); });
         addTree(workdir_);
     }
 #endif
@@ -206,9 +206,8 @@ void RepoWatcher::addTree(const QString& root) {
         }
         watches_.insert(wd, directory);
 
-        const QFileInfoList children =
-            QDir(directory).entryInfoList(QDir::Dirs | QDir::NoDotAndDotDot | QDir::Hidden |
-                                          QDir::NoSymLinks);
+        const QFileInfoList children = QDir(directory).entryInfoList(
+            QDir::Dirs | QDir::NoDotAndDotDot | QDir::Hidden | QDir::NoSymLinks);
         for (const QFileInfo& child : children) {
             if (child.fileName() == QStringLiteral(".git")) {
                 continue; // the metadata watcher's, and churns on every read

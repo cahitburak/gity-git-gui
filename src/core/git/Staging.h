@@ -34,8 +34,8 @@ enum class DiffSide {
 };
 
 /// Diffs one path in the working copy rather than in history.
-[[nodiscard]] FileDiff loadWorkingDiff(git_repository* repo, const std::string& path,
-                                       DiffSide side, const FileDiffOptions& options = {});
+[[nodiscard]] FileDiff loadWorkingDiff(git_repository* repo, const std::string& path, DiffSide side,
+                                       const FileDiffOptions& options = {});
 
 // --- hunks and lines -----------------------------------------------------
 
@@ -56,7 +56,7 @@ using LineSelection = std::unordered_set<std::uint32_t>;
 /// nothing selected is omitted entirely — the same transformation `git add -p`
 /// performs. Lines keep their CR LF endings, and a patch against a side that
 /// does not exist yet says it creates the file.
-[[nodiscard]] std::string buildPartialPatch(const FileDiff& diff,
-                                            const LineSelection& selected, bool reverse);
+[[nodiscard]] std::string buildPartialPatch(const FileDiff& diff, const LineSelection& selected,
+                                            bool reverse);
 
 } // namespace gity::git

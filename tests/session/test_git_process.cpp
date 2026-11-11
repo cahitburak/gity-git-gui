@@ -20,7 +20,9 @@ public:
             records_.push_back(record);
         });
     }
+
     ~LogCapture() { GitProcess::setLogSink({}); }
+
     LogCapture(const LogCapture&) = delete;
     LogCapture& operator=(const LogCapture&) = delete;
 
@@ -44,11 +46,11 @@ TEST(GitProcess, TokensInUrlsNeverReachTheLogOrTheError) {
     gity::test::TempRepo repo;
     LogCapture log;
     // Port 1 on loopback: refused at once, with the URL in git's complaint.
-    const auto result = GitProcess::run(
-        repo.dir(),
-        {"ls-remote", "https://ghp_abcdefghij0123456789@127.0.0.1:1/o/r.git",
-         "https://me:hunter2@127.0.0.1:1/o/r.git"},
-        20000);
+    const auto result =
+        GitProcess::run(repo.dir(),
+                        {"ls-remote", "https://ghp_abcdefghij0123456789@127.0.0.1:1/o/r.git",
+                         "https://me:hunter2@127.0.0.1:1/o/r.git"},
+                        20000);
     EXPECT_FALSE(result.ok());
 
     const QString logged = log.everything();

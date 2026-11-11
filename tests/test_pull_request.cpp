@@ -45,17 +45,17 @@ TEST(NewPullRequestUrl, EachProvidersPage) {
               "https://github.com/o/r/compare/Release/200.150.0...feature/x?expand=1");
     EXPECT_EQ(newPullRequestUrl(Provider::GitHub, "git@github.com:o/r.git", "feature/x", ""),
               "https://github.com/o/r/compare/feature/x?expand=1");
-    EXPECT_EQ(newPullRequestUrl(Provider::GitLab, "https://gitlab.com/g/s/r.git", "feature/x",
-                                "main"),
-              "https://gitlab.com/g/s/r/-/merge_requests/new?merge_request%5Bsource_branch%5D="
-              "feature%2Fx&merge_request%5Btarget_branch%5D=main");
+    EXPECT_EQ(
+        newPullRequestUrl(Provider::GitLab, "https://gitlab.com/g/s/r.git", "feature/x", "main"),
+        "https://gitlab.com/g/s/r/-/merge_requests/new?merge_request%5Bsource_branch%5D="
+        "feature%2Fx&merge_request%5Btarget_branch%5D=main");
     EXPECT_EQ(newPullRequestUrl(Provider::Bitbucket, "git@bitbucket.org:o/r.git", "fix", "dev"),
               "https://bitbucket.org/o/r/pull-requests/new?source=fix&dest=dev");
     EXPECT_EQ(newPullRequestUrl(Provider::Gitea, "https://gitea.com/o/r.git", "fix", "main"),
               "https://gitea.com/o/r/compare/main...fix");
-    EXPECT_EQ(newPullRequestUrl(Provider::AzureDevOps, "git@ssh.dev.azure.com:v3/o/p/r", "fix",
-                                "main"),
-              "https://dev.azure.com/o/p/_git/r/pullrequestcreate?sourceRef=fix&targetRef=main");
+    EXPECT_EQ(
+        newPullRequestUrl(Provider::AzureDevOps, "git@ssh.dev.azure.com:v3/o/p/r", "fix", "main"),
+        "https://dev.azure.com/o/p/_git/r/pullrequestcreate?sourceRef=fix&targetRef=main");
 }
 
 TEST(NewPullRequestUrl, BranchNamesAreEncoded) {

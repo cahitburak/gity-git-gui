@@ -82,12 +82,12 @@ TEST(HistoryStream, WalksEveryCommitInChunks) {
     options.batchSize = 10;
     std::size_t rows = 0;
     std::size_t chunks = 0;
-    const auto stats = gity::git::streamHistory(repo.get(), options,
-                                                [&](gity::model::HistoryChunk&& chunk) {
-                                                    rows += chunk.rowCount();
-                                                    ++chunks;
-                                                    return true;
-                                                });
+    const auto stats =
+        gity::git::streamHistory(repo.get(), options, [&](gity::model::HistoryChunk&& chunk) {
+            rows += chunk.rowCount();
+            ++chunks;
+            return true;
+        });
     EXPECT_EQ(stats.commits, 25u);
     EXPECT_EQ(rows, 25u);
     EXPECT_GE(chunks, 3u);
@@ -101,8 +101,8 @@ TEST(HistoryStream, FilteredRowsAreFullyInitialised) {
     gity::git::StreamOptions options;
     options.filter.text = "even";
     std::size_t matched = 0;
-    static_cast<void>(gity::git::streamHistory(
-        repo.get(), options, [&](gity::model::HistoryChunk&& chunk) {
+    static_cast<void>(
+        gity::git::streamHistory(repo.get(), options, [&](gity::model::HistoryChunk&& chunk) {
             EXPECT_TRUE(chunk.graph.edges.empty());
             for (std::size_t i = 0; i < chunk.graph.rows.size(); ++i) {
                 const auto& row = chunk.graph.rows[i];

@@ -24,10 +24,9 @@ TEST(SerializeTodo, ReversesIntoTheOrderGitApplies) {
         step(RebaseAction::Pick, "bbbbbb", "middle"),
         step(RebaseAction::Pick, "aaaaaa", "oldest"),
     });
-    EXPECT_EQ(todo,
-              "pick aaaaaa oldest\n"
-              "pick bbbbbb middle\n"
-              "pick cccccc newest\n");
+    EXPECT_EQ(todo, "pick aaaaaa oldest\n"
+                    "pick bbbbbb middle\n"
+                    "pick cccccc newest\n");
 }
 
 TEST(SerializeTodo, WritesGitsKeywordForEachAction) {
@@ -37,11 +36,10 @@ TEST(SerializeTodo, WritesGitsKeywordForEachAction) {
         step(RebaseAction::Squash, "222222"),
         step(RebaseAction::Edit, "111111"),
     });
-    EXPECT_EQ(todo,
-              "edit 111111\n"
-              "squash 222222\n"
-              "fixup 333333\n"
-              "drop 444444\n");
+    EXPECT_EQ(todo, "edit 111111\n"
+                    "squash 222222\n"
+                    "fixup 333333\n"
+                    "drop 444444\n");
 }
 
 TEST(SerializeTodo, ASubjectIsOptional) {
@@ -122,9 +120,9 @@ TEST(SerializeTodo, AMessageFilePathIsQuotedForTheShell) {
 }
 
 TEST(ValidateTodo, ARewordCountsAsKept) {
-    EXPECT_EQ(validateTodo({step(RebaseAction::Fixup, "bbbbbb"),
-                            step(RebaseAction::Reword, "aaaaaa")}),
-              TodoProblem::None);
+    EXPECT_EQ(
+        validateTodo({step(RebaseAction::Fixup, "bbbbbb"), step(RebaseAction::Reword, "aaaaaa")}),
+        TodoProblem::None);
 }
 
 TEST(ShellQuote, EveryByteIsLiteral) {

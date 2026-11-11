@@ -56,9 +56,9 @@ QJsonObject toJson(const RepoState& state) {
     }
     QJsonArray stashes;
     for (const StashEntry& stash : state.stashes) {
-        stashes.append(QJsonObject{{QStringLiteral("oid"), QString::fromStdString(stash.oid)},
-                                   {QStringLiteral("message"),
-                                    QString::fromStdString(stash.message)}});
+        stashes.append(
+            QJsonObject{{QStringLiteral("oid"), QString::fromStdString(stash.oid)},
+                        {QStringLiteral("message"), QString::fromStdString(stash.message)}});
     }
     return QJsonObject{{QStringLiteral("headRef"), state.headRef},
                        {QStringLiteral("headOid"), state.headOid},
@@ -78,9 +78,8 @@ RepoState stateFromJson(const QJsonObject& json) {
     }
     for (const QJsonValue& value : json.value(QStringLiteral("stashes")).toArray()) {
         const QJsonObject stash = value.toObject();
-        state.stashes.push_back(
-            {stash.value(QStringLiteral("oid")).toString().toStdString(),
-             stash.value(QStringLiteral("message")).toString().toStdString()});
+        state.stashes.push_back({stash.value(QStringLiteral("oid")).toString().toStdString(),
+                                 stash.value(QStringLiteral("message")).toString().toStdString()});
     }
     state.worktreeTree = json.value(QStringLiteral("worktree")).toString();
     state.indexTree = json.value(QStringLiteral("index")).toString();
@@ -98,8 +97,7 @@ QJsonObject toJson(const UndoEntry& entry) {
 UndoEntry entryFromJson(const QJsonObject& json) {
     UndoEntry entry;
     entry.verb = json.value(QStringLiteral("verb")).toString();
-    entry.when = QDateTime::fromString(json.value(QStringLiteral("when")).toString(),
-                                       Qt::ISODate);
+    entry.when = QDateTime::fromString(json.value(QStringLiteral("when")).toString(), Qt::ISODate);
     entry.before = stateFromJson(json.value(QStringLiteral("before")).toObject());
     entry.after = stateFromJson(json.value(QStringLiteral("after")).toObject());
     entry.pending = json.value(QStringLiteral("pending")).toBool();
@@ -190,9 +188,9 @@ void UndoLog::save() const {
         qWarning("gity: could not write the undo log: %s", qPrintable(file.errorString()));
         return;
     }
-    file.write(QJsonDocument(QJsonObject{{QStringLiteral("undo"), undo},
-                                         {QStringLiteral("redo"), redo}})
-                   .toJson(QJsonDocument::Indented));
+    file.write(
+        QJsonDocument(QJsonObject{{QStringLiteral("undo"), undo}, {QStringLiteral("redo"), redo}})
+            .toJson(QJsonDocument::Indented));
     if (!file.commit()) {
         qWarning("gity: could not write the undo log: %s", qPrintable(file.errorString()));
     }
@@ -202,9 +200,8 @@ RepoState UndoLog::capture(bool withWorktree, bool worktreeClean) const {
     const GitProcess::InternalScope internal;
     RepoState state;
 
-    const GitResult head =
-        GitProcess::run(workdir_, {QStringLiteral("symbolic-ref"), QStringLiteral("-q"),
-                                   QStringLiteral("HEAD")});
+    const GitResult head = GitProcess::run(
+        workdir_, {QStringLiteral("symbolic-ref"), QStringLiteral("-q"), QStringLiteral("HEAD")});
     // symbolic-ref and rev-parse fail legitimately (detached, unborn); what
     // makes a capture worthless is git not finishing at all.
     state.valid = head.started && !head.timedOut;
@@ -219,9 +216,10 @@ RepoState UndoLog::capture(bool withWorktree, bool worktreeClean) const {
     }
     state.valid = state.valid && headOid.started && !headOid.timedOut;
 
-    const GitResult refs = GitProcess::run(
-        workdir_, {QStringLiteral("for-each-ref"), QStringLiteral("--format=%(refname) %(objectname)"),
-                   QStringLiteral("refs/heads"), QStringLiteral("refs/tags")});
+    const GitResult refs =
+        GitProcess::run(workdir_, {QStringLiteral("for-each-ref"),
+                                   QStringLiteral("--format=%(refname) %(objectname)"),
+                                   QStringLiteral("refs/heads"), QStringLiteral("refs/tags")});
     state.valid = state.valid && refs.ok();
     for (const QString& line : refs.output.split(QChar('\n'), Qt::SkipEmptyParts)) {
         const qsizetype space = line.lastIndexOf(QChar(' '));
@@ -230,9 +228,9 @@ RepoState UndoLog::capture(bool withWorktree, bool worktreeClean) const {
         }
     }
 
-    const GitResult stashes = GitProcess::run(
-        workdir_, {QStringLiteral("stash"), QStringLiteral("list"),
-                   QStringLiteral("--format=%H%x00%gs")});
+    const GitResult stashes =
+        GitProcess::run(workdir_, {QStringLiteral("stash"), QStringLiteral("list"),
+                                   QStringLiteral("--format=%H%x00%gs")});
     state.valid = state.valid && stashes.ok();
     for (const QString& line : stashes.output.split(QChar('\n'), Qt::SkipEmptyParts)) {
         const qsizetype separator = line.indexOf(QChar('\0'));
@@ -250,11 +248,12 @@ RepoState UndoLog::capture(bool withWorktree, bool worktreeClean) const {
         // Nothing uncommitted: the working copy is HEAD's tree, and hashing
         // every file to learn that would be waste.
         if (!state.headOid.isEmpty()) {
-            state.worktreeTree = firstLine(GitProcess::run(
-                workdir_, {QStringLiteral("rev-parse"), state.headOid + QStringLiteral("^{tree}")}));
+            state.worktreeTree =
+                firstLine(GitProcess::run(workdir_, {QStringLiteral("rev-parse"),
+                                                     state.headOid + QStringLiteral("^{tree}")}));
         } else {
-            state.worktreeTree = firstLine(GitProcess::runWithInput(
-                workdir_, {QStringLiteral("mktree")}, QByteArray()));
+            state.worktreeTree = firstLine(
+                GitProcess::runWithInput(workdir_, {QStringLiteral("mktree")}, QByteArray()));
         }
         state.indexTree = state.worktreeTree;
         return state;
@@ -266,8 +265,8 @@ RepoState UndoLog::capture(bool withWorktree, bool worktreeClean) const {
     //
     // Named per capture: two windows on one repository used to share one
     // scratch file and could build each other's snapshot.
-    const QString scratch = QDir(gitDir_).filePath(
-        QStringLiteral("gity/snapshot-index-") + QUuid::createUuid().toString(QUuid::Id128));
+    const QString scratch = QDir(gitDir_).filePath(QStringLiteral("gity/snapshot-index-") +
+                                                   QUuid::createUuid().toString(QUuid::Id128));
     QDir().mkpath(QDir(gitDir_).filePath(QStringLiteral("gity")));
     QFile::remove(scratch);
     QFile::copy(QDir(gitDir_).filePath(QStringLiteral("index")), scratch);
@@ -275,8 +274,9 @@ RepoState UndoLog::capture(bool withWorktree, bool worktreeClean) const {
     const GitResult added = GitProcess::runWithEnv(
         // Not --force: ignored files — build output, dependencies — are not
         // the user's work, and hashing them would make every snapshot slow.
-        workdir_, {QStringLiteral("add"), QStringLiteral("--all"),
-                   QStringLiteral("--ignore-errors"), QStringLiteral(":/")},
+        workdir_,
+        {QStringLiteral("add"), QStringLiteral("--all"), QStringLiteral("--ignore-errors"),
+         QStringLiteral(":/")},
         scratchIndex);
     Q_UNUSED(added)
     const GitResult tree =
@@ -305,8 +305,9 @@ void UndoLog::keepAlive(const UndoEntry& entry) const {
     // or removed — a deleted branch's tip is otherwise reachable from nothing.
     QStringList parents;
     const GitResult indexCommit = GitProcess::runWithEnv(
-        workdir_, {QStringLiteral("commit-tree"), entry.before.indexTree, QStringLiteral("-m"),
-                   QStringLiteral("gity: index before %1").arg(entry.verb)},
+        workdir_,
+        {QStringLiteral("commit-tree"), entry.before.indexTree, QStringLiteral("-m"),
+         QStringLiteral("gity: index before %1").arg(entry.verb)},
         internalIdentity());
     if (indexCommit.ok()) {
         parents << firstLine(indexCommit);
@@ -328,9 +329,9 @@ void UndoLog::keepAlive(const UndoEntry& entry) const {
             // commit-tree only takes commits as parents. The commit it points
             // at is kept that way; the tag object itself below.
             const GitResult peeled = GitProcess::run(
-                workdir_, {QStringLiteral("rev-parse"), QStringLiteral("-q"),
-                           QStringLiteral("--verify"),
-                           QString::fromStdString(oid) + QStringLiteral("^{commit}")});
+                workdir_,
+                {QStringLiteral("rev-parse"), QStringLiteral("-q"), QStringLiteral("--verify"),
+                 QString::fromStdString(oid) + QStringLiteral("^{commit}")});
             if (peeled.ok()) {
                 keep.insert(firstLine(peeled));
             }
@@ -581,8 +582,8 @@ UndoLog::Outcome UndoLog::restore(std::vector<UndoEntry>& from, std::vector<Undo
     // operation left them (UndoPlan).
     if (!plan.changes.empty()) {
         const GitResult updated = GitProcess::runWithInput(
-            workdir_, {QStringLiteral("update-ref"), QStringLiteral("-m"), reason,
-                       QStringLiteral("--stdin")},
+            workdir_,
+            {QStringLiteral("update-ref"), QStringLiteral("-m"), reason, QStringLiteral("--stdin")},
             refTransaction(plan.changes, false));
         if (!updated.ok()) {
             return {false, QObject::tr("Could not move the branches back: %1. Nothing was "
@@ -595,19 +596,19 @@ UndoLog::Outcome UndoLog::restore(std::vector<UndoEntry>& from, std::vector<Undo
     // the files cannot follow them.
     const auto rollBack = [&] {
         if (!plan.changes.empty()) {
-            static_cast<void>(GitProcess::runWithInput(
-                workdir_, {QStringLiteral("update-ref"), QStringLiteral("-m"), reason,
-                           QStringLiteral("--stdin")},
-                refTransaction(plan.changes, true)));
+            static_cast<void>(
+                GitProcess::runWithInput(workdir_,
+                                         {QStringLiteral("update-ref"), QStringLiteral("-m"),
+                                          reason, QStringLiteral("--stdin")},
+                                         refTransaction(plan.changes, true)));
         }
         if (!leaving.headRef.isEmpty()) {
-            static_cast<void>(GitProcess::run(
-                workdir_, {QStringLiteral("symbolic-ref"), QStringLiteral("HEAD"),
-                           leaving.headRef}));
+            static_cast<void>(GitProcess::run(workdir_, {QStringLiteral("symbolic-ref"),
+                                                         QStringLiteral("HEAD"), leaving.headRef}));
         } else if (!leaving.headOid.isEmpty()) {
-            static_cast<void>(GitProcess::run(
-                workdir_, {QStringLiteral("update-ref"), QStringLiteral("--no-deref"),
-                           QStringLiteral("HEAD"), leaving.headOid}));
+            static_cast<void>(GitProcess::run(workdir_, {QStringLiteral("update-ref"),
+                                                         QStringLiteral("--no-deref"),
+                                                         QStringLiteral("HEAD"), leaving.headOid}));
         }
     };
     QStringList problems;
@@ -617,25 +618,25 @@ UndoLog::Outcome UndoLog::restore(std::vector<UndoEntry>& from, std::vector<Undo
     // commit look like uncommitted changes. HEAD and files are left alone.
     const std::string headBranch = entry.after.headRef.toStdString();
     const bool headSkipped =
-        !headBranch.empty() && std::find(plan.skipped.begin(), plan.skipped.end(),
-                                         headBranch) != plan.skipped.end();
+        !headBranch.empty() &&
+        std::find(plan.skipped.begin(), plan.skipped.end(), headBranch) != plan.skipped.end();
 
     // HEAD, when the operation moved it: back onto the branch it was on, or
     // back to the commit it was detached at.
     if (headSkipped) {
         // see above
     } else if (entry.before.headRef != entry.after.headRef ||
-        (entry.before.headRef.isEmpty() && entry.before.headOid != entry.after.headOid)) {
+               (entry.before.headRef.isEmpty() && entry.before.headOid != entry.after.headOid)) {
         GitResult moved;
         if (!entry.before.headRef.isEmpty()) {
-            moved = GitProcess::run(workdir_, {QStringLiteral("symbolic-ref"), QStringLiteral("-m"),
-                                               reason, QStringLiteral("HEAD"),
-                                               entry.before.headRef});
+            moved =
+                GitProcess::run(workdir_, {QStringLiteral("symbolic-ref"), QStringLiteral("-m"),
+                                           reason, QStringLiteral("HEAD"), entry.before.headRef});
         } else if (!entry.before.headOid.isEmpty()) {
-            moved = GitProcess::run(
-                workdir_, {QStringLiteral("update-ref"), QStringLiteral("--no-deref"),
-                           QStringLiteral("-m"), reason, QStringLiteral("HEAD"),
-                           entry.before.headOid});
+            moved =
+                GitProcess::run(workdir_, {QStringLiteral("update-ref"),
+                                           QStringLiteral("--no-deref"), QStringLiteral("-m"),
+                                           reason, QStringLiteral("HEAD"), entry.before.headOid});
         }
         if (moved.started && !moved.ok()) {
             rollBack();
@@ -646,10 +647,11 @@ UndoLog::Outcome UndoLog::restore(std::vector<UndoEntry>& from, std::vector<Undo
 
     // The working copy and the index, as they were.
     if (!headSkipped && !entry.before.worktreeTree.isEmpty()) {
-        const GitResult files = GitProcess::run(
-            workdir_, {QStringLiteral("read-tree"), QStringLiteral("--reset"), QStringLiteral("-u"),
-                       entry.before.worktreeTree},
-            300000);
+        const GitResult files =
+            GitProcess::run(workdir_,
+                            {QStringLiteral("read-tree"), QStringLiteral("--reset"),
+                             QStringLiteral("-u"), entry.before.worktreeTree},
+                            300000);
         if (!files.ok()) {
             // read-tree -u checks before it writes, so a failure leaves the
             // files as they were; the refs are put back to match them.
@@ -669,9 +671,9 @@ UndoLog::Outcome UndoLog::restore(std::vector<UndoEntry>& from, std::vector<Undo
         // (a gitlink in the working-copy tree); any now elsewhere is put back,
         // detached — but only if it has no uncommitted work of its own, which
         // a checkout would otherwise have to overwrite.
-        const GitResult links = GitProcess::run(
-            workdir_, {QStringLiteral("ls-tree"), QStringLiteral("-r"), QStringLiteral("-z"),
-                       entry.before.worktreeTree});
+        const GitResult links =
+            GitProcess::run(workdir_, {QStringLiteral("ls-tree"), QStringLiteral("-r"),
+                                       QStringLiteral("-z"), entry.before.worktreeTree});
         for (const QString& line : links.output.split(QChar('\0'), Qt::SkipEmptyParts)) {
             // "160000 commit <oid>\t<path>"
             if (!line.startsWith(QStringLiteral("160000 commit "))) {
@@ -682,24 +684,26 @@ UndoLog::Outcome UndoLog::restore(std::vector<UndoEntry>& from, std::vector<Undo
             if (!QDir(path).exists()) {
                 continue;
             }
-            const QString now = GitProcess::run(path, {QStringLiteral("rev-parse"), QStringLiteral("HEAD")})
-                                    .output.trimmed();
-            const bool clean = GitProcess::run(path, {QStringLiteral("status"),
-                                                      QStringLiteral("--porcelain")})
-                                   .output.trimmed()
-                                   .isEmpty();
+            const QString now =
+                GitProcess::run(path, {QStringLiteral("rev-parse"), QStringLiteral("HEAD")})
+                    .output.trimmed();
+            const bool clean =
+                GitProcess::run(path, {QStringLiteral("status"), QStringLiteral("--porcelain")})
+                    .output.trimmed()
+                    .isEmpty();
             if (now != oid && clean) {
-                static_cast<void>(GitProcess::run(
-                    path, {QStringLiteral("checkout"), QStringLiteral("-q"), QStringLiteral("--detach"),
-                           oid}));
+                static_cast<void>(
+                    GitProcess::run(path, {QStringLiteral("checkout"), QStringLiteral("-q"),
+                                           QStringLiteral("--detach"), oid}));
             }
         }
     }
 
     // Stashes the operation removed come back; ones it made go.
     for (const std::string& oid : stashes.drop) {
-        const GitResult list = GitProcess::run(
-            workdir_, {QStringLiteral("stash"), QStringLiteral("list"), QStringLiteral("--format=%H")});
+        const GitResult list =
+            GitProcess::run(workdir_, {QStringLiteral("stash"), QStringLiteral("list"),
+                                       QStringLiteral("--format=%H")});
         const QStringList oids = list.output.split(QChar('\n'), Qt::SkipEmptyParts);
         const qsizetype index = oids.indexOf(QString::fromStdString(oid));
         if (index >= 0) {

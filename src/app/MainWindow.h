@@ -1,23 +1,23 @@
 #pragma once
 
 #include "session/RepoSession.h"
-#include "ui/panels/RefsSidebar.h"
 #include "ui/model/HistoryModel.h"
+#include "ui/panels/RefsSidebar.h"
 
 #include <QElapsedTimer>
 
-#include <functional>
 #include <QHash>
 #include <QSet>
+#include <functional>
 
+#include <QMainWindow>
+#include <QSettings>
 #include <map>
 #include <memory>
 #include <vector>
-#include <QMainWindow>
-#include <QSettings>
 
-#include "core/git/Provider.h"
 #include "core/git/HistoryStream.h"
+#include "core/git/Provider.h"
 
 class QStackedWidget;
 class QTabWidget;
@@ -45,7 +45,7 @@ class WorkingCopyPanel;
 class CommitGraphView;
 class GraphHeader;
 class RefsSidebar;
-}
+} // namespace gity::ui
 
 namespace gity::app {
 
@@ -66,7 +66,6 @@ protected:
     void closeEvent(QCloseEvent* event) override;
 
 public:
-
     /// Reopens the tabs the previous session left. Only the
     /// current tab's repository is loaded; the others load when clicked.
     /// `openCurrent` false restores the tabs alone, for when a repository
@@ -120,8 +119,7 @@ private slots:
     void onNetworkProgress(const QString& phase, int percent);
     void onNetworkFinished(const QString& verb, bool ok, const QString& summary,
                            const QString& detail);
-    void onWorkingDiffReady(gity::session::FileDiffPtr diff,
-                            gity::session::HunkStagingPtr staging);
+    void onWorkingDiffReady(gity::session::FileDiffPtr diff, gity::session::HunkStagingPtr staging);
     void onImageDiffReady(gity::session::ImageDiffPtr diff);
     void onChunkReady(gity::session::ChunkPtr chunk);
     void onFinished(quint64 commits, double firstChunkMs, double totalMs, bool cancelled);
@@ -158,8 +156,8 @@ private:
     /// "Changes · N"; negative for plain "Changes" while unknown.
     void setChangesCount(int files);
     /// Shows two refs side by side in the Commit and Changes tabs.
-    void startComparison(const QString& fromName, const QString& fromOid,
-                         const QString& toName, const QString& toOid);
+    void startComparison(const QString& fromName, const QString& fromOid, const QString& toName,
+                         const QString& toOid);
     void endComparison();
     void buildMenus();
     void buildToolBar();
@@ -233,6 +231,7 @@ private:
     QLabel* countLabel_ = nullptr;
     QAction* undoAction_ = nullptr;
     QToolButton* accountStatus_ = nullptr;
+
     /// This repository's account, as last reported by the session.
     struct AccountChoice {
         QString host;
@@ -241,6 +240,7 @@ private:
         QString defaultAccount;
         QString chosen;
     };
+
     AccountChoice account_;
     QAction* redoAction_ = nullptr;
     QAction* fetchAction_ = nullptr;
@@ -292,6 +292,7 @@ private:
         int screen = 0;
         int lowerTab = 1;
     };
+
     QHash<QString, ViewState> viewStates_;
     /// The working copy as last reported, for questions a dialog must ask.
     gity::session::StatusPtr currentStatus_;
@@ -304,6 +305,7 @@ private:
         /// The ref is at the commit already checked out (or is empty: HEAD).
         bool sameCommit = false;
     };
+
     [[nodiscard]] SwitchContext switchContext(const QString& ref) const;
     /// The branches pinned in `workdir`'s sidebar, as full ref names.
     [[nodiscard]] static QStringList pinnedBranches(const QString& workdir);

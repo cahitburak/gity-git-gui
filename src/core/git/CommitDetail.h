@@ -53,6 +53,7 @@ struct CommitDetail {
     bool filesTruncated = false;
 
     [[nodiscard]] bool isMerge() const noexcept { return parents.size() > 1; }
+
     [[nodiscard]] bool isRoot() const noexcept { return parents.empty(); }
 };
 
@@ -66,8 +67,8 @@ struct CommitDetailOptions {
 /// The files that differ between two trees, `fromTree` to `toTree`, with
 /// renames detected. Either tree may be null, meaning empty. `truncated`, when
 /// given, says whether the list stopped at `options.maxFiles`.
-[[nodiscard]] std::vector<ChangedFile> listChangedFiles(git_repository* repo,
-                                                        git_tree* fromTree, git_tree* toTree,
+[[nodiscard]] std::vector<ChangedFile> listChangedFiles(git_repository* repo, git_tree* fromTree,
+                                                        git_tree* toTree,
                                                         const CommitDetailOptions& options,
                                                         bool* truncated = nullptr);
 

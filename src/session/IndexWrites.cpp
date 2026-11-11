@@ -37,11 +37,10 @@ GitResult unstagePaths(const QString& workdir, const QStringList& paths) {
 }
 
 GitResult applyToIndex(const QString& workdir, const QByteArray& patch) {
-    return GitProcess::runWithInput(
-        workdir,
-        {QStringLiteral("apply"), QStringLiteral("--cached"),
-         QStringLiteral("--whitespace=nowarn"), QStringLiteral("-")},
-        patch, kTimeoutMs);
+    return GitProcess::runWithInput(workdir,
+                                    {QStringLiteral("apply"), QStringLiteral("--cached"),
+                                     QStringLiteral("--whitespace=nowarn"), QStringLiteral("-")},
+                                    patch, kTimeoutMs);
 }
 
 GitResult applyToWorktree(const QString& workdir, const QByteArray& patch) {

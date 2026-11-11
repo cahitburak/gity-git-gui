@@ -3,9 +3,9 @@
 #include "core/git/RemoteUrl.h"
 
 #include <QCoreApplication>
-#include <QFileInfo>
 #include <QDateTime>
 #include <QElapsedTimer>
+#include <QFileInfo>
 #include <QMutex>
 #include <QProcess>
 #include <QProcessEnvironment>
@@ -215,8 +215,7 @@ GitResult executeUnlogged(const Request& request) {
         if (timer.elapsed() > request.timeoutMs) {
             result.timedOut = true;
             stop(process);
-            result.errorOutput =
-                QStringLiteral("git timed out after %1 ms").arg(request.timeoutMs);
+            result.errorOutput = QStringLiteral("git timed out after %1 ms").arg(request.timeoutMs);
             return result;
         }
     }

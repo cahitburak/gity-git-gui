@@ -26,6 +26,7 @@ public:
     static void install();
 
     [[nodiscard]] const std::deque<GitProcess::LogRecord>& records() const { return records_; }
+
     void clear();
 
     static constexpr std::size_t kLimit = 500;

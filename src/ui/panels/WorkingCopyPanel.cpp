@@ -7,29 +7,29 @@
 #include "ui/diffview/DiffView.h"
 #include "ui/panels/WorkingCopyDelegate.h"
 #include "ui/theme/Theme.h"
-#include "ui/theme/ToolbarIcons.h"
 #include "ui/theme/Tokens.h"
+#include "ui/theme/ToolbarIcons.h"
 
 #include <QApplication>
-#include <algorithm>
+#include <QCheckBox>
 #include <QClipboard>
 #include <QDesktopServices>
 #include <QDir>
-#include <QHBoxLayout>
-#include <QMouseEvent>
-#include <QUrl>
-#include <QHeaderView>
 #include <QFileInfo>
-#include <QMenu>
+#include <QHBoxLayout>
+#include <QHeaderView>
 #include <QLabel>
-#include <QCheckBox>
+#include <QMenu>
 #include <QMessageBox>
+#include <QMouseEvent>
 #include <QPlainTextEdit>
 #include <QPushButton>
 #include <QSignalBlocker>
 #include <QSplitter>
 #include <QTreeWidget>
+#include <QUrl>
 #include <QVBoxLayout>
+#include <algorithm>
 
 namespace gity::ui {
 namespace {
@@ -208,8 +208,8 @@ WorkingCopyPanel::WorkingCopyPanel(QWidget* parent) : QWidget(parent) {
     split->addWidget(rightColumn);
     split->setStretchFactor(0, 0);
     split->setStretchFactor(1, 1);
-    split->setSizes({tokens::panesWorkingCopyList,
-                     tokens::windowWidth - tokens::panesWorkingCopyList});
+    split->setSizes(
+        {tokens::panesWorkingCopyList, tokens::windowWidth - tokens::panesWorkingCopyList});
     // Small floors, and no snapping shut (owner's request, 2026-09-28).
     leftColumn->setMinimumWidth(160);
     rightColumn->setMinimumWidth(120);
@@ -285,13 +285,12 @@ WorkingCopyPanel::WorkingCopyPanel(QWidget* parent) : QWidget(parent) {
             stageSelectionButton_->setText(viewingStaged_ ? tr("Unstage selected lines")
                                                           : tr("Stage selected lines"));
         } else {
-            stageSelectionButton_->setText(
-                viewingStaged_ ? tr("Unstage %n selected line(s)", nullptr, count)
-                               : tr("Stage %n selected line(s)", nullptr, count));
+            stageSelectionButton_->setText(viewingStaged_
+                                               ? tr("Unstage %n selected line(s)", nullptr, count)
+                                               : tr("Stage %n selected line(s)", nullptr, count));
         }
     });
-    connect(diff_, &DiffView::stageSelectionRequested, stageSelectionButton_,
-            &QPushButton::click);
+    connect(diff_, &DiffView::stageSelectionRequested, stageSelectionButton_, &QPushButton::click);
     stageSelectionButton_->setToolTip(
         tr("From the keyboard, in the diff: ↑/↓ move, Shift extends, Space selects a line, "
            "Enter stages the selection or the hunk, Delete discards the hunk."));
@@ -327,8 +326,8 @@ WorkingCopyPanel::WorkingCopyPanel(QWidget* parent) : QWidget(parent) {
         if (current == nullptr) {
             return;
         }
-        const std::string patch = git::buildPartialPatch(
-            *current, git::linesOfHunk(*current, hunkIndex), viewingStaged_);
+        const std::string patch =
+            git::buildPartialPatch(*current, git::linesOfHunk(*current, hunkIndex), viewingStaged_);
         if (!patch.empty()) {
             emit applyPatchRequested(QByteArray::fromStdString(patch));
         }
@@ -343,8 +342,8 @@ WorkingCopyPanel::WorkingCopyPanel(QWidget* parent) : QWidget(parent) {
         // dialog. The dialog runs an event loop, and a status refresh arriving
         // meanwhile replaces the diff: the pointer would dangle, and the hunk
         // index could name a different hunk.
-        const std::string patch = git::buildPartialPatch(
-            *current, git::linesOfHunk(*current, hunkIndex), true);
+        const std::string patch =
+            git::buildPartialPatch(*current, git::linesOfHunk(*current, hunkIndex), true);
         const QString path = QString::fromStdString(current->path);
         if (patch.empty()) {
             return;
@@ -362,14 +361,12 @@ WorkingCopyPanel::WorkingCopyPanel(QWidget* parent) : QWidget(parent) {
         emit discardHunkRequested(QByteArray::fromStdString(patch));
     });
 
-    connect(message_, &QPlainTextEdit::textChanged, this,
-            &WorkingCopyPanel::updateCommitButton);
+    connect(message_, &QPlainTextEdit::textChanged, this, &WorkingCopyPanel::updateCommitButton);
     // Amending can be only a new message, so ticking it changes whether the
     // button needs anything staged.
     connect(amend_, &QCheckBox::toggled, this, &WorkingCopyPanel::updateCommitButton);
-    connect(commitButton_, &QPushButton::clicked, this, [this] {
-        emit commitRequested(message_->toPlainText(), amend_->isChecked());
-    });
+    connect(commitButton_, &QPushButton::clicked, this,
+            [this] { emit commitRequested(message_->toPlainText(), amend_->isChecked()); });
 }
 
 QTreeWidget* WorkingCopyPanel::buildList(const QString& title) {
@@ -523,8 +520,8 @@ bool WorkingCopyPanel::eventFilter(QObject* watched, QEvent* event) {
             return false;
         }
         // Generous: the box is 13px, and a click just beside it meant it.
-        const QRect box = WorkingCopyDelegate::checkboxRect(list->visualItemRect(item))
-                              .adjusted(-8, -8, 6, 8);
+        const QRect box =
+            WorkingCopyDelegate::checkboxRect(list->visualItemRect(item)).adjusted(-8, -8, 6, 8);
         if (!box.contains(mouse->position().toPoint())) {
             return false;
         }
@@ -574,8 +571,8 @@ void WorkingCopyPanel::showRowMenu(QTreeWidget* list, const QPoint& where) {
     const QStringList targets = selected.isEmpty() ? QStringList{path} : selected;
     const int count = static_cast<int>(targets.size());
     const bool single = count == 1;
-    const QString subject = single ? QFileInfo(targets.first()).fileName()
-                                   : tr("%n file(s)", nullptr, count);
+    const QString subject =
+        single ? QFileInfo(targets.first()).fileName() : tr("%n file(s)", nullptr, count);
 
     QAction* stage = staged ? menu.addAction(tr("Unstage %1").arg(subject))
                             : menu.addAction(tr("Stage %1").arg(subject));
@@ -592,8 +589,8 @@ void WorkingCopyPanel::showRowMenu(QTreeWidget* list, const QPoint& where) {
         // A deleted file has nothing to open.
         open->setEnabled(QFileInfo::exists(QDir(workdir_).filePath(path)));
     }
-    QAction* copyPath = menu.addAction(glyph(Glyph::Copy), single ? tr("Copy Path")
-                                                                  : tr("Copy Paths"));
+    QAction* copyPath =
+        menu.addAction(glyph(Glyph::Copy), single ? tr("Copy Path") : tr("Copy Paths"));
     QAction* copyFull = workdir_.isEmpty()
                             ? nullptr
                             : menu.addAction(single ? tr("Copy Full Path") : tr("Copy Full Paths"));
@@ -611,9 +608,9 @@ void WorkingCopyPanel::showRowMenu(QTreeWidget* list, const QPoint& where) {
         } else {
             const auto held = locks_ ? git::lockFor(*locks_, path.toStdString()) : std::nullopt;
             if (held) {
-                unlock = menu.addAction(glyph(Glyph::Unlock),
-                                        tr("Unlock — held by %1")
-                                            .arg(QString::fromStdString(held->owner)));
+                unlock = menu.addAction(
+                    glyph(Glyph::Unlock),
+                    tr("Unlock — held by %1").arg(QString::fromStdString(held->owner)));
             } else {
                 lock = menu.addAction(glyph(Glyph::Lock), tr("Lock %1").arg(subject));
             }
@@ -626,11 +623,13 @@ void WorkingCopyPanel::showRowMenu(QTreeWidget* list, const QPoint& where) {
                            : tr("Put these in the next commit."),
                     staged ? QStringLiteral("restore --staged -- <files>")
                            : QStringLiteral("add -- <files>"));
-    describeCommand(stash, tr("Set these files' changes aside, leaving the others. New files "
-                              "go too."),
+    describeCommand(stash,
+                    tr("Set these files' changes aside, leaving the others. New files "
+                       "go too."),
                     QStringLiteral("stash push --include-untracked -- <files>"));
-    describeCommand(discard, tr("Throw away uncommitted changes. New files are deleted. Edit ▸ "
-                                "Undo brings them back."),
+    describeCommand(discard,
+                    tr("Throw away uncommitted changes. New files are deleted. Edit ▸ "
+                       "Undo brings them back."),
                     QStringLiteral("restore --source=HEAD --staged --worktree -- <files>"));
     describeCommand(lock, tr("Tell the team you are editing this file."),
                     QStringLiteral("lfs lock -- %1").arg(path));
@@ -699,8 +698,7 @@ void WorkingCopyPanel::showRowMenu(QTreeWidget* list, const QPoint& where) {
         // and it is right to: unlocking announces you are finished with a file
         // you are visibly still editing. Asked here rather than letting the
         // refusal arrive as an error with no offer of what to do about it.
-        const git::StatusEntry* entry =
-            status_ ? status_->find(path.toStdString()) : nullptr;
+        const git::StatusEntry* entry = status_ ? status_->find(path.toStdString()) : nullptr;
         const bool dirty = entry != nullptr && (entry->hasStaged() || entry->hasUnstaged());
         if (dirty) {
             const auto answer = QMessageBox::question(
@@ -801,13 +799,13 @@ void WorkingCopyPanel::updateCommitButton() {
     // explains the cases known in advance (2026-09 UI review).
     QString reason;
     if (conflicts > 0) {
-        reason = tr("Resolve %n conflicted file(s) and stage the results first.", nullptr,
-                    conflicts);
+        reason =
+            tr("Resolve %n conflicted file(s) and stage the results first.", nullptr, conflicts);
     } else if (staged == 0 && !amending) {
         reason = tr("Stage the changes to include — select files and Stage, or Stage all.");
     } else if (!hasMessage) {
-        reason = amending ? tr("Write the amended commit's message.")
-                          : tr("Write a message to commit.");
+        reason =
+            amending ? tr("Write the amended commit's message.") : tr("Write a message to commit.");
     }
     commitReason_->setText(reason);
     commitReason_->setVisible(!reason.isEmpty() && status_ && !status_->entries.empty());
@@ -816,7 +814,7 @@ void WorkingCopyPanel::updateCommitButton() {
         commitButton_->setText(tr("Amend Last Commit"));
     } else {
         commitButton_->setText(staged > 0 ? tr("Commit %n file(s)", nullptr, staged)
-                                         : tr("Commit"));
+                                          : tr("Commit"));
     }
     commitButton_->setToolTip(staged > 0 || amending ? QString() : tr("Nothing is staged"));
 }

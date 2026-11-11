@@ -36,8 +36,7 @@ void describeCommand(QAction* action, const QString& what, const QString& comman
 /// `action` is the label on the destructive button — "Discard", "Delete
 /// Anyway" — never "Yes". Cancel is the default, so return does the safe
 /// thing.
-[[nodiscard]] bool confirmDestructive(QWidget* parent, const QString& title,
-                                      const QString& text, const QString& consequence,
-                                      const QString& action);
+[[nodiscard]] bool confirmDestructive(QWidget* parent, const QString& title, const QString& text,
+                                      const QString& consequence, const QString& action);
 
 } // namespace gity::ui

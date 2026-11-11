@@ -82,10 +82,10 @@ void RepositoryTabs::open(const QString& path, const QString& parentName) {
     suppress_ = true;
     const int index = bar_->addTab(name);
     bar_->setTabData(index, record);
-    bar_->setTabToolTip(index, parentName.isEmpty()
-                                   ? QDir::toNativeSeparators(path)
-                                   : tr("%1 — submodule of %2")
-                                         .arg(QDir::toNativeSeparators(path), parentName));
+    bar_->setTabToolTip(
+        index, parentName.isEmpty()
+                   ? QDir::toNativeSeparators(path)
+                   : tr("%1 — submodule of %2").arg(QDir::toNativeSeparators(path), parentName));
     bar_->setCurrentIndex(index);
     suppress_ = false;
 

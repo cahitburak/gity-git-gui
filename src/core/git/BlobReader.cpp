@@ -1,8 +1,8 @@
 #include "BlobReader.h"
 
+#include <cstdlib>
 #include <filesystem>
 #include <fstream>
-#include <cstdlib>
 #include <string_view>
 
 namespace gity::git {
@@ -61,8 +61,8 @@ bool parseLfsPointer(BlobContent& content) {
     }
     const std::string_view size = pointerField(text, "size");
     if (!size.empty()) {
-        content.lfsSize = static_cast<std::size_t>(std::strtoull(std::string(size).c_str(),
-                                                                 nullptr, 10));
+        content.lfsSize =
+            static_cast<std::size_t>(std::strtoull(std::string(size).c_str(), nullptr, 10));
     }
     return true;
 }

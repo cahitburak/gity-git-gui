@@ -27,8 +27,8 @@ std::string formDecode(std::string_view text) {
     for (std::size_t i = 0; i < text.size(); ++i) {
         if (text[i] == '+') {
             out += ' ';
-        } else if (text[i] == '%' && i + 2 < text.size() &&
-                   hexValue(text[i + 1]) >= 0 && hexValue(text[i + 2]) >= 0) {
+        } else if (text[i] == '%' && i + 2 < text.size() && hexValue(text[i + 1]) >= 0 &&
+                   hexValue(text[i + 2]) >= 0) {
             out += static_cast<char>(hexValue(text[i + 1]) * 16 + hexValue(text[i + 2]));
             i += 2;
         } else {
@@ -110,9 +110,8 @@ std::string valueOf(std::string_view body, std::string_view key) {
         const std::size_t after = at + key.size();
         if (atStart && after < body.size() && body[after] == '=') {
             const std::size_t end = body.find('&', after + 1);
-            return formDecode(body.substr(after + 1, end == std::string_view::npos
-                                                         ? end
-                                                         : end - after - 1));
+            return formDecode(
+                body.substr(after + 1, end == std::string_view::npos ? end : end - after - 1));
         }
         search = at + 1;
     }

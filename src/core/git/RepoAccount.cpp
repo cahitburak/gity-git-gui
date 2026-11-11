@@ -65,9 +65,8 @@ std::string accountOfGhHelper(std::string_view helper) {
     }
     std::size_t start = user + kUser.size();
     std::size_t end = start;
-    while (end < helper.size() &&
-           (std::isalnum(static_cast<unsigned char>(helper[end])) != 0 || helper[end] == '-' ||
-            helper[end] == '_')) {
+    while (end < helper.size() && (std::isalnum(static_cast<unsigned char>(helper[end])) != 0 ||
+                                   helper[end] == '-' || helper[end] == '_')) {
         ++end;
     }
     return std::string(helper.substr(start, end - start));

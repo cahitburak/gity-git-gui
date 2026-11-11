@@ -36,8 +36,8 @@ CommandLogView::CommandLogView(QWidget* parent) : QWidget(parent) {
     layout->setContentsMargins(8, 4, 8, 8);
 
     auto* bar = new QHBoxLayout;
-    auto* heading = new QLabel(tr("Every git command Gity runs, as you could run it yourself."),
-                               this);
+    auto* heading =
+        new QLabel(tr("Every git command Gity runs, as you could run it yourself."), this);
     applyRole(heading, QStringLiteral("note"));
     bar->addWidget(heading, 1);
     internal_ = new QCheckBox(tr("Show bookkeeping"), this);
@@ -68,19 +68,17 @@ QString CommandLogView::format(const session::GitProcess::LogRecord& record) {
     for (const QString& argument : record.args) {
         words << shellQuoted(argument);
     }
-    const QString outcome =
-        record.timedOut ? tr("stopped")
-        : record.exitCode == 0
-            ? QStringLiteral("✓")
-            : tr("✕ exit %1").arg(record.exitCode);
+    const QString outcome = record.timedOut        ? tr("stopped")
+                            : record.exitCode == 0 ? QStringLiteral("✓")
+                                                   : tr("✕ exit %1").arg(record.exitCode);
     const QString seconds =
-        record.elapsedMs < 1000 ? QStringLiteral("%1 ms").arg(record.elapsedMs)
-                                : QStringLiteral("%1 s").arg(double(record.elapsedMs) / 1000.0,
-                                                             0, 'f', 1);
-    QString line = QStringLiteral("%1  [%2]  %3   %4 · %5")
-                       .arg(record.started.toString(QStringLiteral("HH:mm:ss")),
-                            QDir(record.workdir).dirName(), words.join(QChar(' ')), outcome,
-                            seconds);
+        record.elapsedMs < 1000
+            ? QStringLiteral("%1 ms").arg(record.elapsedMs)
+            : QStringLiteral("%1 s").arg(double(record.elapsedMs) / 1000.0, 0, 'f', 1);
+    QString line =
+        QStringLiteral("%1  [%2]  %3   %4 · %5")
+            .arg(record.started.toString(QStringLiteral("HH:mm:ss")),
+                 QDir(record.workdir).dirName(), words.join(QChar(' ')), outcome, seconds);
     // A failure's own words, a few lines of them, under the command.
     if (record.exitCode != 0 || record.timedOut) {
         const QStringList lines =

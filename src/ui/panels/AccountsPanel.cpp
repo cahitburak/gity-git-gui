@@ -10,19 +10,19 @@
 #include "ui/theme/Tokens.h"
 
 #include <QComboBox>
-#include <QDir>
 #include <QDialog>
 #include <QDialogButtonBox>
+#include <QDir>
 #include <QFormLayout>
 #include <QHBoxLayout>
 #include <QHeaderView>
 #include <QInputDialog>
-#include <QMessageBox>
-#include <QProgressDialog>
-#include <QSettings>
 #include <QLabel>
 #include <QLineEdit>
+#include <QMessageBox>
+#include <QProgressDialog>
 #include <QPushButton>
+#include <QSettings>
 #include <QTreeWidget>
 #include <QVBoxLayout>
 
@@ -39,10 +39,10 @@ QString providerLabel(git::Provider provider) {
 
 /// What git is configured to remember credentials with, in the user's words.
 QString credentialHelperDescription(const QString& workdir) {
-    const gity::session::GitResult result = gity::session::GitProcess::run(
-        workdir.isEmpty() ? QDir::homePath() : workdir,
-        {QStringLiteral("config"), QStringLiteral("--get-all"),
-         QStringLiteral("credential.helper")});
+    const gity::session::GitResult result =
+        gity::session::GitProcess::run(workdir.isEmpty() ? QDir::homePath() : workdir,
+                                       {QStringLiteral("config"), QStringLiteral("--get-all"),
+                                        QStringLiteral("credential.helper")});
     const QString helper = result.output.trimmed();
     if (!result.ok() || helper.isEmpty()) {
         return AccountsPanel::tr("git has no credential helper configured, so it will ask "
@@ -161,12 +161,10 @@ void AccountsPanel::updateButtons() {
     // Only for providers whose device grant this client knows. Enabling it
     // everywhere and failing at the request would be the disabled-button
     // mistake in reverse.
-    signIn_->setEnabled(
-        account.valid() &&
-        git::endpointsFor(account.provider, account.host.toStdString()).valid());
+    signIn_->setEnabled(account.valid() &&
+                        git::endpointsFor(account.provider, account.host.toStdString()).valid());
 
-    const QString remoteHost =
-        QString::fromStdString(git::hostOfRemote(originUrl_.toStdString()));
+    const QString remoteHost = QString::fromStdString(git::hostOfRemote(originUrl_.toStdString()));
     const bool sameHost =
         account.valid() && account.host.compare(remoteHost, Qt::CaseInsensitive) == 0;
     use_->setEnabled(sameHost);
@@ -219,8 +217,7 @@ void AccountsPanel::addAccount() {
     applyRole(note, QStringLiteral("note"));
     layout->addWidget(note);
 
-    auto* buttons = new QDialogButtonBox(QDialogButtonBox::Ok | QDialogButtonBox::Cancel,
-                                         &dialog);
+    auto* buttons = new QDialogButtonBox(QDialogButtonBox::Ok | QDialogButtonBox::Cancel, &dialog);
     layout->addWidget(buttons);
     connect(buttons, &QDialogButtonBox::accepted, &dialog, &QDialog::accept);
     connect(buttons, &QDialogButtonBox::rejected, &dialog, &QDialog::reject);
@@ -234,8 +231,8 @@ void AccountsPanel::addAccount() {
         }
         const auto chosen = static_cast<git::Provider>(provider->currentData().toInt());
         const std::string_view suggested = git::defaultHost(chosen);
-        host->setText(QString::fromUtf8(suggested.data(),
-                                        static_cast<qsizetype>(suggested.size())));
+        host->setText(
+            QString::fromUtf8(suggested.data(), static_cast<qsizetype>(suggested.size())));
     };
     connect(provider, &QComboBox::currentIndexChanged, &dialog, syncHost);
     syncHost();
@@ -302,8 +299,8 @@ void AccountsPanel::signInSelected() {
         store.setValue(key, clientId);
     }
 
-    auto* dialog = new QProgressDialog(tr("Contacting %1…").arg(account.host), tr("Cancel"), 0,
-                                       0, this);
+    auto* dialog =
+        new QProgressDialog(tr("Contacting %1…").arg(account.host), tr("Cancel"), 0, 0, this);
     dialog->setWindowTitle(tr("Sign In"));
     dialog->setMinimumWidth(430);
     dialog->setAutoClose(false);

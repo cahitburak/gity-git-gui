@@ -20,10 +20,10 @@
 #include <QByteArray>
 #include <QDateTime>
 
-#include <atomic>
-#include <functional>
 #include <QString>
 #include <QStringList>
+#include <atomic>
+#include <functional>
 
 namespace gity::session {
 
@@ -101,11 +101,9 @@ public:
     /// Both: input on stdin and extra environment. `git credential` needs it,
     /// since a secret must not go through a command line and a lookup must
     /// not be allowed to prompt.
-    [[nodiscard]] static GitResult runWithInputAndEnv(const QString& workdir,
-                                                      const QStringList& args,
-                                                      const QByteArray& input,
-                                                      const QList<EnvOverride>& overrides,
-                                                      int timeoutMs = 120000);
+    [[nodiscard]] static GitResult
+    runWithInputAndEnv(const QString& workdir, const QStringList& args, const QByteArray& input,
+                       const QList<EnvOverride>& overrides, int timeoutMs = 120000);
 
     /// Makes network invocations on the calling thread — runStreaming and
     /// runInParent — stop early once `flag` is set. A session worker
@@ -133,6 +131,7 @@ public:
         bool internal = false;
         QString errorOutput;
     };
+
     using LogSink = std::function<void(const LogRecord&)>;
 
     /// Receives every invocation, on whichever thread ran it.

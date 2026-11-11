@@ -27,8 +27,7 @@ QString describe(gity::git::RemoteNameProblem problem) {
     case gity::git::RemoteNameProblem::Empty:
         return QCoreApplication::translate("RemotesDialog", "A remote needs a name.");
     case gity::git::RemoteNameProblem::Whitespace:
-        return QCoreApplication::translate("RemotesDialog",
-                                           "Remote names cannot contain spaces.");
+        return QCoreApplication::translate("RemotesDialog", "Remote names cannot contain spaces.");
     case gity::git::RemoteNameProblem::IllegalCharacter:
         return QCoreApplication::translate(
             "RemotesDialog", "git stores a remote as a ref namespace, and that name contains "
@@ -163,8 +162,7 @@ QString RemotesDialog::askForName(const QString& title, const QString& initial) 
     QString name = initial;
     while (true) {
         bool accepted = false;
-        name = QInputDialog::getText(this, title, tr("Name"), QLineEdit::Normal, name,
-                                     &accepted)
+        name = QInputDialog::getText(this, title, tr("Name"), QLineEdit::Normal, name, &accepted)
                    .trimmed();
         if (!accepted) {
             return {};
@@ -188,10 +186,9 @@ void RemotesDialog::addRemote() {
         return;
     }
     bool accepted = false;
-    const QString url =
-        QInputDialog::getText(this, tr("Add Remote"), tr("URL"), QLineEdit::Normal,
-                              QString(), &accepted)
-            .trimmed();
+    const QString url = QInputDialog::getText(this, tr("Add Remote"), tr("URL"), QLineEdit::Normal,
+                                              QString(), &accepted)
+                            .trimmed();
     if (!accepted || url.isEmpty()) {
         return;
     }
@@ -230,15 +227,14 @@ void RemotesDialog::editUrlOfSelected() {
     // afterwards — editing the path must not save "***" over the token.
     const QString shown = QString::fromStdString(git::maskUrlCredentials(current));
     bool accepted = false;
-    const QString edited = QInputDialog::getText(this, tr("Change URL"),
-                                                 tr("URL for %1").arg(name), QLineEdit::Normal,
-                                                 shown, &accepted)
+    const QString edited = QInputDialog::getText(this, tr("Change URL"), tr("URL for %1").arg(name),
+                                                 QLineEdit::Normal, shown, &accepted)
                                .trimmed();
     if (!accepted || edited.isEmpty() || edited == shown) {
         return;
     }
-    const QString url = QString::fromStdString(
-        git::unmaskUrlCredentials(edited.toStdString(), current));
+    const QString url =
+        QString::fromStdString(git::unmaskUrlCredentials(edited.toStdString(), current));
     changed_ = true;
     session_.requestSetRemoteUrl(name, url);
 }

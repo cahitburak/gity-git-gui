@@ -1,8 +1,8 @@
 #include "CredentialManager.h"
 
 #include "core/git/Credential.h"
-#include "session/CredentialInventory.h"
 #include "session/Background.h"
+#include "session/CredentialInventory.h"
 #include "session/GitProcess.h"
 
 #include <QDir>
@@ -108,7 +108,9 @@ void CredentialManager::lookup(const QString& workdir, const QString& url) {
                                            line.contains(QStringLiteral("prompts disabled")) ||
                                            line.contains(QStringLiteral("unable to get"));
                 emit lookedUp(url, false, {}, {},
-                              !hint->isEmpty() ? *hint : nothingStored ? QString() : line);
+                              !hint->isEmpty() ? *hint
+                              : nothingStored  ? QString()
+                                               : line);
                 return;
             }
             const git::Credential answer = git::parseCredential(result->output.toStdString());
@@ -117,9 +119,8 @@ void CredentialManager::lookup(const QString& workdir, const QString& url) {
         });
 }
 
-void CredentialManager::store(const QString& workdir, const QString& url,
-                              const QString& username, const QString& password,
-                              const QString& previousUsername,
+void CredentialManager::store(const QString& workdir, const QString& url, const QString& username,
+                              const QString& password, const QString& previousUsername,
                               const QString& previousPassword) {
     git::Credential record;
     git::Credential previous;
@@ -150,15 +151,15 @@ void CredentialManager::store(const QString& workdir, const QString& url,
                 quiet());
         },
         [this, result] {
-            emit finished(result->ok(),
-                          result->ok() ? tr("Saved to your credential helper.")
-                                       : tr("The credential helper did not accept it: %1")
-                                             .arg(result->firstProblemLine()));
+            emit finished(result->ok(), result->ok()
+                                            ? tr("Saved to your credential helper.")
+                                            : tr("The credential helper did not accept it: %1")
+                                                  .arg(result->firstProblemLine()));
         });
 }
 
-void CredentialManager::remove(const QString& workdir, const QString& url,
-                               const QString& username, const QString& password) {
+void CredentialManager::remove(const QString& workdir, const QString& url, const QString& username,
+                               const QString& password) {
     git::Credential record;
     if (!requestFor(url, username, password, &record) || !git::isWritable(record)) {
         emit finished(false, tr("This remote does not use stored credentials."));
@@ -170,8 +171,7 @@ void CredentialManager::remove(const QString& workdir, const QString& url,
         this,
         [result, workdir, input] {
             *result = GitProcess::runWithInputAndEnv(
-                workdir, {QStringLiteral("credential"), QStringLiteral("reject")}, input,
-                quiet());
+                workdir, {QStringLiteral("credential"), QStringLiteral("reject")}, input, quiet());
         },
         [this, result] {
             emit finished(result->ok(), result->ok()

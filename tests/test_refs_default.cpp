@@ -23,9 +23,9 @@ const gity::git::RefEntry* find(const std::vector<gity::git::RefEntry>& entries,
 
 TEST(LoadRefs, MarksTheBranchTheRemoteHeadNames) {
     git_libgit2_init();
-    const fs::path path = fs::temp_directory_path() /
-                          ("gity-refs-test-" +
-                           std::to_string(::testing::UnitTest::GetInstance()->random_seed()));
+    const fs::path path =
+        fs::temp_directory_path() /
+        ("gity-refs-test-" + std::to_string(::testing::UnitTest::GetInstance()->random_seed()));
     fs::remove_all(path);
     fs::create_directories(path);
 
@@ -72,9 +72,9 @@ TEST(LoadRefs, MarksTheBranchTheRemoteHeadNames) {
     git_config* config = nullptr;
     ASSERT_EQ(git_repository_config(&config, repo), 0);
     ASSERT_EQ(git_config_set_string(config, "remote.origin.url", "/nowhere"), 0);
-    ASSERT_EQ(git_config_set_string(config, "remote.origin.fetch",
-                                    "+refs/heads/*:refs/remotes/origin/*"),
-              0);
+    ASSERT_EQ(
+        git_config_set_string(config, "remote.origin.fetch", "+refs/heads/*:refs/remotes/origin/*"),
+        0);
     ASSERT_EQ(git_config_set_string(config, "branch.feature/done.remote", "origin"), 0);
     ASSERT_EQ(git_config_set_string(config, "branch.feature/done.merge", "refs/heads/feature/done"),
               0);

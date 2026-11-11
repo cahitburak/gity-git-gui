@@ -9,9 +9,9 @@ using gity::git::lockFor;
 using gity::git::parseLfsLocks;
 
 TEST(ParseLfsLocks, TheRealResponse) {
-    const auto locks = parseLfsLocks(
-        R"([{"id":"49909752","path":"README.md","owner":{"name":"alex-personal"},)"
-        R"("locked_at":"2026-08-30T05:12:22Z"}])");
+    const auto locks =
+        parseLfsLocks(R"([{"id":"49909752","path":"README.md","owner":{"name":"alex-personal"},)"
+                      R"("locked_at":"2026-08-30T05:12:22Z"}])");
     ASSERT_EQ(locks.size(), 1u);
     EXPECT_EQ(locks[0].id, "49909752");
     EXPECT_EQ(locks[0].path, "README.md");
@@ -29,18 +29,18 @@ TEST(ParseLfsLocks, TheOwnerNameIsReadFromItsOwnObject) {
     // owner of one lock to another, or picks up a "name" field that belongs to
     // something else entirely. Here the second lock's owner must not leak into
     // the first.
-    const auto locks = parseLfsLocks(
-        R"([{"id":"1","path":"a.psd","owner":{"name":"ayse"},"locked_at":"t1"},)"
-        R"({"id":"2","path":"b.psd","owner":{"name":"mehmet"},"locked_at":"t2"}])");
+    const auto locks =
+        parseLfsLocks(R"([{"id":"1","path":"a.psd","owner":{"name":"ayse"},"locked_at":"t1"},)"
+                      R"({"id":"2","path":"b.psd","owner":{"name":"mehmet"},"locked_at":"t2"}])");
     ASSERT_EQ(locks.size(), 2u);
     EXPECT_EQ(locks[0].owner, "ayse");
     EXPECT_EQ(locks[1].owner, "mehmet");
 }
 
 TEST(ParseLfsLocks, UnityPathsWithSpacesSurvive) {
-    const auto locks = parseLfsLocks(
-        R"([{"id":"7","path":"Assets/Art/Character Images/Hero Albedo.psd",)"
-        R"("owner":{"name":"someone"},"locked_at":"t"}])");
+    const auto locks =
+        parseLfsLocks(R"([{"id":"7","path":"Assets/Art/Character Images/Hero Albedo.psd",)"
+                      R"("owner":{"name":"someone"},"locked_at":"t"}])");
     ASSERT_EQ(locks.size(), 1u);
     EXPECT_EQ(locks[0].path, "Assets/Art/Character Images/Hero Albedo.psd");
 }
@@ -48,16 +48,16 @@ TEST(ParseLfsLocks, UnityPathsWithSpacesSurvive) {
 TEST(ParseLfsLocks, EscapesInAPathAreResolvedRatherThanTruncatingIt) {
     // Taking the text between the first two quotes would stop at the escaped
     // one and produce a path that matches nothing.
-    const auto locks = parseLfsLocks(
-        R"([{"id":"8","path":"Assets/Odd\"Name\\Thing.psd","owner":{"name":"x"},)"
-        R"("locked_at":"t"}])");
+    const auto locks =
+        parseLfsLocks(R"([{"id":"8","path":"Assets/Odd\"Name\\Thing.psd","owner":{"name":"x"},)"
+                      R"("locked_at":"t"}])");
     ASSERT_EQ(locks.size(), 1u);
     EXPECT_EQ(locks[0].path, "Assets/Odd\"Name\\Thing.psd");
 }
 
 TEST(ParseLfsLocks, NonAsciiNamesSurvive) {
-    const auto locks = parseLfsLocks(
-        R"([{"id":"9","path":"a.psd","owner":{"name":"Çağrı"},"locked_at":"t"}])");
+    const auto locks =
+        parseLfsLocks(R"([{"id":"9","path":"a.psd","owner":{"name":"Çağrı"},"locked_at":"t"}])");
     ASSERT_EQ(locks.size(), 1u);
     EXPECT_EQ(locks[0].owner, "\xC3\x87\x61\xC4\x9F\x72\xC4\xB1"); // Çağrı
 }
@@ -83,8 +83,8 @@ TEST(ParseLfsLocks, GarbageYieldsNothingRatherThanHalfALockList) {
 }
 
 TEST(ParseLfsLocks, AnErrorMessageOnStdoutIsNotMistakenForALockList) {
-    EXPECT_TRUE(parseLfsLocks("Remote \"origin\" does not support the Git LFS locking API")
-                    .empty());
+    EXPECT_TRUE(
+        parseLfsLocks("Remote \"origin\" does not support the Git LFS locking API").empty());
 }
 
 TEST(LockFor, FindsByExactPath) {

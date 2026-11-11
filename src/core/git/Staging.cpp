@@ -11,8 +11,7 @@ FileDiff loadWorkingDiff(git_repository* repo, const std::string& path, DiffSide
     out.path = path;
 
     git_diff_options diffOptions;
-    check(git_diff_options_init(&diffOptions, GIT_DIFF_OPTIONS_VERSION),
-          "initialize diff options");
+    check(git_diff_options_init(&diffOptions, GIT_DIFF_OPTIONS_VERSION), "initialize diff options");
     diffOptions.context_lines = static_cast<std::uint32_t>(options.contextLines);
 
     char* pathspec = const_cast<char*>(path.c_str());
@@ -52,9 +51,9 @@ FileDiff loadWorkingDiff(git_repository* repo, const std::string& path, DiffSide
         // cannot tell a staged rename or deletion from an untracked file, and
         // the counts would be drawn from a picture the repository disagrees
         // with.
-        check(git_diff_tree_to_workdir_with_index(diff.receive(), repo, headTree.get(),
-                                                  &diffOptions),
-              "diff HEAD against the worktree");
+        check(
+            git_diff_tree_to_workdir_with_index(diff.receive(), repo, headTree.get(), &diffOptions),
+            "diff HEAD against the worktree");
     } else {
         TreeHandle headTree;
         git_oid headOid{};
@@ -63,9 +62,9 @@ FileDiff loadWorkingDiff(git_repository* repo, const std::string& path, DiffSide
             check(git_commit_lookup(head.receive(), repo, &headOid), "look up HEAD");
             check(git_commit_tree(headTree.receive(), head.get()), "read the HEAD tree");
         }
-        check(git_diff_tree_to_index(diff.receive(), repo, headTree.get(), index.get(),
-                                     &diffOptions),
-              "diff HEAD against the index");
+        check(
+            git_diff_tree_to_index(diff.receive(), repo, headTree.get(), index.get(), &diffOptions),
+            "diff HEAD against the index");
     }
 
     if (git_diff_num_deltas(diff.get()) == 0) {

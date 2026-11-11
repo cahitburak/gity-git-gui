@@ -287,9 +287,8 @@ RefSet loadRefs(git_repository* repo) {
     // Tags are mostly versions: ordered by value, so `v1.10` follows `v1.9`
     // rather than landing between `v1.1` and `v1.2`, and newest first — the
     // release you are looking for is usually the latest one.
-    std::sort(out.tags.begin(), out.tags.end(), [](const RefEntry& a, const RefEntry& b) {
-        return versionLess(b.name, a.name);
-    });
+    std::sort(out.tags.begin(), out.tags.end(),
+              [](const RefEntry& a, const RefEntry& b) { return versionLess(b.name, a.name); });
 
     // The checked-out branch sorts first; everything else alphabetically. It is
     // the row the user looks for, so it should not move as branches are added.

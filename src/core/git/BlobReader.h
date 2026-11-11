@@ -25,6 +25,7 @@ struct BlobContent {
     std::size_t lfsSize = 0; ///< Real size, from the pointer.
 
     [[nodiscard]] bool empty() const noexcept { return bytes.empty(); }
+
     [[nodiscard]] std::size_t size() const noexcept { return bytes.size(); }
 };
 

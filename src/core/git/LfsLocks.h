@@ -21,8 +21,8 @@ namespace gity::git {
 
 struct LfsLock {
     std::string id;
-    std::string path;   ///< Repository-relative, as git-lfs reports it.
-    std::string owner;  ///< The account holding it.
+    std::string path;  ///< Repository-relative, as git-lfs reports it.
+    std::string owner; ///< The account holding it.
     std::string lockedAt;
 
     [[nodiscard]] bool valid() const noexcept { return !id.empty() && !path.empty(); }

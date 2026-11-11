@@ -9,7 +9,8 @@ std::string percentDecode(std::string_view text) {
     std::string out;
     out.reserve(text.size());
     for (std::size_t i = 0; i < text.size(); ++i) {
-        if (text[i] == '%' && i + 2 < text.size() && std::isxdigit(static_cast<unsigned char>(text[i + 1])) &&
+        if (text[i] == '%' && i + 2 < text.size() &&
+            std::isxdigit(static_cast<unsigned char>(text[i + 1])) &&
             std::isxdigit(static_cast<unsigned char>(text[i + 2]))) {
             out += static_cast<char>(std::stoi(std::string(text.substr(i + 1, 2)), nullptr, 16));
             i += 2;
@@ -113,7 +114,8 @@ AccountMismatch findAccountMismatch(std::string_view remoteUrl,
         return mismatch;
     }
     mismatch.urlUser = user;
-    mismatch.kind = known ? AccountMismatch::Kind::InactiveUser : AccountMismatch::Kind::UnknownUser;
+    mismatch.kind =
+        known ? AccountMismatch::Kind::InactiveUser : AccountMismatch::Kind::UnknownUser;
     return mismatch;
 }
 

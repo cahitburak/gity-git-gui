@@ -44,8 +44,7 @@ QByteArray formBody(const QList<QPair<QString, QString>>& fields) {
 } // namespace
 
 BrowserSignIn::BrowserSignIn(QObject* parent)
-    : QObject(parent), network_(new QNetworkAccessManager(this)),
-      pollTimer_(new QTimer(this)) {
+    : QObject(parent), network_(new QNetworkAccessManager(this)), pollTimer_(new QTimer(this)) {
     pollTimer_->setSingleShot(true);
     connect(pollTimer_, &QTimer::timeout, this, &BrowserSignIn::poll);
 }
@@ -69,8 +68,7 @@ void BrowserSignIn::start(git::Provider provider, const QString& host, const QSt
     elapsedSeconds_ = 0;
     cancelled_ = false;
 
-    endpoints_ = override_.valid() ? override_
-                                   : git::endpointsFor(provider, host.toStdString());
+    endpoints_ = override_.valid() ? override_ : git::endpointsFor(provider, host.toStdString());
     if (!endpoints_.valid()) {
         emit finished(false, tr("%1 does not offer the device sign-in flow, or this client "
                                 "does not know its endpoints. Add the account and let git ask "
@@ -112,8 +110,8 @@ void BrowserSignIn::start(git::Provider provider, const QString& host, const QSt
         // sign-in page" means.
         const QUrl page(verification);
         if (page.scheme() != QLatin1String("https") && page.scheme() != QLatin1String("http")) {
-            emit finished(false, tr("%1 returned a sign-in address that is not a web page.")
-                                     .arg(host_));
+            emit finished(false,
+                          tr("%1 returned a sign-in address that is not a web page.").arg(host_));
             return;
         }
         emit codeReady(QString::fromStdString(code_.userCode), verification);
@@ -177,10 +175,10 @@ void BrowserSignIn::poll() {
         case git::PollState::Failed:
             break;
         }
-        emit finished(false, result.detail.empty()
-                                 ? tr("Sign-in failed.")
-                                 : tr("Sign-in failed: %1")
-                                       .arg(QString::fromStdString(result.detail)));
+        emit finished(false,
+                      result.detail.empty()
+                          ? tr("Sign-in failed.")
+                          : tr("Sign-in failed: %1").arg(QString::fromStdString(result.detail)));
     });
 }
 

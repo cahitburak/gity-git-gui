@@ -85,8 +85,8 @@ void fillFiles(git_repository* repo, git_commit* commit, const CommitDetailOptio
             return;
         }
     }
-    detail.files = listChangedFiles(repo, parentTree.get(), tree.get(), options,
-                                    &detail.filesTruncated);
+    detail.files =
+        listChangedFiles(repo, parentTree.get(), tree.get(), options, &detail.filesTruncated);
 }
 
 } // namespace
@@ -101,8 +101,7 @@ std::vector<ChangedFile> listChangedFiles(git_repository* repo, git_tree* fromTr
     // Thrown, not swallowed: an empty list reads as "this commit changed
     // nothing", which is a claim about the repository, not an error report.
     git_diff_options diffOptions;
-    check(git_diff_options_init(&diffOptions, GIT_DIFF_OPTIONS_VERSION),
-          "initialize diff options");
+    check(git_diff_options_init(&diffOptions, GIT_DIFF_OPTIONS_VERSION), "initialize diff options");
 
     DiffHandle diff;
     check(git_diff_tree_to_tree(diff.receive(), repo, fromTree, toTree, &diffOptions),

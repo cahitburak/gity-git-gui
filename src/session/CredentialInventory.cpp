@@ -29,7 +29,6 @@ namespace {
 using Source = StoredCredential::Source;
 using StringMap = QMap<QString, QString>;
 
-
 QStringList storeFiles() {
     // Where `git credential-store` looks when given no --file.
     QStringList files{QDir::home().filePath(QStringLiteral(".git-credentials"))};
@@ -82,8 +81,8 @@ QList<StoredCredential> keyringCredentials(QString* problem) {
     QDBusMessage search = QDBusMessage::createMethodCall(
         kSecrets, QStringLiteral("/org/freedesktop/secrets"),
         QStringLiteral("org.freedesktop.Secret.Service"), QStringLiteral("SearchItems"));
-    search << QVariant::fromValue(StringMap{{QStringLiteral("xdg:schema"),
-                                             QStringLiteral("org.git.Password")}});
+    search << QVariant::fromValue(
+        StringMap{{QStringLiteral("xdg:schema"), QStringLiteral("org.git.Password")}});
     const QDBusMessage found = bus.call(search, QDBus::Block, 10000);
     if (found.type() != QDBusMessage::ReplyMessage || found.arguments().size() < 2) {
         *problem = QObject::tr("the desktop keyring did not answer");
@@ -158,7 +157,8 @@ QByteArray requestFor(const StoredCredential& credential) {
 } // namespace
 
 QString StoredCredential::url() const {
-    QString text = QStringLiteral("%1://").arg(protocol.isEmpty() ? QStringLiteral("https") : protocol);
+    QString text =
+        QStringLiteral("%1://").arg(protocol.isEmpty() ? QStringLiteral("https") : protocol);
     if (!username.isEmpty()) {
         text += username + QChar('@');
     }
@@ -172,7 +172,8 @@ QString StoredCredential::url() const {
 CredentialInventory::CredentialInventory(QObject* parent) : QObject(parent) {}
 
 QString CredentialInventory::accountHint(const QString& remoteUrl) {
-    if (!remoteUrl.contains(QChar('@')) || QStandardPaths::findExecutable(QStringLiteral("gh")).isEmpty()) {
+    if (!remoteUrl.contains(QChar('@')) ||
+        QStandardPaths::findExecutable(QStringLiteral("gh")).isEmpty()) {
         return {};
     }
     const ProcessResult gh =
@@ -190,7 +191,8 @@ QString CredentialInventory::accountHint(const QString& remoteUrl) {
                   "address to %2, or remove it: Repository \u25b8 Remotes \u25b8 Change URL.")
             .arg(user, active);
     case git::AccountMismatch::Kind::InactiveUser:
-        return tr("This remote's address names \u201c%1\u201d. GitHub CLI holds that account but is "
+        return tr("This remote's address names \u201c%1\u201d. GitHub CLI holds that account but "
+                  "is "
                   "using \u201c%2\u201d, and only answers for the one in use. Make %1 the one in "
                   "use under Tools \u25b8 Credentials (Use for git), or remove the user from the "
                   "address so whichever account is in use answers.")
@@ -260,10 +262,10 @@ void CredentialInventory::reveal(const StoredCredential& credential) {
         this,
         [credential, secret, problem] {
             if (credential.source == Source::GitHubCli) {
-                const ProcessResult token = runTool(
-                    QStringLiteral("gh"),
-                    {QStringLiteral("auth"), QStringLiteral("token"), QStringLiteral("--hostname"),
-                     credential.host, QStringLiteral("--user"), credential.username});
+                const ProcessResult token =
+                    runTool(QStringLiteral("gh"), {QStringLiteral("auth"), QStringLiteral("token"),
+                                                   QStringLiteral("--hostname"), credential.host,
+                                                   QStringLiteral("--user"), credential.username});
                 *secret = token.output.trimmed();
                 if (!token.ok) {
                     *problem = token.error;
@@ -281,8 +283,8 @@ void CredentialInventory::reveal(const StoredCredential& credential) {
                                   QStringLiteral("get")};
             const GitResult result =
                 GitProcess::runWithInput(QDir::homePath(), helper, requestFor(credential));
-            *secret = QString::fromStdString(
-                git::parseCredential(result.output.toStdString()).password);
+            *secret =
+                QString::fromStdString(git::parseCredential(result.output.toStdString()).password);
             if (secret->isEmpty()) {
                 *problem = result.ok() ? QObject::tr("The store returned no password.")
                                        : result.firstProblemLine();
@@ -314,10 +316,10 @@ void CredentialInventory::remove(const StoredCredential& credential) {
                 break;
             }
             case Source::GitHubCli: {
-                const ProcessResult logout = runTool(
-                    QStringLiteral("gh"),
-                    {QStringLiteral("auth"), QStringLiteral("logout"), QStringLiteral("--hostname"),
-                     credential.host, QStringLiteral("--user"), credential.username});
+                const ProcessResult logout =
+                    runTool(QStringLiteral("gh"), {QStringLiteral("auth"), QStringLiteral("logout"),
+                                                   QStringLiteral("--hostname"), credential.host,
+                                                   QStringLiteral("--user"), credential.username});
                 *ok = logout.ok;
                 *problem = logout.error;
                 break;
@@ -334,16 +336,16 @@ void CredentialInventory::makeActive(const StoredCredential& credential) {
     runInBackground(
         this,
         [credential, result] {
-            *result = runTool(QStringLiteral("gh"),
-                              {QStringLiteral("auth"), QStringLiteral("switch"),
-                               QStringLiteral("--hostname"), credential.host,
-                               QStringLiteral("--user"), credential.username});
+            *result =
+                runTool(QStringLiteral("gh"), {QStringLiteral("auth"), QStringLiteral("switch"),
+                                               QStringLiteral("--hostname"), credential.host,
+                                               QStringLiteral("--user"), credential.username});
         },
         [this, result, credential] {
-            emit finished(result->ok,
-                          result->ok
-                              ? tr("git now gets %1 for %2.").arg(credential.username, credential.host)
-                              : tr("Could not switch: %1").arg(result->error));
+            emit finished(
+                result->ok,
+                result->ok ? tr("git now gets %1 for %2.").arg(credential.username, credential.host)
+                           : tr("Could not switch: %1").arg(result->error));
         });
 }
 

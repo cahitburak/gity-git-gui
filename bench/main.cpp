@@ -13,8 +13,8 @@
 // wrong, and week one is when that is cheap to learn.
 
 #include "core/git/HistoryStream.h"
-#include "core/git/WorkingCopy.h"
 #include "core/git/Repository.h"
+#include "core/git/WorkingCopy.h"
 #include "core/graph/LaneAssigner.h"
 #include "core/model/HistoryChunk.h"
 
@@ -123,14 +123,17 @@ void printUsage(const std::filesystem::path& tried) {
 
     std::fprintf(stderr, "\n  No Git repository at %s\n\n",
                  (ec ? tried : absolute).string().c_str());
-    std::fprintf(stderr, "  gity-bench measures libgit2 against a real repository. Point it at one:\n\n");
+    std::fprintf(stderr,
+                 "  gity-bench measures libgit2 against a real repository. Point it at one:\n\n");
     std::fprintf(stderr, "      gity-bench /path/to/a/repository\n\n");
     std::fprintf(stderr, "  The M0 gate is a real repository with LFS — synthetic history has\n");
-    std::fprintf(stderr, "  uniform object sizes and a clean worktree, so it flatters status. For a\n");
+    std::fprintf(stderr,
+                 "  uniform object sizes and a clean worktree, so it flatters status. For a\n");
     std::fprintf(stderr, "  smoke test anyway:\n\n");
     std::fprintf(stderr, "      tools/make-bench-repo.sh 200000 /tmp/bench-repo\n");
     std::fprintf(stderr, "      gity-bench /tmp/bench-repo\n\n");
-    std::fprintf(stderr, "  Running from an IDE? The working directory is the build folder, so the\n");
+    std::fprintf(stderr,
+                 "  Running from an IDE? The working directory is the build folder, so the\n");
     std::fprintf(stderr, "  path must be explicit. In Qt Creator: Projects -> Run ->\n");
     std::fprintf(stderr, "  Command line arguments.\n\n");
 }
@@ -160,10 +163,9 @@ int main(int argc, char** argv) {
             // GIT_OPT_SET_CACHE_MAX_SIZE takes ssize_t, which MSVC does not
             // define. ptrdiff_t is the same width everywhere we build, and
             // width is what matters for a varargs call.
-            gity::git::check(
-                git_libgit2_opts(GIT_OPT_SET_CACHE_MAX_SIZE,
-                                 static_cast<std::ptrdiff_t>(megabytes * 1024 * 1024)),
-                "set the libgit2 cache size");
+            gity::git::check(git_libgit2_opts(GIT_OPT_SET_CACHE_MAX_SIZE,
+                                              static_cast<std::ptrdiff_t>(megabytes * 1024 * 1024)),
+                             "set the libgit2 cache size");
             cacheNote = std::string(cacheMb) + " MiB (GITY_BENCH_CACHE_MB)";
         }
 
@@ -181,8 +183,9 @@ int main(int argc, char** argv) {
         record("open repository", watch.elapsedMs(), path);
 
         const char* workdirRaw = git_repository_workdir(repo.get());
-        const std::filesystem::path workdir =
-            (workdirRaw != nullptr) ? std::filesystem::path(workdirRaw) : std::filesystem::path(path);
+        const std::filesystem::path workdir = (workdirRaw != nullptr)
+                                                  ? std::filesystem::path(workdirRaw)
+                                                  : std::filesystem::path(path);
 
         // --- how does the walk cost split? -------------------------------------
         // The revwalk alone yields OIDs in order. Parents need a full object
@@ -252,9 +255,8 @@ int main(int argc, char** argv) {
                        static_cast<double>(commits) / std::max(stats.totalMs, 0.001) * 1000.0)) +
                    "/s, " + std::to_string(chunks) + " chunks");
         record("  graph shape", 0.0,
-               std::to_string(totalRows) + " rows, " + std::to_string(maxLanes) +
-                   " lanes max, " + std::to_string(merges) + " merges, " +
-                   std::to_string(tips) + " tips");
+               std::to_string(totalRows) + " rows, " + std::to_string(maxLanes) + " lanes max, " +
+                   std::to_string(merges) + " merges, " + std::to_string(tips) + " tips");
 
         const auto perRow = [&](std::size_t total) {
             return static_cast<int>(static_cast<double>(total) /
@@ -274,13 +276,12 @@ int main(int argc, char** argv) {
         git_status_options statusOpts;
         gity::git::check(git_status_options_init(&statusOpts, GIT_STATUS_OPTIONS_VERSION),
                          "initialize status options");
-        statusOpts.flags = GIT_STATUS_OPT_INCLUDE_UNTRACKED |
-                           GIT_STATUS_OPT_RECURSE_UNTRACKED_DIRS;
+        statusOpts.flags = GIT_STATUS_OPT_INCLUDE_UNTRACKED | GIT_STATUS_OPT_RECURSE_UNTRACKED_DIRS;
 
         watch.reset();
         gity::git::StatusListHandle statusList;
         gity::git::check(git_status_list_new(statusList.receive(), repo.get(), &statusOpts),
-                       "compute status");
+                         "compute status");
         const double statusMs = watch.elapsedMs();
         const std::size_t statusEntries = git_status_list_entrycount(statusList.get());
         record("status (libgit2)", statusMs, std::to_string(statusEntries) + " entries");
@@ -290,8 +291,8 @@ int main(int argc, char** argv) {
 #else
         constexpr const char* kDevNull = " 2>/dev/null";
 #endif
-        const auto cliStatus = timeCommand("git -C \"" + workdir.string() +
-                                           "\" status --porcelain=v2" + kDevNull);
+        const auto cliStatus =
+            timeCommand("git -C \"" + workdir.string() + "\" status --porcelain=v2" + kDevNull);
         if (cliStatus.ok) {
             record("status (git CLI)", cliStatus.ms, std::to_string(cliStatus.lines) + " lines");
         }
@@ -309,16 +310,16 @@ int main(int argc, char** argv) {
         if (git_commit_parentcount(head.get()) > 0) {
             gity::git::CommitHandle parent;
             gity::git::check(git_commit_parent(parent.receive(), head.get(), 0),
-                           "look up the first parent");
+                             "look up the first parent");
             gity::git::TreeHandle parentTree;
             gity::git::check(git_commit_tree(parentTree.receive(), parent.get()),
-                           "read the parent tree");
+                             "read the parent tree");
 
             watch.reset();
             gity::git::DiffHandle diff;
             gity::git::check(git_diff_tree_to_tree(diff.receive(), repo.get(), parentTree.get(),
-                                                 headTree.get(), nullptr),
-                           "diff HEAD~1 against HEAD");
+                                                   headTree.get(), nullptr),
+                             "diff HEAD~1 against HEAD");
             const double diffMs = watch.elapsedMs();
             record("diff HEAD~1..HEAD", diffMs,
                    std::to_string(git_diff_num_deltas(diff.get())) + " deltas");
@@ -327,8 +328,8 @@ int main(int argc, char** argv) {
         watch.reset();
         gity::git::DiffHandle workdirDiff;
         gity::git::check(git_diff_tree_to_workdir_with_index(workdirDiff.receive(), repo.get(),
-                                                           headTree.get(), nullptr),
-                       "diff HEAD against the worktree");
+                                                             headTree.get(), nullptr),
+                         "diff HEAD against the worktree");
         const double workdirMs = watch.elapsedMs();
         record("diff HEAD..worktree", workdirMs,
                std::to_string(git_diff_num_deltas(workdirDiff.get())) + " deltas");
@@ -339,8 +340,7 @@ int main(int argc, char** argv) {
         std::printf("  Object cache ..... %s\n", cacheNote.c_str());
         std::printf("  Batch size ....... %zu rows/chunk\n", streamOptions.batchSize);
         std::printf("  commit-graph ..... %s\n",
-                    std::filesystem::exists(workdir / ".git" / "objects" / "info" /
-                                            "commit-graph")
+                    std::filesystem::exists(workdir / ".git" / "objects" / "info" / "commit-graph")
                         ? "present"
                         : "absent");
         if (stats.cancelled) {
@@ -355,8 +355,7 @@ int main(int argc, char** argv) {
         if (cliStatus.ok && statusMs > 0.0) {
             const double ratio = cliStatus.ms / statusMs;
             std::printf("  status ratio ..... libgit2 is %.2fx %s than the CLI here\n",
-                        ratio >= 1.0 ? ratio : 1.0 / ratio,
-                        ratio >= 1.0 ? "faster" : "SLOWER");
+                        ratio >= 1.0 ? ratio : 1.0 / ratio, ratio >= 1.0 ? "faster" : "SLOWER");
         }
         std::printf("\n");
 

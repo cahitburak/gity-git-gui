@@ -18,19 +18,17 @@ bool commitMatches(std::string_view summary, std::string_view author, std::strin
         if (needle.size() > haystack.size()) {
             return false;
         }
-        const auto fold = [](unsigned char c) {
-            return static_cast<char>(std::tolower(c));
-        };
+        const auto fold = [](unsigned char c) { return static_cast<char>(std::tolower(c)); };
         return std::search(haystack.begin(), haystack.end(), needle.begin(), needle.end(),
-                           [&](char a, char b) { return fold(static_cast<unsigned char>(a)) ==
-                                                        fold(static_cast<unsigned char>(b)); }) !=
-               haystack.end();
+                           [&](char a, char b) {
+                               return fold(static_cast<unsigned char>(a)) ==
+                                      fold(static_cast<unsigned char>(b));
+                           }) != haystack.end();
     };
     // Id matched as a prefix rather than anywhere: a hex fragment appearing in
     // the middle of an unrelated hash is a coincidence, not a match.
     return containsFold(summary, filter) || containsFold(author, filter) ||
-           (idHex.size() >= filter.size() &&
-            containsFold(idHex.substr(0, filter.size()), filter));
+           (idHex.size() >= filter.size() && containsFold(idHex.substr(0, filter.size()), filter));
 }
 
 bool CommitFilter::matches(std::string_view summary, std::string_view authorName,

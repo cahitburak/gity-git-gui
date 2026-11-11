@@ -103,8 +103,8 @@ TEST(ClassifyNetwork, FetchWithNothingToDoProducesNoSummary) {
 TEST(ClassifyNetwork, FastForwardPullFallsBackToStdout) {
     // pull writes its result to stdout and leaves stderr empty, and only the
     // first line belongs in a status bar.
-    const auto outcome = classifyNetwork(
-        true, "Updating dfeae99..64bdf07\nFast-forward\n Assets/c.txt | 1 +\n", "");
+    const auto outcome =
+        classifyNetwork(true, "Updating dfeae99..64bdf07\nFast-forward\n Assets/c.txt | 1 +\n", "");
     EXPECT_EQ(outcome.summary, "Updating dfeae99..64bdf07");
 }
 
@@ -199,20 +199,19 @@ TEST(ClassifyNetwork, APrivateRepositoryYouCannotSeeIsNotAMissingRepository) {
     // repositories exist — so "not found" here almost always means "your
     // credentials cannot see it", and reporting git's words verbatim sends
     // someone hunting for a typo in a URL that is correct.
-    const auto outcome = classifyNetwork(
-        false, "",
-        "remote: Repository not found.\n"
-        "fatal: repository 'https://github.com/Org/project.git/' not found\n");
+    const auto outcome =
+        classifyNetwork(false, "",
+                        "remote: Repository not found.\n"
+                        "fatal: repository 'https://github.com/Org/project.git/' not found\n");
     EXPECT_EQ(outcome.failure, NetworkFailure::NotFoundOrNoAccess);
 }
 
 TEST(ClassifyNetwork, AMisspeltRemoteNameLandsInTheSamePlace) {
     // Different wording, same question to ask the user: which remote, and can
     // the credentials in use reach it.
-    const auto outcome =
-        classifyNetwork(false, "",
-                        "fatal: 'upstrem' does not appear to be a git repository\n"
-                        "fatal: Could not read from remote repository.\n");
+    const auto outcome = classifyNetwork(false, "",
+                                         "fatal: 'upstrem' does not appear to be a git repository\n"
+                                         "fatal: Could not read from remote repository.\n");
     EXPECT_EQ(outcome.failure, NetworkFailure::NotFoundOrNoAccess);
 }
 
@@ -227,9 +226,9 @@ TEST(ClassifyNetwork, AGenuineAuthFailureIsStillToldApartFromNotFound) {
 
 TEST(NetworkOutcome, AStaleLeaseIsItsOwnRefusal) {
     // What git 2.55 prints when --force-with-lease finds the remote moved.
-    const auto outcome = gity::git::classifyNetwork(
-        false, "",
-        "To ../o.git\n ! [rejected]        main -> main (stale info)\n"
-        "error: failed to push some refs to '../o.git'\n");
+    const auto outcome =
+        gity::git::classifyNetwork(false, "",
+                                   "To ../o.git\n ! [rejected]        main -> main (stale info)\n"
+                                   "error: failed to push some refs to '../o.git'\n");
     EXPECT_EQ(outcome.failure, gity::git::NetworkFailure::LeaseRejected);
 }

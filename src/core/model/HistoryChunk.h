@@ -25,9 +25,7 @@ struct HistoryChunk {
 
     [[nodiscard]] std::size_t rowCount() const noexcept { return graph.rows.size(); }
 
-    [[nodiscard]] std::size_t bytes() const noexcept {
-        return graph.bytes() + commits.bytes();
-    }
+    [[nodiscard]] std::size_t bytes() const noexcept { return graph.bytes() + commits.bytes(); }
 };
 
 } // namespace gity::model

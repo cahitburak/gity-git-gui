@@ -63,7 +63,8 @@ public:
 
 signals:
     /// `notes` says which stores could not be read, and why.
-    void listed(const QList<gity::session::StoredCredential>& credentials, const QStringList& notes);
+    void listed(const QList<gity::session::StoredCredential>& credentials,
+                const QStringList& notes);
     void revealed(const QString& secret, const QString& problem);
     void finished(bool ok, const QString& message);
 };

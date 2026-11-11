@@ -1,77 +1,76 @@
 #include "MainWindow.h"
 
-#include "ui/graphview/CommitGraphView.h"
-#include "ui/graphview/GraphHeader.h"
-#include "ui/diffview/DiffView.h"
+#include "core/git/Provider.h"
+#include "core/git/PullRequest.h"
+#include "session/Accounts.h"
 #include "session/GitProcess.h"
 #include "session/RepoWatcher.h"
-#include "ui/panels/CommitDetailPanel.h"
+#include "ui/diffview/DiffView.h"
+#include "ui/graphview/CommitGraphView.h"
+#include "ui/graphview/GraphHeader.h"
+#include "ui/image/ImageDiffView.h"
 #include "ui/panels/CloneDialog.h"
+#include "ui/panels/CommandLogView.h"
+#include "ui/panels/CommitDetailPanel.h"
 #include "ui/panels/Confirm.h"
 #include "ui/panels/OperationBanner.h"
-#include "ui/panels/RebaseDialog.h"
-#include "ui/panels/RepositoryTabs.h"
-#include "ui/theme/ToolbarIcons.h"
-#include "ui/panels/RemotesDialog.h"
-#include "ui/panels/SettingsDialog.h"
-#include "session/Accounts.h"
-#include "core/git/PullRequest.h"
-#include "core/git/Provider.h"
-#include "ui/image/ImageDiffView.h"
-#include "ui/panels/RefsSidebar.h"
-#include "ui/panels/CommandLogView.h"
 #include "ui/panels/PreviewDialog.h"
+#include "ui/panels/RebaseDialog.h"
+#include "ui/panels/RefsSidebar.h"
+#include "ui/panels/RemotesDialog.h"
+#include "ui/panels/RepositoryTabs.h"
+#include "ui/panels/SettingsDialog.h"
 #include "ui/panels/WelcomePanel.h"
 #include "ui/panels/WorkingCopyPanel.h"
 #include "ui/theme/Theme.h"
 #include "ui/theme/Tokens.h"
+#include "ui/theme/ToolbarIcons.h"
 
 #include <QCloseEvent>
 #include <QDir>
 #include <QMetaMethod>
 
-#include <algorithm>
-#include <QFileInfo>
-#include <QSplitter>
-#include <QLineEdit>
-#include <QVBoxLayout>
-#include <QStackedWidget>
-#include <QTabBar>
-#include <QTabWidget>
-#include <QToolBar>
-#include <git2.h>
-#include <QDesktopServices>
-#include <QUrl>
-#include <QFileDialog>
-#include <QTimer>
-#include <QClipboard>
-#include <QGuiApplication>
-#include <QCheckBox>
-#include <QComboBox>
-#include <QDialogButtonBox>
-#include <QDialog>
-#include <QRadioButton>
 #include <QActionGroup>
 #include <QApplication>
-#include <QDateTime>
-#include <QLocale>
+#include <QCheckBox>
+#include <QClipboard>
+#include <QComboBox>
 #include <QDateEdit>
-#include <QRegularExpression>
+#include <QDateTime>
+#include <QDesktopServices>
+#include <QDialog>
+#include <QDialogButtonBox>
+#include <QDockWidget>
+#include <QFileDialog>
+#include <QFileInfo>
 #include <QFormLayout>
+#include <QGuiApplication>
 #include <QInputDialog>
-#include <QMenu>
-#include <QPushButton>
-#include <QStyle>
 #include <QLabel>
+#include <QLineEdit>
+#include <QLocale>
+#include <QMenu>
 #include <QMenuBar>
 #include <QMessageBox>
+#include <QPushButton>
+#include <QRadioButton>
+#include <QRegularExpression>
+#include <QScreen>
 #include <QSettings>
 #include <QSignalBlocker>
-#include <QDockWidget>
-#include <QScreen>
 #include <QSplitter>
+#include <QStackedWidget>
 #include <QStatusBar>
+#include <QStyle>
+#include <QTabBar>
+#include <QTabWidget>
+#include <QTimer>
+#include <QToolBar>
 #include <QToolButton>
+#include <QUrl>
+#include <QVBoxLayout>
+#include <algorithm>
+#include <git2.h>
 
 namespace gity::app {
 namespace tokens = gity::ui::tokens;
@@ -264,14 +263,11 @@ MainWindow::MainWindow(QWidget* parent) : QMainWindow(parent) {
     // rather than an empty graph saying to use the File menu.
     welcome_ = new gity::ui::WelcomePanel(this);
     tabs->addWidget(welcome_);
-    connect(welcome_, &gity::ui::WelcomePanel::openRequested, this,
-            &MainWindow::chooseRepository);
+    connect(welcome_, &gity::ui::WelcomePanel::openRequested, this, &MainWindow::chooseRepository);
     connect(welcome_, &gity::ui::WelcomePanel::cloneRequested, this, &MainWindow::chooseClone);
-    connect(welcome_, &gity::ui::WelcomePanel::recentActivated, this,
-            &MainWindow::openRepository);
+    connect(welcome_, &gity::ui::WelcomePanel::recentActivated, this, &MainWindow::openRepository);
     welcome_->setRecent(recentRepositories());
     tabs->setCurrentIndex(ScreenWelcome);
-
 
     // The banner sits above every screen rather than inside one: being
     // mid-merge is true of the repository, not of whichever view happens to be
@@ -403,8 +399,7 @@ MainWindow::MainWindow(QWidget* parent) : QMainWindow(parent) {
             &MainWindow::onFileActivated);
     connect(refs_, &gity::ui::RefsSidebar::screenRequested, this, &MainWindow::showScreen);
 
-    connect(&relay_, &gity::session::RepoSession::statusReady, this,
-            &MainWindow::onStatusReady);
+    connect(&relay_, &gity::session::RepoSession::statusReady, this, &MainWindow::onStatusReady);
     connect(&relay_, &gity::session::RepoSession::imageDiffReady, this,
             &MainWindow::onImageDiffReady);
     connect(&relay_, &gity::session::RepoSession::networkStarted, this,
@@ -436,31 +431,27 @@ MainWindow::MainWindow(QWidget* parent) : QMainWindow(parent) {
     });
     connect(&relay_, &gity::session::RepoSession::operationChanged, this,
             [this](int operation, const QString& noun) {
-                operationBanner_->setOperation(static_cast<gity::git::Operation>(operation),
-                                               noun);
+                operationBanner_->setOperation(static_cast<gity::git::Operation>(operation), noun);
             });
     connect(&relay_, &gity::session::RepoSession::historyEditFinished, this,
             &MainWindow::onHistoryEditFinished);
-    connect(&relay_, &gity::session::RepoSession::undoStateChanged, this,
-            [this](const QString& undoLabel, const QString& redoLabel) {
-                undoAction_->setEnabled(!undoLabel.isEmpty());
-                undoAction_->setText(undoLabel.isEmpty() ? tr("&Undo")
-                                                         : tr("&Undo %1").arg(undoLabel));
-                redoAction_->setEnabled(!redoLabel.isEmpty());
-                redoAction_->setText(redoLabel.isEmpty() ? tr("&Redo")
-                                                         : tr("&Redo %1").arg(redoLabel));
-                gity::ui::describeCommand(
-                    undoAction_,
-                    tr("Put branches, tags, stashes and the working copy back as they were "
-                       "before it. What is there now is kept, and Redo brings it back."),
-                    QStringLiteral("update-ref · read-tree  (see the Command Log)"));
-            });
+    connect(
+        &relay_, &gity::session::RepoSession::undoStateChanged, this,
+        [this](const QString& undoLabel, const QString& redoLabel) {
+            undoAction_->setEnabled(!undoLabel.isEmpty());
+            undoAction_->setText(undoLabel.isEmpty() ? tr("&Undo") : tr("&Undo %1").arg(undoLabel));
+            redoAction_->setEnabled(!redoLabel.isEmpty());
+            redoAction_->setText(redoLabel.isEmpty() ? tr("&Redo") : tr("&Redo %1").arg(redoLabel));
+            gity::ui::describeCommand(
+                undoAction_,
+                tr("Put branches, tags, stashes and the working copy back as they were "
+                   "before it. What is there now is kept, and Redo brings it back."),
+                QStringLiteral("update-ref · read-tree  (see the Command Log)"));
+        });
     connect(graph_, &gity::ui::CommitGraphView::rowContextMenuRequested, this,
             &MainWindow::onCommitContextMenu);
-    connect(refs_, &gity::ui::RefsSidebar::checkoutRequested, this,
-            &MainWindow::confirmCheckout);
-    connect(refs_, &gity::ui::RefsSidebar::submoduleActivated, this,
-            &MainWindow::openSubmodule);
+    connect(refs_, &gity::ui::RefsSidebar::checkoutRequested, this, &MainWindow::confirmCheckout);
+    connect(refs_, &gity::ui::RefsSidebar::submoduleActivated, this, &MainWindow::openSubmodule);
     // Clicking a branch or tag takes the graph to its tip. Without this the
     // sidebar navigated to the history screen and left it wherever it was,
     // which is not what clicking a branch means.
@@ -478,19 +469,19 @@ MainWindow::MainWindow(QWidget* parent) : QMainWindow(parent) {
     });
     connect(refs_, &gity::ui::RefsSidebar::checkoutRefRequested, this,
             &MainWindow::confirmCheckout);
-    connect(refs_, &gity::ui::RefsSidebar::deleteTagRequested, this,
-            [this](const QString& name) {
-                // The button says what it does, and Cancel is the default.
-                if (gity::ui::confirmDestructive(
-                        this, tr("Delete tag?"), tr("Delete \"%1\" locally?").arg(name),
-                        tr("A tag already pushed stays on the remote until it is deleted "
-                           "there too. Edit ▸ Undo brings the local one back."),
-                        tr("Delete Tag"))) {
-                    session_->requestDeleteTag(name);
-                }
-            });
-    connect(refs_, &gity::ui::RefsSidebar::pushRefRequested, this,
-            [this](const QString& branch) { askPreview(gity::session::Preview::Kind::Push, {}, branch); });
+    connect(refs_, &gity::ui::RefsSidebar::deleteTagRequested, this, [this](const QString& name) {
+        // The button says what it does, and Cancel is the default.
+        if (gity::ui::confirmDestructive(
+                this, tr("Delete tag?"), tr("Delete \"%1\" locally?").arg(name),
+                tr("A tag already pushed stays on the remote until it is deleted "
+                   "there too. Edit ▸ Undo brings the local one back."),
+                tr("Delete Tag"))) {
+            session_->requestDeleteTag(name);
+        }
+    });
+    connect(refs_, &gity::ui::RefsSidebar::pushRefRequested, this, [this](const QString& branch) {
+        askPreview(gity::session::Preview::Kind::Push, {}, branch);
+    });
     connect(refs_, &gity::ui::RefsSidebar::mergeRequested, this,
             [this](const QString& ref) { askPreview(gity::session::Preview::Kind::Merge, ref); });
     connect(refs_, &gity::ui::RefsSidebar::newBranchFromRequested, this,
@@ -505,13 +496,12 @@ MainWindow::MainWindow(QWidget* parent) : QMainWindow(parent) {
     // Where the working tree is not watched (macOS and Windows for now), or
     // a watch limit was reached, coming back to the window is when an edit
     // made elsewhere is most likely to be looked for.
-    connect(qApp, &QGuiApplication::applicationStateChanged, this,
-            [this](Qt::ApplicationState state) {
-                if (state == Qt::ApplicationActive && !currentWorkdir_.isEmpty() &&
-                    !session_->busy()) {
-                    session_->requestStatus();
-                }
-            });
+    connect(
+        qApp, &QGuiApplication::applicationStateChanged, this, [this](Qt::ApplicationState state) {
+            if (state == Qt::ApplicationActive && !currentWorkdir_.isEmpty() && !session_->busy()) {
+                session_->requestStatus();
+            }
+        });
     connect(refs_, &gity::ui::RefsSidebar::interactiveRebaseRequested, this,
             [this](const QString& oid, const QString& label) { startRebase(oid, label); });
     connect(repoTabs_, &gity::ui::RepositoryTabs::tabsChanged, this, [this] {
@@ -543,9 +533,8 @@ MainWindow::MainWindow(QWidget* parent) : QMainWindow(parent) {
                 // Compared canonically, not as raw strings: the same
                 // directory reaches this code spelled more than one way, and
                 // assuming otherwise is what emptied the tab set.
-                if (path.isEmpty() ||
-                    gity::ui::RepositoryTabs::canonical(path) ==
-                        gity::ui::RepositoryTabs::canonical(currentWorkdir_)) {
+                if (path.isEmpty() || gity::ui::RepositoryTabs::canonical(path) ==
+                                          gity::ui::RepositoryTabs::canonical(currentWorkdir_)) {
                     return;
                 }
                 switchingRepository_ = true;
@@ -555,16 +544,15 @@ MainWindow::MainWindow(QWidget* parent) : QMainWindow(parent) {
     connect(refs_, &gity::ui::RefsSidebar::stashApplyRequested, this, [this](auto&&... args) {
         session_->requestStashApply(std::forward<decltype(args)>(args)...);
     });
-    connect(refs_, &gity::ui::RefsSidebar::stashDropRequested, this,
-            [this](const QString& ref) {
-                if (gity::ui::confirmDestructive(
-                        this, tr("Drop stash?"), tr("Discard %1?").arg(ref),
-                        tr("Its changes leave the stash list. Edit ▸ Undo puts it back, for "
-                           "as long as git keeps unreachable objects (30 days by default)."),
-                        tr("Drop Stash"))) {
-                    session_->requestStashDrop(ref);
-                }
-            });
+    connect(refs_, &gity::ui::RefsSidebar::stashDropRequested, this, [this](const QString& ref) {
+        if (gity::ui::confirmDestructive(
+                this, tr("Drop stash?"), tr("Discard %1?").arg(ref),
+                tr("Its changes leave the stash list. Edit ▸ Undo puts it back, for "
+                   "as long as git keeps unreachable objects (30 days by default)."),
+                tr("Drop Stash"))) {
+            session_->requestStashDrop(ref);
+        }
+    });
     connect(refs_, &gity::ui::RefsSidebar::pinRequested, this,
             [this](const QString& fullName, bool pin) {
                 if (currentWorkdir_.isEmpty()) {
@@ -580,16 +568,18 @@ MainWindow::MainWindow(QWidget* parent) : QMainWindow(parent) {
                 // into it.
                 QSettings settings(QStringLiteral("Gity"), QStringLiteral("Gity"));
                 QList<QPair<QString, QStringList>> all = readPinned(settings);
-                all.erase(std::remove_if(all.begin(), all.end(),
-                                         [this](const auto& e) { return e.first == currentWorkdir_; }),
-                          all.end());
+                all.erase(
+                    std::remove_if(all.begin(), all.end(),
+                                   [this](const auto& e) { return e.first == currentWorkdir_; }),
+                    all.end());
                 if (!pinned.isEmpty()) {
                     all.append({currentWorkdir_, pinned});
                 }
                 // An array of plain entries, so the file stays readable and
                 // editable by hand.
                 settings.remove(QStringLiteral("pinnedBranches"));
-                settings.beginWriteArray(QStringLiteral("pinnedBranches"), static_cast<int>(all.size()));
+                settings.beginWriteArray(QStringLiteral("pinnedBranches"),
+                                         static_cast<int>(all.size()));
                 for (int i = 0; i < all.size(); ++i) {
                     settings.setArrayIndex(i);
                     settings.setValue(QStringLiteral("repository"), all[i].first);
@@ -598,18 +588,18 @@ MainWindow::MainWindow(QWidget* parent) : QMainWindow(parent) {
                 settings.endArray();
                 refs_->setPinned(pinned);
             });
-    connect(refs_, &gity::ui::RefsSidebar::deleteBranchRequested, this,
-            [this](const QString& name, bool) {
-                const auto answer = QMessageBox::question(
-                    this, tr("Delete branch?"),
-                    tr("Delete \"%1\"?\n\nCommits it shares with another branch are kept.")
-                        .arg(name),
-                    QMessageBox::Yes | QMessageBox::No, QMessageBox::No);
-                if (answer == QMessageBox::Yes) {
-                    pendingBranchDelete_ = name;
-                    session_->requestDeleteBranch(name, false);
-                }
-            });
+    connect(
+        refs_, &gity::ui::RefsSidebar::deleteBranchRequested, this,
+        [this](const QString& name, bool) {
+            const auto answer = QMessageBox::question(
+                this, tr("Delete branch?"),
+                tr("Delete \"%1\"?\n\nCommits it shares with another branch are kept.").arg(name),
+                QMessageBox::Yes | QMessageBox::No, QMessageBox::No);
+            if (answer == QMessageBox::Yes) {
+                pendingBranchDelete_ = name;
+                session_->requestDeleteBranch(name, false);
+            }
+        });
     connect(&relay_, &gity::session::RepoSession::cloneFinished, this,
             [this](const QString& path) { openRepository(path); });
     connect(&relay_, &gity::session::RepoSession::networkFinished, this,
@@ -637,8 +627,9 @@ MainWindow::MainWindow(QWidget* parent) : QMainWindow(parent) {
                 // branch is almost always proposed on.
                 QString noun;
                 if (remotes && !remotes->empty()) {
-                    const auto origin = std::find_if(remotes->begin(), remotes->end(),
-                                                     [](const auto& r) { return r.name == "origin"; });
+                    const auto origin =
+                        std::find_if(remotes->begin(), remotes->end(),
+                                     [](const auto& r) { return r.name == "origin"; });
                     const auto& remote = origin != remotes->end() ? *origin : remotes->front();
                     const gity::git::Provider provider = providerFor(remote.fetchUrl);
                     if (provider != gity::git::Provider::Other &&
@@ -667,32 +658,30 @@ MainWindow::MainWindow(QWidget* parent) : QMainWindow(parent) {
     connect(changes_, &gity::ui::WorkingCopyPanel::commitRequested, this, [this](auto&&... args) {
         session_->requestCommit(std::forward<decltype(args)>(args)...);
     });
-    connect(changes_, &gity::ui::WorkingCopyPanel::applyPatchRequested, this, [this](auto&&... args) {
-        session_->requestApplyPatch(std::forward<decltype(args)>(args)...);
-    });
-    connect(changes_, &gity::ui::WorkingCopyPanel::discardHunkRequested, this, [this](auto&&... args) {
-        session_->requestDiscardPatch(std::forward<decltype(args)>(args)...);
-    });
-    connect(&relay_, &gity::session::RepoSession::commitFailed, changes_,
-            [this](const QString& message, const QString&) {
-                changes_->showCommitFailed(message);
+    connect(changes_, &gity::ui::WorkingCopyPanel::applyPatchRequested, this,
+            [this](auto&&... args) {
+                session_->requestApplyPatch(std::forward<decltype(args)>(args)...);
             });
-    connect(&relay_, &gity::session::RepoSession::committed, this,
-            [this](const QString& summary) {
-                changes_->showCommitted(summary);
-                // A commit changes history and refs, so reopen rather than
-                // patching the model in place.
-                openRepository(currentWorkdir_);
+    connect(changes_, &gity::ui::WorkingCopyPanel::discardHunkRequested, this,
+            [this](auto&&... args) {
+                session_->requestDiscardPatch(std::forward<decltype(args)>(args)...);
             });
+    connect(
+        &relay_, &gity::session::RepoSession::commitFailed, changes_,
+        [this](const QString& message, const QString&) { changes_->showCommitFailed(message); });
+    connect(&relay_, &gity::session::RepoSession::committed, this, [this](const QString& summary) {
+        changes_->showCommitted(summary);
+        // A commit changes history and refs, so reopen rather than
+        // patching the model in place.
+        openRepository(currentWorkdir_);
+    });
 }
-
 
 void MainWindow::showChangesTab() {
     if (tabs_ != nullptr) {
         tabs_->setCurrentIndex(ScreenChanges);
     }
 }
-
 
 void MainWindow::showImageTab(const QString& path) {
     // The working copy's version against HEAD, in the Changes tab's diff area.
@@ -718,10 +707,10 @@ void MainWindow::buildMenus() {
         recent->clear();
         const QStringList paths = recentRepositories();
         for (const QString& path : paths) {
-            QAction* action = recent->addAction(
-                QStringLiteral("%1  —  %2").arg(QDir(path).dirName(),
-                                               QDir::toNativeSeparators(path)),
-                this, [this, path] { openRepository(path); });
+            QAction* action =
+                recent->addAction(QStringLiteral("%1  —  %2")
+                                      .arg(QDir(path).dirName(), QDir::toNativeSeparators(path)),
+                                  this, [this, path] { openRepository(path); });
             action->setEnabled(QFileInfo::exists(path));
         }
         if (paths.isEmpty()) {
@@ -744,10 +733,10 @@ void MainWindow::buildMenus() {
     // Undo for what was done to the repository — a rebase, a reset, a deleted
     // branch — not for typing: a text field keeps Ctrl+Z for itself while it
     // has focus. Labelled with what it will undo, so it is never a guess.
-    undoAction_ = edit->addAction(tr("&Undo"), QKeySequence::Undo, this,
-                                  [this] { session_->requestUndo(); });
-    redoAction_ = edit->addAction(tr("&Redo"), QKeySequence::Redo, this,
-                                  [this] { session_->requestRedo(); });
+    undoAction_ =
+        edit->addAction(tr("&Undo"), QKeySequence::Undo, this, [this] { session_->requestUndo(); });
+    redoAction_ =
+        edit->addAction(tr("&Redo"), QKeySequence::Redo, this, [this] { session_->requestRedo(); });
     undoAction_->setEnabled(false);
     redoAction_->setEnabled(false);
     edit->addSeparator();
@@ -837,8 +826,7 @@ void MainWindow::buildMenus() {
                               [this] { askPreview(gity::session::Preview::Kind::Push); }),
     };
     repository->addSeparator();
-    repository->addAction(tr("Refresh &LFS Locks"), this,
-                                  [this] { session_->requestLocks(); });
+    repository->addAction(tr("Refresh &LFS Locks"), this, [this] { session_->requestLocks(); });
 
     QMenu* branch = menuBar()->addMenu(tr("&Branch"));
     branch->addAction(tr("&New Branch…"), QKeySequence(Qt::CTRL | Qt::SHIFT | Qt::Key_N), this,
@@ -849,13 +837,12 @@ void MainWindow::buildMenus() {
     branch->addAction(tr("&Compare Branches…"), this, &MainWindow::chooseComparison);
     branch->addSeparator();
     branch->addAction(tr("&Rebase onto Branch…"), this, &MainWindow::chooseRebase);
-    branch->addAction(tr("&Interactive Rebase…"),
-                      QKeySequence(Qt::CTRL | Qt::SHIFT | Qt::Key_R), this,
-                      &MainWindow::chooseInteractiveRebase);
+    branch->addAction(tr("&Interactive Rebase…"), QKeySequence(Qt::CTRL | Qt::SHIFT | Qt::Key_R),
+                      this, &MainWindow::chooseInteractiveRebase);
 
     QMenu* stash = menuBar()->addMenu(tr("&Stash"));
-    stash->addAction(tr("&Stash Changes…"), QKeySequence(Qt::CTRL | Qt::SHIFT | Qt::Key_S),
-                     this, &MainWindow::chooseStash);
+    stash->addAction(tr("&Stash Changes…"), QKeySequence(Qt::CTRL | Qt::SHIFT | Qt::Key_S), this,
+                     &MainWindow::chooseStash);
 
     // Everything in these menus acts on the repository on screen, so none of
     // it — shortcuts included — is live while there is none. The toolbar's
@@ -869,10 +856,8 @@ void MainWindow::buildMenus() {
         }
     }
 
-
     edit->addSeparator();
-    edit->addAction(tr("&Settings…"), QKeySequence::Preferences, this,
-                    [this] { openSettings(); });
+    edit->addAction(tr("&Settings…"), QKeySequence::Preferences, this, [this] { openSettings(); });
 
     QMenu* tools = menuBar()->addMenu(tr("&Tools"));
     tools->addAction(tr("&Accounts…"), this, [this] { openSettings(SettingsPage::Accounts); });
@@ -943,31 +928,30 @@ void MainWindow::buildToolBar() {
     fetchAction_->setMenu(fetchMenu);
     // Pull and Push say what they will do before doing it: the preview is
     // the first step of both, and the command runs from its dialog.
-    connect(pullAction_, &QAction::triggered, this, [this] { askPreview(gity::session::Preview::Kind::Pull); });
-    connect(pushAction_, &QAction::triggered, this, [this] { askPreview(gity::session::Preview::Kind::Push); });
+    connect(pullAction_, &QAction::triggered, this,
+            [this] { askPreview(gity::session::Preview::Kind::Pull); });
+    connect(pushAction_, &QAction::triggered, this,
+            [this] { askPreview(gity::session::Preview::Kind::Push); });
     for (QAction* action : {fetchAction_, pullAction_, pushAction_}) {
         action->setEnabled(false); // until a repository is open
     }
 
     bar->addSeparator();
-    branchAction_ = bar->addAction(gity::ui::icons::themed(Glyph::Branch),
-                                   tr("Branch"));
+    branchAction_ = bar->addAction(gity::ui::icons::themed(Glyph::Branch), tr("Branch"));
     branchAction_->setEnabled(false);
     connect(branchAction_, &QAction::triggered, this, &MainWindow::chooseNewBranch);
-    stashAction_ = bar->addAction(gity::ui::icons::themed(Glyph::Stash),
-                                  tr("Stash"));
+    stashAction_ = bar->addAction(gity::ui::icons::themed(Glyph::Stash), tr("Stash"));
     stashAction_->setEnabled(false);
     connect(stashAction_, &QAction::triggered, this, &MainWindow::chooseStash);
-    mergeAction_ = bar->addAction(gity::ui::icons::themed(Glyph::Merge),
-                                  tr("Merge"));
+    mergeAction_ = bar->addAction(gity::ui::icons::themed(Glyph::Merge), tr("Merge"));
     mergeAction_->setEnabled(false);
     connect(mergeAction_, &QAction::triggered, this, &MainWindow::chooseMerge);
-    rebaseAction_ = bar->addAction(gity::ui::icons::themed(Glyph::Rebase),
-                                   tr("Rebase"));
+    rebaseAction_ = bar->addAction(gity::ui::icons::themed(Glyph::Rebase), tr("Rebase"));
     rebaseAction_->setEnabled(false);
     using gity::ui::describeCommand;
-    describeCommand(fetchAction_, tr("Download new commits from every remote, submodules' "
-                                     "included. Nothing local changes."),
+    describeCommand(fetchAction_,
+                    tr("Download new commits from every remote, submodules' "
+                       "included. Nothing local changes."),
                     QStringLiteral("fetch --all --prune  ·  in each submodule too"));
     describeCommand(pullAction_,
                     tr("Bring the current branch up to date with its upstream — only when "
@@ -990,8 +974,7 @@ void MainWindow::buildToolBar() {
     // right-clicking a commit is how it came to be reported as missing.
     auto* rebaseMenu = new QMenu(this);
     rebaseMenu->addAction(tr("Rebase onto Branch…"), this, &MainWindow::chooseRebase);
-    rebaseMenu->addAction(tr("Interactive Rebase…"), this,
-                          &MainWindow::chooseInteractiveRebase);
+    rebaseMenu->addAction(tr("Interactive Rebase…"), this, &MainWindow::chooseInteractiveRebase);
     rebaseAction_->setMenu(rebaseMenu);
     connect(rebaseAction_, &QAction::triggered, this, &MainWindow::chooseRebase);
 
@@ -1003,9 +986,9 @@ void MainWindow::buildToolBar() {
     spacer->setAttribute(Qt::WA_TransparentForMouseEvents);
     bar->addWidget(spacer);
     QAction* settings = bar->addAction(gity::ui::icons::themed(Glyph::Settings), tr("Settings"));
-    settings->setToolTip(tr("Settings — accounts, credentials, appearance (%1)")
-                             .arg(QKeySequence(QKeySequence::Preferences)
-                                      .toString(QKeySequence::NativeText)));
+    settings->setToolTip(
+        tr("Settings — accounts, credentials, appearance (%1)")
+            .arg(QKeySequence(QKeySequence::Preferences).toString(QKeySequence::NativeText)));
     connect(settings, &QAction::triggered, this, [this] { openSettings(SettingsPage::General); });
 
     commitFilter_ = new QLineEdit(this);
@@ -1023,8 +1006,7 @@ void MainWindow::buildToolBar() {
     filterDebounce_->setSingleShot(true);
     filterDebounce_->setInterval(250);
     connect(filterDebounce_, &QTimer::timeout, this, &MainWindow::applyCommitFilter);
-    connect(commitFilter_, &QLineEdit::textChanged, this,
-            [this] { filterDebounce_->start(); });
+    connect(commitFilter_, &QLineEdit::textChanged, this, [this] { filterDebounce_->start(); });
 
     // Who: every contributor the history has, most commits first, and free
     // text for part of a name.
@@ -1049,8 +1031,8 @@ void MainWindow::buildToolBar() {
             if (days == 0) {
                 filterSince_ = 0;
             } else {
-                filterSince_ = QDateTime(QDate::currentDate().addDays(-days), QTime(0, 0))
-                                   .toSecsSinceEpoch();
+                filterSince_ =
+                    QDateTime(QDate::currentDate().addDays(-days), QTime(0, 0)).toSecsSinceEpoch();
             }
             filterUntil_ = 0;
             refreshDateFilterLabel();
@@ -1128,9 +1110,7 @@ void MainWindow::buildStatusBar() {
     logButton->setAutoRaise(true);
     statusBar()->addPermanentWidget(logButton);
     statusBar()->addPermanentWidget(countLabel_);
-
 }
-
 
 QStringList MainWindow::recentRepositories() const {
     return QSettings(QStringLiteral("Gity"), QStringLiteral("Gity"))
@@ -1146,8 +1126,7 @@ void MainWindow::rememberRepository(const QString& path) {
     const QString canonical = gity::ui::RepositoryTabs::canonical(path);
     recent.erase(std::remove_if(recent.begin(), recent.end(),
                                 [&canonical](const QString& entry) {
-                                    return gity::ui::RepositoryTabs::canonical(entry) ==
-                                           canonical;
+                                    return gity::ui::RepositoryTabs::canonical(entry) == canonical;
                                 }),
                  recent.end());
     recent.prepend(canonical);
@@ -1182,7 +1161,8 @@ void MainWindow::setSessionPersistence(bool enabled) {
         if (name.isEmpty()) {
             continue;
         }
-        const QByteArray saved = settings.value(QStringLiteral("layout/%1").arg(name)).toByteArray();
+        const QByteArray saved =
+            settings.value(QStringLiteral("layout/%1").arg(name)).toByteArray();
         if (!saved.isEmpty()) {
             // A saved state carries its own collapsible flag — and sizes from
             // when panes could still be collapsed to nothing — so the rule is
@@ -1381,15 +1361,14 @@ void MainWindow::openPullRequestPage(const QString& remoteBranch) {
     const auto url = gity::git::newPullRequestUrl(providerFor(remote->fetchUrl), remote->fetchUrl,
                                                   source.toStdString(), target.toStdString());
     if (!url) {
-        statusBar()->showMessage(tr("%1's host is not one Gity knows how to open a page on.")
-                                     .arg(remoteName),
-                                 6000);
+        statusBar()->showMessage(
+            tr("%1's host is not one Gity knows how to open a page on.").arg(remoteName), 6000);
         return;
     }
     QDesktopServices::openUrl(QUrl(QString::fromStdString(*url), QUrl::StrictMode));
     statusBar()->showMessage(tr("Opened the new %1 page for %2 in your browser.")
-                                 .arg(QString::fromStdString(std::string(
-                                          gity::git::pullRequestNoun(providerFor(remote->fetchUrl)))),
+                                 .arg(QString::fromStdString(std::string(gity::git::pullRequestNoun(
+                                          providerFor(remote->fetchUrl)))),
                                       source),
                              6000);
 }
@@ -1501,8 +1480,8 @@ void MainWindow::chooseDateRange() {
     auto* from = dateEdit(filterSince_ != 0 ? QDateTime::fromSecsSinceEpoch(filterSince_).date()
                                             : today.addMonths(-1));
     auto* toOn = new QCheckBox(tr("To"), &dialog);
-    auto* to = dateEdit(filterUntil_ != 0 ? QDateTime::fromSecsSinceEpoch(filterUntil_).date()
-                                          : today);
+    auto* to =
+        dateEdit(filterUntil_ != 0 ? QDateTime::fromSecsSinceEpoch(filterUntil_).date() : today);
     fromOn->setChecked(filterSince_ != 0 || filterUntil_ == 0);
     toOn->setChecked(filterUntil_ != 0);
     form->addRow(fromOn, from);
@@ -1536,7 +1515,8 @@ void MainWindow::chooseDateRange() {
     if (dialog.exec() != QDialog::Accepted) {
         return;
     }
-    filterSince_ = fromOn->isChecked() ? QDateTime(from->date(), QTime(0, 0)).toSecsSinceEpoch() : 0;
+    filterSince_ =
+        fromOn->isChecked() ? QDateTime(from->date(), QTime(0, 0)).toSecsSinceEpoch() : 0;
     // The whole of the last day.
     filterUntil_ =
         toOn->isChecked() ? QDateTime(to->date(), QTime(23, 59, 59)).toSecsSinceEpoch() : 0;
@@ -1565,8 +1545,8 @@ void MainWindow::refreshContributors() {
     authorFilter_->clear();
     for (const auto& [name, count] : ordered) {
         authorFilter_->addItem(name);
-        authorFilter_->setItemData(authorFilter_->count() - 1,
-                                   tr("%n commit(s)", nullptr, count), Qt::ToolTipRole);
+        authorFilter_->setItemData(authorFilter_->count() - 1, tr("%n commit(s)", nullptr, count),
+                                   Qt::ToolTipRole);
     }
     authorFilter_->setCurrentText(typed);
 }
@@ -1596,8 +1576,6 @@ void MainWindow::onOpened(const gity::session::RepoInfo& info) {
     // there whenever settings are opened rather than only after the Remotes
     // dialog has been visited.
     session_->requestRemotes();
-
-
 }
 
 void MainWindow::onRefsReady(gity::session::RefSetPtr refs) {
@@ -1609,8 +1587,7 @@ void MainWindow::onRefsReady(gity::session::RefSetPtr refs) {
     if (refs) {
         syncNetworkState();
         // Merge needs somewhere to merge from.
-        const bool somewhereToGo =
-            refs->localBranches.size() + refs->remoteBranches.size() > 1;
+        const bool somewhereToGo = refs->localBranches.size() + refs->remoteBranches.size() > 1;
         mergeAction_->setEnabled(somewhereToGo);
         rebaseAction_->setEnabled(somewhereToGo);
         branchAction_->setEnabled(true);
@@ -1623,20 +1600,17 @@ void MainWindow::onRefsReady(gity::session::RefSetPtr refs) {
             }
             pullAction_->setText(branch.behind > 0 ? tr("Pull  %1").arg(branch.behind)
                                                    : tr("Pull"));
-            pushAction_->setText(branch.ahead > 0 ? tr("Push  %1").arg(branch.ahead)
-                                                  : tr("Push"));
+            pushAction_->setText(branch.ahead > 0 ? tr("Push  %1").arg(branch.ahead) : tr("Push"));
             gity::ui::describeCommand(
                 pushAction_,
-                branch.hasUpstream
-                    ? tr("Send %1's new commits to %2.")
-                          .arg(QString::fromStdString(branch.name),
-                               QString::fromStdString(branch.upstream))
-                    : tr("Publish %1 — it tracks no upstream branch yet.")
-                          .arg(QString::fromStdString(branch.name)),
-                branch.hasUpstream
-                    ? QStringLiteral("push")
-                    : QStringLiteral("push --set-upstream origin %1")
-                          .arg(QString::fromStdString(branch.name)));
+                branch.hasUpstream ? tr("Send %1's new commits to %2.")
+                                         .arg(QString::fromStdString(branch.name),
+                                              QString::fromStdString(branch.upstream))
+                                   : tr("Publish %1 — it tracks no upstream branch yet.")
+                                         .arg(QString::fromStdString(branch.name)),
+                branch.hasUpstream ? QStringLiteral("push")
+                                   : QStringLiteral("push --set-upstream origin %1")
+                                         .arg(QString::fromStdString(branch.name)));
             break;
         }
     }
@@ -1720,8 +1694,7 @@ void MainWindow::onFailed(const QString& message, const QString& detail) {
             }
         });
     }
-    repoLabel_->setText(currentWorkdir_.isEmpty() ? tr("No repository open")
-                                                  : repoLabel_->text());
+    repoLabel_->setText(currentWorkdir_.isEmpty() ? tr("No repository open") : repoLabel_->text());
     QMessageBox box(QMessageBox::Warning, tr("Could not open repository"), message, QMessageBox::Ok,
                     this);
     if (!detail.isEmpty()) {
@@ -1751,8 +1724,8 @@ void MainWindow::setSummary(const QString& title, const QString& meta) {
 }
 
 void MainWindow::setChangesCount(int files) {
-    commitTabs_->setTabText(kChangesTab, files < 0 ? tr("Changes")
-                                                   : tr("Changes · %L1").arg(files));
+    commitTabs_->setTabText(kChangesTab,
+                            files < 0 ? tr("Changes") : tr("Changes · %L1").arg(files));
 }
 
 void MainWindow::onDetailReady(gity::session::DetailPtr detail) {
@@ -1781,8 +1754,8 @@ void MainWindow::onFileActivated(const QString& path) {
     // An image has no useful textual diff: its before and after are shown in
     // the diff's place — the commit against its parent, or one branch tip
     // against the other.
-    static const QStringList imageSuffixes{"png", "jpg", "jpeg", "tga", "psd",
-                                           "bmp", "gif", "tif", "tiff", "webp"};
+    static const QStringList imageSuffixes{"png", "jpg", "jpeg", "tga",  "psd",
+                                           "bmp", "gif", "tif",  "tiff", "webp"};
     if (imageSuffixes.contains(QFileInfo(path).suffix().toLower())) {
         diffStack_->setCurrentWidget(image_);
         if (comparing) {
@@ -1846,8 +1819,6 @@ void MainWindow::onStatusReady(gity::session::StatusPtr status) {
     changes_->setStatus(status);
 }
 
-
-
 void MainWindow::onCommitContextMenu(qsizetype row, const QPoint& globalPos) {
     const QString oid = model_.fullId(static_cast<std::size_t>(row));
     if (oid.isEmpty()) {
@@ -1866,12 +1837,12 @@ void MainWindow::onCommitContextMenu(qsizetype row, const QPoint& globalPos) {
                                    tr("Cherry-pick %1 onto this branch").arg(shortId));
     QAction* revert = menu.addAction(glyph(Glyph::Revert), tr("Revert %1").arg(shortId));
     menu.addSeparator();
-    QAction* rebase = menu.addAction(glyph(Glyph::Rebase),
-                                     tr("Rebase the commits above %1…").arg(shortId));
+    QAction* rebase =
+        menu.addAction(glyph(Glyph::Rebase), tr("Rebase the commits above %1…").arg(shortId));
     menu.addSeparator();
     QAction* tagHere = menu.addAction(glyph(Glyph::Tag), tr("Tag %1…").arg(shortId));
-    QAction* reset = menu.addAction(glyph(Glyph::Reset),
-                                    tr("Reset this branch to %1…").arg(shortId));
+    QAction* reset =
+        menu.addAction(glyph(Glyph::Reset), tr("Reset this branch to %1…").arg(shortId));
     menu.addSeparator();
     QAction* copy = menu.addAction(glyph(Glyph::Copy), tr("Copy Commit SHA"));
 
@@ -1949,8 +1920,7 @@ void MainWindow::chooseNewTag() {
     gity::ui::applyRole(note, QStringLiteral("note"));
     layout->addWidget(note);
 
-    auto* buttons = new QDialogButtonBox(QDialogButtonBox::Ok | QDialogButtonBox::Cancel,
-                                         &dialog);
+    auto* buttons = new QDialogButtonBox(QDialogButtonBox::Ok | QDialogButtonBox::Cancel, &dialog);
     layout->addWidget(buttons);
     connect(buttons, &QDialogButtonBox::accepted, &dialog, &QDialog::accept);
     connect(buttons, &QDialogButtonBox::rejected, &dialog, &QDialog::reject);
@@ -2019,9 +1989,9 @@ void MainWindow::confirmReset(const QString& oid, const QString& subject) {
     if (dialog.exec() != QDialog::Accepted) {
         return;
     }
-    session_->requestReset(oid, soft->isChecked()    ? QStringLiteral("soft")
-                               : hard->isChecked() ? QStringLiteral("hard")
-                                                   : QStringLiteral("mixed"));
+    session_->requestReset(oid, soft->isChecked()   ? QStringLiteral("soft")
+                                : hard->isChecked() ? QStringLiteral("hard")
+                                                    : QStringLiteral("mixed"));
 }
 
 void MainWindow::startRebase(const QString& baseOid, const QString& baseSubject) {
@@ -2111,17 +2081,17 @@ struct ChangesChoice {
     void describe(QPushButton* go, const QString& text, const QString& discardText) const {
         if (discard->isChecked() && !discard->isHidden()) {
             explain->setText(MainWindow::tr("Uncommitted edits to tracked files are thrown "
-                                              "away; new, untracked files stay. Edit ▸ Undo "
-                                              "brings the edits back."));
+                                            "away; new, untracked files stay. Edit ▸ Undo "
+                                            "brings the edits back."));
             go->setText(discardText);
             gity::ui::applyRole(go, QStringLiteral("destructive"));
             return;
         }
         explain->setText(stash->isChecked()
                              ? MainWindow::tr("If reapplying conflicts, the changes stay in "
-                                                "the stash until you resolve them.")
+                                              "the stash until you resolve them.")
                              : MainWindow::tr("git refuses to switch if a change would be "
-                                                "overwritten; nothing is lost either way."));
+                                              "overwritten; nothing is lost either way."));
         go->setText(text);
         gity::ui::applyRole(go, QStringLiteral("primary"));
     }
@@ -2129,8 +2099,8 @@ struct ChangesChoice {
 
 ChangesChoice addChangesChoice(QDialog* dialog, QVBoxLayout* layout, const QString& shown) {
     ChangesChoice choice;
-    choice.keep = new QRadioButton(MainWindow::tr("Keep changes — carry them to %1").arg(shown),
-                                   dialog);
+    choice.keep =
+        new QRadioButton(MainWindow::tr("Keep changes — carry them to %1").arg(shown), dialog);
     choice.stash = new QRadioButton(
         MainWindow::tr("Stash and reapply — set them aside, switch, bring them back"), dialog);
     choice.discard = new QRadioButton(MainWindow::tr("Discard changes"), dialog);
@@ -2248,8 +2218,8 @@ void MainWindow::confirmCheckout(const QString& ref) {
 
     const ChangesChoice choice = addChangesChoice(&dialog, layout, shown);
 
-    auto* update = new QCheckBox(tr("Update submodules to the commits %1 records").arg(shown),
-                                 &dialog);
+    auto* update =
+        new QCheckBox(tr("Update submodules to the commits %1 records").arg(shown), &dialog);
     update->setChecked(true);
     update->setVisible(hasSubmodules);
     layout->addWidget(update);
@@ -2308,8 +2278,8 @@ void MainWindow::openNewBranchDialog(const QString& base) {
     // The same choices a checkout offers, when switching would move the
     // working copy to another commit with changes in it.
     const bool askChanges = changedFiles_ > 0 && !context.sameCommit;
-    auto* changesIntro = new QLabel(
-        tr("You have %n uncommitted change(s).", nullptr, changedFiles_), &dialog);
+    auto* changesIntro =
+        new QLabel(tr("You have %n uncommitted change(s).", nullptr, changedFiles_), &dialog);
     changesIntro->setWordWrap(true);
     layout->addWidget(changesIntro);
     const ChangesChoice choice = addChangesChoice(&dialog, layout, tr("the new branch"));
@@ -2549,8 +2519,8 @@ void MainWindow::openSettings(SettingsPage page) {
     QList<QPair<QString, QString>> remotes;
     if (currentRemotes_) {
         for (const auto& remote : *currentRemotes_) {
-            remotes.append({QString::fromStdString(remote.name),
-                            QString::fromStdString(remote.fetchUrl)});
+            remotes.append(
+                {QString::fromStdString(remote.name), QString::fromStdString(remote.fetchUrl)});
         }
     }
     gity::ui::SettingsDialog dialog(currentWorkdir_, originUrl, remotes, this);
@@ -2647,9 +2617,9 @@ void MainWindow::chooseRebase() {
     }
 
     bool accepted = false;
-    const QString onto = QInputDialog::getItem(
-        this, tr("Rebase"), tr("Replay %1 on top of which branch?").arg(head), candidates, 0,
-        false, &accepted);
+    const QString onto =
+        QInputDialog::getItem(this, tr("Rebase"), tr("Replay %1 on top of which branch?").arg(head),
+                              candidates, 0, false, &accepted);
     if (!accepted || onto.isEmpty()) {
         return;
     }
@@ -2662,8 +2632,9 @@ void MainWindow::askPreview(gity::session::Preview::Kind kind, const QString& ta
     if (currentWorkdir_.isEmpty()) {
         return;
     }
-    statusBar()->showMessage(kind == gity::session::Preview::Kind::Pull ? tr("Checking the remote…")
-                                                : tr("Working out what will happen…"));
+    statusBar()->showMessage(kind == gity::session::Preview::Kind::Pull
+                                 ? tr("Checking the remote…")
+                                 : tr("Working out what will happen…"));
     session_->requestPreview(kind, target, branch);
 }
 
@@ -2674,8 +2645,8 @@ void MainWindow::showPreview(gity::session::PreviewPtr preview) {
         return;
     }
     const auto& p = *preview;
-    const QString verb = p.kind == Kind::Pull    ? tr("Pull")
-                         : p.kind == Kind::Merge ? tr("Merge")
+    const QString verb = p.kind == Kind::Pull     ? tr("Pull")
+                         : p.kind == Kind::Merge  ? tr("Merge")
                          : p.kind == Kind::Rebase ? tr("Rebase")
                                                   : tr("Push");
     if (!p.problem.isEmpty()) {
@@ -2684,6 +2655,7 @@ void MainWindow::showPreview(gity::session::PreviewPtr preview) {
     }
 
     gity::ui::PreviewDialog dialog(verb, this);
+
     enum Choice { Go = 1, MergeInstead, RebaseInstead, Force };
 
     // Shared: the conflict prediction and what would stop git outright.
@@ -2692,9 +2664,9 @@ void MainWindow::showPreview(gity::session::PreviewPtr preview) {
             if (p.conflicts.isEmpty()) {
                 dialog.addText(tr("No conflicts expected."), QStringLiteral("note"));
             } else {
-                dialog.addList(tr("%n file(s) would conflict:", nullptr,
-                                  static_cast<int>(p.conflicts.size())),
-                               p.conflicts, -1, QStringLiteral("warn"));
+                dialog.addList(
+                    tr("%n file(s) would conflict:", nullptr, static_cast<int>(p.conflicts.size())),
+                    p.conflicts, -1, QStringLiteral("warn"));
             }
         }
         if (!p.predictionNote.isEmpty()) {
@@ -2719,11 +2691,11 @@ void MainWindow::showPreview(gity::session::PreviewPtr preview) {
             break;
         }
         if (p.fastForward) {
-            dialog.setHeadline(tr("Pull brings in %n commit(s) from %1.", nullptr, p.incoming)
-                                   .arg(p.target));
-            dialog.addText(tr("A fast-forward: %1 simply moves ahead; no merge commit.")
-                               .arg(p.branch),
-                           QStringLiteral("note"));
+            dialog.setHeadline(
+                tr("Pull brings in %n commit(s) from %1.", nullptr, p.incoming).arg(p.target));
+            dialog.addText(
+                tr("A fast-forward: %1 simply moves ahead; no merge commit.").arg(p.branch),
+                QStringLiteral("note"));
             dialog.addList(tr("Coming in:"), p.incomingCommits, p.incoming);
             addPrediction();
             dialog.setCommand(QStringLiteral("pull --ff-only"));
@@ -2749,12 +2721,11 @@ void MainWindow::showPreview(gity::session::PreviewPtr preview) {
             break;
         }
         dialog.setHeadline(
-            p.fastForward
-                ? tr("Merging %1 moves %2 ahead by %n commit(s).", nullptr, p.incoming)
-                      .arg(p.target, p.branch)
-                : tr("Merge brings %n commit(s) from %1 into %2, as a merge commit.", nullptr,
-                     p.incoming)
-                      .arg(p.target, p.branch));
+            p.fastForward ? tr("Merging %1 moves %2 ahead by %n commit(s).", nullptr, p.incoming)
+                                .arg(p.target, p.branch)
+                          : tr("Merge brings %n commit(s) from %1 into %2, as a merge commit.",
+                               nullptr, p.incoming)
+                                .arg(p.target, p.branch));
         if (p.fastForward) {
             dialog.addText(tr("A fast-forward: no merge commit is made."), QStringLiteral("note"));
         }
@@ -2796,13 +2767,13 @@ void MainWindow::showPreview(gity::session::PreviewPtr preview) {
             break;
         }
         if (p.upToDate) {
-            dialog.setHeadline(tr("Nothing to push: %1 already has everything on %2.")
-                                   .arg(p.target, p.branch));
+            dialog.setHeadline(
+                tr("Nothing to push: %1 already has everything on %2.").arg(p.target, p.branch));
             break;
         }
         if (p.incoming == 0) {
-            dialog.setHeadline(tr("Push sends %n commit(s) to %1.", nullptr, p.outgoing)
-                                   .arg(p.target));
+            dialog.setHeadline(
+                tr("Push sends %n commit(s) to %1.", nullptr, p.outgoing).arg(p.target));
             dialog.addList(tr("Going out:"), p.outgoingCommits, p.outgoing);
             dialog.setCommand(QStringLiteral("push %1 %2").arg(p.remote, p.branch));
             dialog.addChoice(tr("Push"), Go, QStringLiteral("primary"));
@@ -2817,8 +2788,8 @@ void MainWindow::showPreview(gity::session::PreviewPtr preview) {
                           "from the remote — right after rebasing your own branch, and wrong "
                           "if someone else pushed them.")
                            .arg(p.target, p.branch));
-        dialog.addList(tr("Would be removed from %1:").arg(p.target), p.incomingCommits,
-                       p.incoming, QStringLiteral("warn"));
+        dialog.addList(tr("Would be removed from %1:").arg(p.target), p.incomingCommits, p.incoming,
+                       QStringLiteral("warn"));
         dialog.addList(tr("Going out:"), p.outgoingCommits, p.outgoing);
         dialog.addText(tr("As of the last fetch. The push is leased: if %1 has moved since, it "
                           "fails instead of overwriting.")
@@ -2846,8 +2817,8 @@ void MainWindow::showPreview(gity::session::PreviewPtr preview) {
             bool current = false;
             if (currentRefs_) {
                 for (const auto& branch : currentRefs_->localBranches) {
-                    current = current || (branch.isHead &&
-                                          QString::fromStdString(branch.name) == p.branch);
+                    current = current ||
+                              (branch.isHead && QString::fromStdString(branch.name) == p.branch);
                 }
             }
             if (current && !p.newBranch) {
@@ -2909,8 +2880,7 @@ void MainWindow::onHistoryEditFinished(const QString& verb, bool ok, bool confli
     pendingBranchDelete_.clear();
 
     if (ok) {
-        statusBar()->showMessage(message.isEmpty() ? tr("%1 finished").arg(verb) : message,
-                                 8000);
+        statusBar()->showMessage(message.isEmpty() ? tr("%1 finished").arg(verb) : message, 8000);
         openRepository(currentWorkdir_);
         return;
     }
@@ -2997,13 +2967,13 @@ void MainWindow::activateSession(const QString& path) {
         const gity::session::RepoSession* raw = created.get();
         // Work started in a repository keeps going when another tab is
         // brought forward; its outcome is still worth a word.
-        connect(created.get(), &gity::session::RepoSession::networkFinished, this,
-                [this, raw, key](const QString& verb, bool ok, const QString& summary,
-                                 const QString&) {
-                    if (raw != session_) {
-                        reportBackgroundNetwork(key, verb, ok, summary);
-                    }
-                });
+        connect(
+            created.get(), &gity::session::RepoSession::networkFinished, this,
+            [this, raw, key](const QString& verb, bool ok, const QString& summary, const QString&) {
+                if (raw != session_) {
+                    reportBackgroundNetwork(key, verb, ok, summary);
+                }
+            });
         connect(created.get(), &gity::session::RepoSession::cloneFinished, this,
                 [this, raw](const QString& cloned) {
                     if (raw != session_) {
@@ -3122,9 +3092,6 @@ void MainWindow::onNetworkFinished(const QString& verb, bool ok, const QString& 
 void MainWindow::onImageDiffReady(gity::session::ImageDiffPtr diff) {
     image_->setDiff(std::move(diff));
 }
-
-
-
 
 void MainWindow::onWorkingDiffReady(gity::session::FileDiffPtr diff,
                                     gity::session::HunkStagingPtr staging) {

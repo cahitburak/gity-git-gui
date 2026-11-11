@@ -10,8 +10,8 @@
 #include "../model/HistoryChunk.h"
 #include "Repository.h"
 
-#include <cstdint>
 #include <atomic>
+#include <cstdint>
 #include <cstring>
 #include <functional>
 
@@ -41,6 +41,7 @@ struct CommitFilter {
     [[nodiscard]] bool active() const noexcept {
         return !text.empty() || !author.empty() || since != 0 || until != 0;
     }
+
     [[nodiscard]] bool matches(std::string_view summary, std::string_view authorName,
                                std::string_view idHex, std::int64_t when) const;
     [[nodiscard]] bool operator==(const CommitFilter&) const = default;

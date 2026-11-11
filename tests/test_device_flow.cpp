@@ -9,11 +9,11 @@
 using namespace gity::git;
 
 TEST(ParseDeviceCode, TheJsonForm) {
-    const DeviceCode code = parseDeviceCode(
-        R"({"device_code":"3584d83530557fdd1f46af8289938c8ef79f9dc5",)"
-        R"("user_code":"WDJB-MJHT",)"
-        R"("verification_uri":"https://github.com/login/device",)"
-        R"("expires_in":900,"interval":5})");
+    const DeviceCode code =
+        parseDeviceCode(R"({"device_code":"3584d83530557fdd1f46af8289938c8ef79f9dc5",)"
+                        R"("user_code":"WDJB-MJHT",)"
+                        R"("verification_uri":"https://github.com/login/device",)"
+                        R"("expires_in":900,"interval":5})");
     EXPECT_TRUE(code.valid());
     EXPECT_EQ(code.deviceCode, "3584d83530557fdd1f46af8289938c8ef79f9dc5");
     EXPECT_EQ(code.userCode, "WDJB-MJHT");
@@ -55,8 +55,8 @@ TEST(ParseDeviceCode, AnErrorResponseIsNotAValidCode) {
 }
 
 TEST(ParsePollResponse, PendingWhileTheUserIsStillApproving) {
-    const PollResult result = parsePollResponse(
-        R"({"error":"authorization_pending","error_description":"pending"})");
+    const PollResult result =
+        parsePollResponse(R"({"error":"authorization_pending","error_description":"pending"})");
     EXPECT_EQ(result.state, PollState::Pending);
     EXPECT_TRUE(result.accessToken.empty());
 }
@@ -74,9 +74,9 @@ TEST(ParsePollResponse, DeniedAndExpiredAreToldApart) {
 }
 
 TEST(ParsePollResponse, AGrantCarriesTheToken) {
-    const PollResult result = parsePollResponse(
-        R"({"access_token":"gho_exampleNotARealToken0000000000000000",)"
-        R"("token_type":"bearer","scope":"repo"})");
+    const PollResult result =
+        parsePollResponse(R"({"access_token":"gho_exampleNotARealToken0000000000000000",)"
+                          R"("token_type":"bearer","scope":"repo"})");
     EXPECT_EQ(result.state, PollState::Granted);
     EXPECT_EQ(result.accessToken, "gho_exampleNotARealToken0000000000000000");
 }

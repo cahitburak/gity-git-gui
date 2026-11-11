@@ -101,8 +101,7 @@ TEST(HunkStagingCounts, DeletionsAreAnchoredSoTheyStillBelongToARegion) {
     // land at line 0 and a hunk that only removes lines would always report
     // nothing staged.
     const FileDiff unstaged = makeDiff(10, 1, {{kCtx, 10, 10}, {kDel, 11, 0}});
-    const FileDiff combined =
-        makeDiff(10, 1, {{kCtx, 10, 10}, {kDel, 11, 0}, {kDel, 12, 0}});
+    const FileDiff combined = makeDiff(10, 1, {{kCtx, 10, 10}, {kDel, 11, 0}, {kDel, 12, 0}});
 
     const auto counts = hunkStagingCounts(unstaged, combined);
     ASSERT_EQ(counts.size(), 1u);

@@ -41,8 +41,7 @@ CloneDialog::CloneDialog(QWidget* parent) : QDialog(parent) {
     auto* directoryLayout = new QHBoxLayout(directoryRow);
     directoryLayout->setContentsMargins(0, 0, 0, 0);
     directory_ = new QLineEdit(directoryRow);
-    directory_->setText(
-        QStandardPaths::writableLocation(QStandardPaths::HomeLocation));
+    directory_->setText(QStandardPaths::writableLocation(QStandardPaths::HomeLocation));
     directoryLayout->addWidget(directory_, 1);
     auto* browse = new QPushButton(tr("Browse…"), directoryRow);
     directoryLayout->addWidget(browse);

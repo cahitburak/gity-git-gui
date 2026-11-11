@@ -20,8 +20,8 @@ namespace gity::git {
 /// Where a provider's device flow lives. Configurable rather than hardcoded:
 /// a self-hosted GitLab or Gitea serves the same grant from its own domain.
 struct DeviceFlowEndpoints {
-    std::string codeUrl;   ///< POST here to start.
-    std::string tokenUrl;  ///< POST here to poll.
+    std::string codeUrl;  ///< POST here to start.
+    std::string tokenUrl; ///< POST here to poll.
     std::string scope;
 
     [[nodiscard]] bool valid() const { return !codeUrl.empty() && !tokenUrl.empty(); }
@@ -35,7 +35,7 @@ struct DeviceCode {
     std::string userCode;        ///< What the user types into the page.
     std::string verificationUrl; ///< Where they type it.
     int expiresInSeconds = 0;
-    int intervalSeconds = 5;     ///< Minimum seconds between polls.
+    int intervalSeconds = 5; ///< Minimum seconds between polls.
 
     [[nodiscard]] bool valid() const {
         return !deviceCode.empty() && !userCode.empty() && !verificationUrl.empty();

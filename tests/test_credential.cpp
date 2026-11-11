@@ -23,8 +23,8 @@ TEST(Credential, ThePathIsIncludedOnlyWhenAskedFor) {
 
 TEST(Credential, AUsernameInTheUrlSelectsTheAccountButAPasswordIsNotCarried) {
     Credential c;
-    ASSERT_TRUE(credentialForUrl("https://someone:secret@GitLab.example.com:8443/g/r.git", false,
-                                 &c));
+    ASSERT_TRUE(
+        credentialForUrl("https://someone:secret@GitLab.example.com:8443/g/r.git", false, &c));
     EXPECT_EQ(c.username, "someone");
     EXPECT_TRUE(c.password.empty());
     EXPECT_EQ(c.host, "gitlab.example.com:8443");

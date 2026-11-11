@@ -21,6 +21,7 @@ public:
     }
 
     [[nodiscard]] bool eof() const { return pos_ >= text_.size(); }
+
     [[nodiscard]] char peek() const { return pos_ < text_.size() ? text_[pos_] : '\0'; }
 
     bool take(char c) {
@@ -56,14 +57,30 @@ public:
             }
             const char escape = text_[pos_++];
             switch (escape) {
-            case 'n': out->push_back('\n'); break;
-            case 't': out->push_back('\t'); break;
-            case 'r': out->push_back('\r'); break;
-            case 'b': out->push_back('\b'); break;
-            case 'f': out->push_back('\f'); break;
-            case '"': out->push_back('"'); break;
-            case '\\': out->push_back('\\'); break;
-            case '/': out->push_back('/'); break;
+            case 'n':
+                out->push_back('\n');
+                break;
+            case 't':
+                out->push_back('\t');
+                break;
+            case 'r':
+                out->push_back('\r');
+                break;
+            case 'b':
+                out->push_back('\b');
+                break;
+            case 'f':
+                out->push_back('\f');
+                break;
+            case '"':
+                out->push_back('"');
+                break;
+            case '\\':
+                out->push_back('\\');
+                break;
+            case '/':
+                out->push_back('/');
+                break;
             case 'u': {
                 // Only the BMP escapes git-lfs would emit. Anything else is
                 // passed through as the replacement character rather than

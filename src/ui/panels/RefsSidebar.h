@@ -90,8 +90,8 @@ signals:
 
     /// Two refs selected together: show what differs from the first chosen
     /// to the second. Names are for display; the oids are what is compared.
-    void compareRequested(const QString& fromName, const QString& fromOid,
-                          const QString& toName, const QString& toOid);
+    void compareRequested(const QString& fromName, const QString& fromOid, const QString& toName,
+                          const QString& toOid);
     /// More than two refs selected, which has no single difference to show.
     void compareTooMany(int count);
 

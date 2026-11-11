@@ -19,11 +19,11 @@ namespace {
 int waitForChange(RepoWatcher& watcher, int timeoutMs = 3000) {
     int kinds = 0;
     QEventLoop loop;
-    const auto connection = QObject::connect(&watcher, &RepoWatcher::changed, &loop,
-                                             [&](int reported) {
-                                                 kinds = reported;
-                                                 loop.quit();
-                                             });
+    const auto connection =
+        QObject::connect(&watcher, &RepoWatcher::changed, &loop, [&](int reported) {
+            kinds = reported;
+            loop.quit();
+        });
     QTimer::singleShot(timeoutMs, &loop, &QEventLoop::quit);
     loop.exec();
     QObject::disconnect(connection);
@@ -39,11 +39,11 @@ void settle(int ms = 100) {
 
 std::unique_ptr<RepoWatcher> watch(const TempRepo& repo) {
     const QString gitDir = repo.dir() + QStringLiteral("/.git");
-    return std::make_unique<RepoWatcher>(
-        repo.dir(), gitDir, gitDir, [](const QString& relative, bool) {
-            return relative == QStringLiteral("build") ||
-                   relative.startsWith(QStringLiteral("build/"));
-        });
+    return std::make_unique<RepoWatcher>(repo.dir(), gitDir, gitDir,
+                                         [](const QString& relative, bool) {
+                                             return relative == QStringLiteral("build") ||
+                                                    relative.startsWith(QStringLiteral("build/"));
+                                         });
 }
 
 } // namespace

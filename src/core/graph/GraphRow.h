@@ -50,7 +50,7 @@ struct GraphRow {
     CommitIndex commitIndex = 0;  ///< Row position, and index into the commit store.
     std::uint32_t edgeOffset = 0; ///< Into the owning Graph's edge vector.
     std::uint16_t lane = 0;
-    std::uint16_t laneCount = 0;  ///< Columns this row's band occupies.
+    std::uint16_t laneCount = 0; ///< Columns this row's band occupies.
     std::uint16_t edgeCount = 0;
     std::uint16_t flags = 0;
 };

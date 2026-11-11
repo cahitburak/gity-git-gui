@@ -100,8 +100,8 @@ void drawGlyph(QPainter& painter, Glyph glyph) {
         painter.drawLine(QPointF(2.5, 8), QPointF(9, 8));
         painter.drawLine(QPointF(6.5, 5), QPointF(9.5, 8));
         painter.drawLine(QPointF(6.5, 11), QPointF(9.5, 8));
-        painter.drawPolyline(QPolygonF{QPointF(11.5, 3.5), QPointF(13.5, 3.5),
-                                       QPointF(13.5, 12.5), QPointF(11.5, 12.5)});
+        painter.drawPolyline(QPolygonF{QPointF(11.5, 3.5), QPointF(13.5, 3.5), QPointF(13.5, 12.5),
+                                       QPointF(11.5, 12.5)});
         break;
     case Glyph::NewBranch:
         drawFork(painter);
@@ -138,9 +138,8 @@ void drawGlyph(QPainter& painter, Glyph glyph) {
         break;
     }
     case Glyph::Tag:
-        painter.drawPolyline(QPolygonF{QPointF(2.8, 8.6), QPointF(8.2, 3.2),
-                                       QPointF(13.2, 3.2), QPointF(13.2, 8.2),
-                                       QPointF(7.8, 13.6), QPointF(2.8, 8.6)});
+        painter.drawPolyline(QPolygonF{QPointF(2.8, 8.6), QPointF(8.2, 3.2), QPointF(13.2, 3.2),
+                                       QPointF(13.2, 8.2), QPointF(7.8, 13.6), QPointF(2.8, 8.6)});
         painter.drawEllipse(QPointF(10.6, 5.8), 1.1, 1.1);
         break;
     case Glyph::Reset:
@@ -166,8 +165,8 @@ void drawGlyph(QPainter& painter, Glyph glyph) {
         painter.drawLine(QPointF(6.4, 4.6), QPointF(6.4, 2.8));
         painter.drawLine(QPointF(6.4, 2.8), QPointF(9.6, 2.8));
         painter.drawLine(QPointF(9.6, 2.8), QPointF(9.6, 4.6));
-        painter.drawPolyline(QPolygonF{QPointF(4.2, 4.6), QPointF(5, 13.4),
-                                       QPointF(11, 13.4), QPointF(11.8, 4.6)});
+        painter.drawPolyline(
+            QPolygonF{QPointF(4.2, 4.6), QPointF(5, 13.4), QPointF(11, 13.4), QPointF(11.8, 4.6)});
         break;
     case Glyph::Settings: {
         // A gear, the sign for settings everywhere: eight short teeth on a
@@ -191,8 +190,8 @@ void drawGlyph(QPainter& painter, Glyph glyph) {
         // Head, the collar across it, and the point, leaning as a pin pressed
         // into a board does.
         painter.drawPolyline(QPolygonF{QPointF(6.2, 2.8), QPointF(10.4, 2.8)});
-        painter.drawPolyline(QPolygonF{QPointF(7.0, 2.8), QPointF(6.6, 7.4),
-                                       QPointF(9.6, 7.4), QPointF(9.4, 2.8)});
+        painter.drawPolyline(
+            QPolygonF{QPointF(7.0, 2.8), QPointF(6.6, 7.4), QPointF(9.6, 7.4), QPointF(9.4, 2.8)});
         painter.drawLine(QPointF(4.6, 7.4), QPointF(11.6, 7.4));
         painter.drawLine(QPointF(8.1, 7.4), QPointF(8.1, 13.4));
         break;
@@ -244,10 +243,8 @@ class ThemedEngine final : public QIconEngine {
 public:
     explicit ThemedEngine(Glyph glyph) : glyph_(glyph) {}
 
-    void paint(QPainter* painter, const QRect& rect, QIcon::Mode mode,
-               QIcon::State) override {
-        const QColor colour = mode == QIcon::Disabled ? tokens::textLabelDim
-                                                      : tokens::textDefault;
+    void paint(QPainter* painter, const QRect& rect, QIcon::Mode mode, QIcon::State) override {
+        const QColor colour = mode == QIcon::Disabled ? tokens::textLabelDim : tokens::textDefault;
         painter->save();
         painter->setRenderHint(QPainter::Antialiasing, true);
         painter->translate(rect.topLeft());

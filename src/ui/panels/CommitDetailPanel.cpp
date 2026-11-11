@@ -5,14 +5,14 @@
 
 #include <QDateTime>
 
-#include <algorithm>
-#include <QHeaderView>
 #include <QHBoxLayout>
+#include <QHeaderView>
 #include <QLabel>
 #include <QPushButton>
 #include <QSignalBlocker>
 #include <QTreeWidget>
 #include <QVBoxLayout>
+#include <algorithm>
 
 namespace gity::ui {
 namespace {
@@ -249,9 +249,8 @@ void CommitDetailPanel::setComparison(const session::ComparisonPtr& comparison,
     QStringList lines;
     lines << tr("From\t%1  %2").arg(fromName, hexOf(comparison->from));
     lines << tr("To\t%1  %2").arg(toName, hexOf(comparison->to));
-    lines << (comparison->hasMergeBase
-                  ? tr("Merge base\t%1").arg(hexOf(comparison->mergeBase))
-                  : tr("Merge base\tnone — the histories are unrelated"));
+    lines << (comparison->hasMergeBase ? tr("Merge base\t%1").arg(hexOf(comparison->mergeBase))
+                                       : tr("Merge base\tnone — the histories are unrelated"));
     if (comparison->onlyInTo == 0 && comparison->onlyInFrom == 0) {
         lines << tr("History\tthe same commit");
     } else {
@@ -274,8 +273,8 @@ void CommitDetailPanel::setComparison(const session::ComparisonPtr& comparison,
         out << heading;
         const std::size_t shown = std::min(kShown, commits.size());
         for (std::size_t i = 0; i < shown; ++i) {
-            out << QStringLiteral("    %1  %2").arg(hexOf(commits[i].oid),
-                                                  QString::fromStdString(commits[i].summary));
+            out << QStringLiteral("    %1  %2")
+                       .arg(hexOf(commits[i].oid), QString::fromStdString(commits[i].summary));
         }
         if (count > shown) {
             out << tr("    … and %L1 more").arg(count - shown);
@@ -295,10 +294,9 @@ void CommitDetailPanel::setComparison(const session::ComparisonPtr& comparison,
     body_->setVisible(!sections.isEmpty());
 
     files_->setFiles(comparison->files);
-    QString heading = comparison->files.empty()
-                          ? tr("No files differ")
-                          : tr("%Ln file(s) differ", nullptr,
-                               static_cast<int>(comparison->files.size()));
+    QString heading = comparison->files.empty() ? tr("No files differ")
+                                                : tr("%Ln file(s) differ", nullptr,
+                                                     static_cast<int>(comparison->files.size()));
     if (comparison->filesTruncated) {
         heading += tr(" · list truncated");
     }

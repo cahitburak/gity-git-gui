@@ -30,8 +30,8 @@ std::string percentDecoded(std::string_view text) {
     };
     std::string out;
     for (std::size_t i = 0; i < text.size(); ++i) {
-        if (text[i] == '%' && i + 2 < text.size() &&
-            hex(text[i + 1]) >= 0 && hex(text[i + 2]) >= 0) {
+        if (text[i] == '%' && i + 2 < text.size() && hex(text[i + 1]) >= 0 &&
+            hex(text[i + 2]) >= 0) {
             out += static_cast<char>(hex(text[i + 1]) * 16 + hex(text[i + 2]));
             i += 2;
         } else {
@@ -56,8 +56,8 @@ bool credentialForUrl(std::string_view url, bool useHttpPath, Credential* out) {
     std::string_view rest = url.substr(scheme + 3);
     const auto slash = rest.find('/');
     std::string_view authority = rest.substr(0, slash);
-    std::string_view path = slash == std::string_view::npos ? std::string_view()
-                                                            : rest.substr(slash + 1);
+    std::string_view path =
+        slash == std::string_view::npos ? std::string_view() : rest.substr(slash + 1);
 
     Credential credential;
     credential.protocol = protocol;

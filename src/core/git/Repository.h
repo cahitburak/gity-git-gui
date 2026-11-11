@@ -34,15 +34,16 @@ inline void check(int code, const char* what) {
 }
 
 /// Owning handle for a libgit2 object with a known free function.
-template <typename T, void (*FreeFn)(T*)>
-class Handle {
+template <typename T, void (*FreeFn)(T*)> class Handle {
 public:
     Handle() = default;
+
     explicit Handle(T* raw) noexcept : raw_(raw) {}
 
     ~Handle() { reset(); }
 
     Handle(Handle&& other) noexcept : raw_(std::exchange(other.raw_, nullptr)) {}
+
     Handle& operator=(Handle&& other) noexcept {
         if (this != &other) {
             reset();
@@ -62,10 +63,12 @@ public:
     }
 
     [[nodiscard]] T* get() const noexcept { return raw_; }
+
     [[nodiscard]] T** receive() noexcept {
         reset();
         return &raw_;
     }
+
     explicit operator bool() const noexcept { return raw_ != nullptr; }
 
 private:

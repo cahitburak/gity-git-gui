@@ -173,8 +173,8 @@ TEST(Submodules, OneMovedAwayFromWhatItsParentRecordsIsFlagged) {
     TempRepo parent;
     parent.write("app.txt", "app\n");
     parent.commitAll();
-    parent.git({"-c", "protocol.file.allow=always", "submodule", "add", "-q", child.dir(),
-                "vendor/lib"});
+    parent.git(
+        {"-c", "protocol.file.allow=always", "submodule", "add", "-q", child.dir(), "vendor/lib"});
     parent.commitAll("add the submodule");
 
     auto entries = gity::git::listSubmodules(parent.repository());
@@ -190,9 +190,9 @@ TEST(Submodules, OneMovedAwayFromWhatItsParentRecordsIsFlagged) {
     file.close();
     // The submodule is a clone with a config of its own, so it has no
     // identity; the tests shut out the global one.
-    ASSERT_TRUE(gity::session::GitProcess::run(
-                    inside, {"-c", "user.name=Test", "-c", "user.email=test@invalid", "commit",
-                             "-qam", "moved"})
+    ASSERT_TRUE(gity::session::GitProcess::run(inside, {"-c", "user.name=Test", "-c",
+                                                        "user.email=test@invalid", "commit", "-qam",
+                                                        "moved"})
                     .ok());
 
     entries = gity::git::listSubmodules(parent.repository());

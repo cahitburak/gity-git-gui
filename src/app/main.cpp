@@ -6,17 +6,17 @@
 // how that budget is met.
 
 #include "MainWindow.h"
+#include "core/model/EnglishPlural.h"
 #include "session/CommandLog.h"
 #include "session/GitProcess.h"
 #include "ui/theme/Theme.h"
-#include "core/model/EnglishPlural.h"
 
 #include <git2.h>
 
 #include <QApplication>
+#include <QCommandLineParser>
 #include <QIcon>
 #include <QMessageBox>
-#include <QCommandLineParser>
 #include <QTimer>
 #include <QTranslator>
 
@@ -27,7 +27,9 @@ namespace {
 class EnglishPlurals : public QTranslator {
 public:
     using QTranslator::QTranslator;
+
     [[nodiscard]] bool isEmpty() const override { return false; }
+
     QString translate(const char* /*context*/, const char* sourceText,
                       const char* /*disambiguation*/, int n) const override {
         if (n < 0 || sourceText == nullptr) {
@@ -52,8 +54,7 @@ int main(int argc, char** argv) {
     QCoreApplication::installTranslator(&plurals);
 
     QCommandLineParser parser;
-    parser.setApplicationDescription(
-        QCoreApplication::translate("main", "A Git client."));
+    parser.setApplicationDescription(QCoreApplication::translate("main", "A Git client."));
     parser.addHelpOption();
     parser.addVersionOption();
     parser.addPositionalArgument(

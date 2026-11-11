@@ -6,8 +6,6 @@
 namespace gity::git {
 namespace {
 
-
-
 DiffLineKind kindOf(char origin) noexcept {
     switch (origin) {
     case GIT_DIFF_LINE_ADDITION:
@@ -44,15 +42,15 @@ ChangeStatus statusOf(git_delta_t delta) noexcept {
 } // namespace
 
 std::size_t FileDiff::additions() const noexcept {
-    return static_cast<std::size_t>(std::count_if(
-        lines.begin(), lines.end(),
-        [](const DiffLine& line) { return line.kind == DiffLineKind::Addition; }));
+    return static_cast<std::size_t>(
+        std::count_if(lines.begin(), lines.end(),
+                      [](const DiffLine& line) { return line.kind == DiffLineKind::Addition; }));
 }
 
 std::size_t FileDiff::deletions() const noexcept {
-    return static_cast<std::size_t>(std::count_if(
-        lines.begin(), lines.end(),
-        [](const DiffLine& line) { return line.kind == DiffLineKind::Deletion; }));
+    return static_cast<std::size_t>(
+        std::count_if(lines.begin(), lines.end(),
+                      [](const DiffLine& line) { return line.kind == DiffLineKind::Deletion; }));
 }
 
 namespace {
@@ -73,8 +71,7 @@ FileDiff diffTrees(git_repository* repo, const TreeHandle& parentTree, const Tre
     out.path = path;
 
     git_diff_options diffOptions;
-    check(git_diff_options_init(&diffOptions, GIT_DIFF_OPTIONS_VERSION),
-          "initialize diff options");
+    check(git_diff_options_init(&diffOptions, GIT_DIFF_OPTIONS_VERSION), "initialize diff options");
     diffOptions.context_lines = static_cast<std::uint32_t>(options.contextLines);
 
     // Restrict to the one path. Diffing the whole tree and discarding the rest
@@ -200,10 +197,10 @@ void readPatch(git_patch* patch, FileDiff& out, std::size_t maxLines) {
             }
 
             outLine.kind = kindOf(line->origin);
-            outLine.oldLine = line->old_lineno > 0 ? static_cast<std::uint32_t>(line->old_lineno)
-                                                   : 0u;
-            outLine.newLine = line->new_lineno > 0 ? static_cast<std::uint32_t>(line->new_lineno)
-                                                   : 0u;
+            outLine.oldLine =
+                line->old_lineno > 0 ? static_cast<std::uint32_t>(line->old_lineno) : 0u;
+            outLine.newLine =
+                line->new_lineno > 0 ? static_cast<std::uint32_t>(line->new_lineno) : 0u;
             outLine.textOffset = static_cast<std::uint32_t>(out.text.size());
             outLine.textLength = static_cast<std::uint32_t>(content.size());
             out.text.append(content);

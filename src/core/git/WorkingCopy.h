@@ -35,7 +35,9 @@ struct StatusEntry {
     bool conflicted = false;
 
     [[nodiscard]] bool hasStaged() const noexcept { return staged != FileState::Unchanged; }
+
     [[nodiscard]] bool hasUnstaged() const noexcept { return unstaged != FileState::Unchanged; }
+
     [[nodiscard]] bool isUntracked() const noexcept { return unstaged == FileState::Untracked; }
 };
 
@@ -43,6 +45,7 @@ struct WorkingCopyStatus {
     std::vector<StatusEntry> entries;
 
     [[nodiscard]] bool clean() const noexcept { return entries.empty(); }
+
     [[nodiscard]] std::size_t stagedCount() const noexcept;
     [[nodiscard]] std::size_t unstagedCount() const noexcept;
     [[nodiscard]] std::size_t conflictedCount() const noexcept;

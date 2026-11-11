@@ -92,9 +92,7 @@ public:
         return !git({"--literal-pathspecs", "ls-files", "--", path}).output.trimmed().isEmpty();
     }
 
-    [[nodiscard]] QString head() const {
-        return git({"rev-parse", "HEAD"}).output.trimmed();
-    }
+    [[nodiscard]] QString head() const { return git({"rev-parse", "HEAD"}).output.trimmed(); }
 
 private:
     QTemporaryDir dir_;

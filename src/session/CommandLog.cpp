@@ -19,8 +19,8 @@ void CommandLog::install() {
     CommandLog* log = instance();
     GitProcess::setLogSink([log](const GitProcess::LogRecord& record) {
         // Whichever thread ran git, the record is handed to the UI thread.
-        QMetaObject::invokeMethod(log, [log, record] { log->append(record); },
-                                  Qt::QueuedConnection);
+        QMetaObject::invokeMethod(
+            log, [log, record] { log->append(record); }, Qt::QueuedConnection);
     });
 }
 

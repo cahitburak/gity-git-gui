@@ -85,14 +85,13 @@ TEST(RemoteUrl, AnEmailUsernameIsEscaped) {
     // https://alex.doe@example.com@github.com/... — found in a real
     // submodule this function had configured.
     EXPECT_EQ(gity::git::remoteUrlWithUser("https://github.com/acme-games/shared.git",
-                                          "alex.doe@example.com"),
+                                           "alex.doe@example.com"),
               "https://alex.doe%40example.com@github.com/acme-games/shared.git");
 }
 
 TEST(RemoteUrl, AnAlreadyBrokenAddressIsRepaired) {
     EXPECT_EQ(gity::git::remoteUrlWithUser(
-                  "https://alex.doe@example.com@github.com/acme-games/shared.git",
-                  "alex-work"),
+                  "https://alex.doe@example.com@github.com/acme-games/shared.git", "alex-work"),
               "https://alex-work@github.com/acme-games/shared.git");
 }
 
@@ -104,9 +103,9 @@ TEST(MaskUrlCredentials, HidesAPassword) {
 TEST(MaskUrlCredentials, HidesATokenUsedAsTheUsername) {
     EXPECT_EQ(gity::git::maskUrlCredentials("https://ghp_abcdef0123456789@github.com/o/r"),
               "https://***@github.com/o/r");
-    EXPECT_EQ(gity::git::maskUrlCredentials(
-                  "https://glpat-xxxxxxxxxxxxxxxxxxxx@gitlab.com/o/r.git"),
-              "https://***@gitlab.com/o/r.git");
+    EXPECT_EQ(
+        gity::git::maskUrlCredentials("https://glpat-xxxxxxxxxxxxxxxxxxxx@gitlab.com/o/r.git"),
+        "https://***@gitlab.com/o/r.git");
     const std::string longToken(40, 'a');
     EXPECT_EQ(gity::git::maskUrlCredentials("https://" + longToken + "@host/r"),
               "https://***@host/r");
@@ -119,11 +118,11 @@ TEST(MaskUrlCredentials, KeepsAPlainUsername) {
 }
 
 TEST(MaskUrlCredentials, MasksEveryUrlInAMessage) {
-    EXPECT_EQ(gity::git::maskUrlCredentials(
-                  "fatal: unable to access 'https://me:pw@a.com/r/': 403\n"
-                  "hint: or 'https://you:pw2@b.com/x'"),
-              "fatal: unable to access 'https://me:***@a.com/r/': 403\n"
-              "hint: or 'https://you:***@b.com/x'");
+    EXPECT_EQ(
+        gity::git::maskUrlCredentials("fatal: unable to access 'https://me:pw@a.com/r/': 403\n"
+                                      "hint: or 'https://you:pw2@b.com/x'"),
+        "fatal: unable to access 'https://me:***@a.com/r/': 403\n"
+        "hint: or 'https://you:***@b.com/x'");
 }
 
 TEST(MaskUrlCredentials, LeavesTextWithoutUrlsAlone) {
@@ -133,23 +132,23 @@ TEST(MaskUrlCredentials, LeavesTextWithoutUrlsAlone) {
 
 TEST(UnmaskUrlCredentials, PutsThePasswordBackAfterAnEdit) {
     EXPECT_EQ(gity::git::unmaskUrlCredentials("https://me:***@github.com/o/renamed.git",
-                                               "https://me:s3cret@github.com/o/r.git"),
+                                              "https://me:s3cret@github.com/o/r.git"),
               "https://me:s3cret@github.com/o/renamed.git");
 }
 
 TEST(UnmaskUrlCredentials, PutsTheTokenBack) {
     EXPECT_EQ(gity::git::unmaskUrlCredentials("https://***@gitlab.com/o/r",
-                                               "https://ghp_abcdef0123456789@github.com/o/r"),
+                                              "https://ghp_abcdef0123456789@github.com/o/r"),
               "https://ghp_abcdef0123456789@gitlab.com/o/r");
 }
 
 TEST(UnmaskUrlCredentials, AnythingTypedByHandWins) {
     EXPECT_EQ(gity::git::unmaskUrlCredentials("https://me:new@github.com/o/r",
-                                               "https://me:old@github.com/o/r"),
+                                              "https://me:old@github.com/o/r"),
               "https://me:new@github.com/o/r");
-    EXPECT_EQ(gity::git::unmaskUrlCredentials("https://github.com/o/r",
-                                               "https://me:old@github.com/o/r"),
-              "https://github.com/o/r");
+    EXPECT_EQ(
+        gity::git::unmaskUrlCredentials("https://github.com/o/r", "https://me:old@github.com/o/r"),
+        "https://github.com/o/r");
 }
 
 TEST(FolderNameForRemote, AWindowsPath) {

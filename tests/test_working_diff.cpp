@@ -11,8 +11,8 @@
 
 #include <gtest/gtest.h>
 
-#include <filesystem>
 #include <cstdio>
+#include <filesystem>
 #include <git2.h>
 
 namespace {
@@ -24,10 +24,10 @@ class Repo {
 public:
     Repo() {
         git_libgit2_init();
-        path_ = fs::temp_directory_path() /
-                ("gity-diff-test-" + std::to_string(::testing::UnitTest::GetInstance()
-                                                        ->random_seed()) +
-                 "-" + std::to_string(counter_++));
+        path_ =
+            fs::temp_directory_path() /
+            ("gity-diff-test-" + std::to_string(::testing::UnitTest::GetInstance()->random_seed()) +
+             "-" + std::to_string(counter_++));
         fs::remove_all(path_);
         fs::create_directories(path_ / "Assets");
 
@@ -87,8 +87,7 @@ public:
         ASSERT_EQ(git_signature_now(&who, "Test", "test@invalid"), 0);
 
         git_oid commitId{};
-        ASSERT_EQ(git_commit_create_v(&commitId, repo_, "HEAD", who, who, nullptr, "base", tree,
-                                      0),
+        ASSERT_EQ(git_commit_create_v(&commitId, repo_, "HEAD", who, who, nullptr, "base", tree, 0),
                   0);
         git_signature_free(who);
         git_tree_free(tree);
@@ -128,8 +127,8 @@ TEST(WorkingDiff, ABrandNewFileDiffsAgainstNothing) {
     repo.commitAll();
     repo.write("Assets/New.cs", "brand new\n");
 
-    const auto diff = gity::git::loadWorkingDiff(repo.get(), "Assets/New.cs",
-                                                 gity::git::DiffSide::Unstaged, {});
+    const auto diff =
+        gity::git::loadWorkingDiff(repo.get(), "Assets/New.cs", gity::git::DiffSide::Unstaged, {});
     EXPECT_EQ(diff.hunks.size(), 1u) << "an untracked file must diff against nothing";
     ASSERT_FALSE(diff.lines.empty());
     EXPECT_EQ(diff.lines.front().kind, gity::git::DiffLineKind::Addition);
@@ -179,8 +178,8 @@ TEST(WorkingDiff, AnUntrackedFileHasNoOldSide) {
     repo.commitAll();
     repo.write("Assets/New.cs", "fresh\n");
 
-    const auto diff = gity::git::loadWorkingDiff(repo.get(), "Assets/New.cs",
-                                                 gity::git::DiffSide::Unstaged, {});
+    const auto diff =
+        gity::git::loadWorkingDiff(repo.get(), "Assets/New.cs", gity::git::DiffSide::Unstaged, {});
     EXPECT_EQ(diff.oldMode, 0u);
     EXPECT_NE(diff.newMode, 0u);
 }
@@ -195,8 +194,8 @@ TEST(WorkingDiff, APathWithGlobCharactersDiffsOnlyThatFile) {
     repo.commitAll();
     repo.write("Assets/d.cs", "one\nfrom d\n");
 
-    const auto diff = gity::git::loadWorkingDiff(repo.get(), "Assets/[id].cs",
-                                                 gity::git::DiffSide::Unstaged, {});
+    const auto diff =
+        gity::git::loadWorkingDiff(repo.get(), "Assets/[id].cs", gity::git::DiffSide::Unstaged, {});
     EXPECT_TRUE(diff.hunks.empty()) << "[id].cs is unchanged; d.cs's change leaked in";
 }
 
@@ -235,9 +234,9 @@ TEST(WorkingDiff, ARenamedFileInACommitDiffsAgainstItsOldName) {
     ASSERT_EQ(git_signature_now(&who, "Test", "test@invalid"), 0);
     git_oid commitId{};
     const git_commit* parents[] = {parent};
-    ASSERT_EQ(git_commit_create(&commitId, raw, "HEAD", who, who, nullptr, "rename", tree, 1,
-                                parents),
-              0);
+    ASSERT_EQ(
+        git_commit_create(&commitId, raw, "HEAD", who, who, nullptr, "rename", tree, 1, parents),
+        0);
     git_signature_free(who);
     git_commit_free(parent);
     git_tree_free(tree);
@@ -275,8 +274,7 @@ git_oid commitIndex(git_repository* repo, const char* ref, const std::vector<git
     git_signature* who = nullptr;
     EXPECT_EQ(git_signature_now(&who, "Test", "test@invalid"), 0);
     git_oid id{};
-    EXPECT_EQ(git_commit_create(&id, repo, ref, who, who, nullptr, message, tree,
-                                parents.size(),
+    EXPECT_EQ(git_commit_create(&id, repo, ref, who, who, nullptr, message, tree, parents.size(),
                                 const_cast<const git_commit**>(parents.data())),
               0);
     git_signature_free(who);

@@ -5,20 +5,20 @@
 #include "ui/panels/Confirm.h"
 #include "ui/panels/RefsSidebarDelegate.h"
 #include "ui/theme/Theme.h"
-#include "ui/theme/ToolbarIcons.h"
 #include "ui/theme/Tokens.h"
+#include "ui/theme/ToolbarIcons.h"
 
 #include <QApplication>
 #include <QClipboard>
-#include <QFont>
-#include <algorithm>
 #include <QContextMenuEvent>
+#include <QFont>
+#include <QHash>
+#include <QHeaderView>
+#include <QMap>
 #include <QMenu>
 #include <QScopeGuard>
-#include <QHeaderView>
-#include <QHash>
-#include <QMap>
 #include <QTreeWidgetItemIterator>
+#include <algorithm>
 
 namespace gity::ui {
 namespace {
@@ -26,7 +26,7 @@ namespace {
 constexpr int kOidRole = Qt::UserRole + 1;
 constexpr int kNameRole = Qt::UserRole + 2;
 constexpr int kScreenRole = Qt::UserRole + 3;
-constexpr int kKindRole = Qt::UserRole + 4;   ///< git::RefKind, for the menu.
+constexpr int kKindRole = Qt::UserRole + 4; ///< git::RefKind, for the menu.
 constexpr int kIsHeadRole = Qt::UserRole + 5;
 constexpr int kSubmoduleRole = Qt::UserRole + 6;
 /// Marks the one row that *is* a screen — Local Changes, All Commits — as
@@ -115,34 +115,32 @@ RefsSidebar::RefsSidebar(QWidget* parent) : QTreeWidget(parent) {
     };
     // Single click, not double: these are navigation, and a sidebar that needs
     // a double click to change screens feels broken.
-    connect(this, &QTreeWidget::itemClicked, this,
-            [this, activate](QTreeWidgetItem* item, int) {
-                // Two refs selected is a comparison; the click that made it is
-                // not also a request to jump to the second one's tip.
-                const QList<QTreeWidgetItem*> refs = selectedRefs();
-                if (refs.size() >= 2) {
-                    handlingOwnClick_ = true;
-                    const auto done = qScopeGuard([this] { handlingOwnClick_ = false; });
-                    screen_ = Screen::History;
-                    emit screenRequested(screen_);
-                    if (refs.size() == 2) {
-                        emit compareRequested(refs[0]->data(0, kNameRole).toString(),
-                                              refs[0]->data(0, kOidRole).toString(),
-                                              refs[1]->data(0, kNameRole).toString(),
-                                              refs[1]->data(0, kOidRole).toString());
-                    } else {
-                        emit compareTooMany(static_cast<int>(refs.size()));
-                    }
-                    return;
-                }
-                // A Ctrl-click that deselected the second of two leaves one
-                // behind; that one is what is now being looked at.
-                if (!item->isSelected() && selectedItems().size() == 1) {
-                    activate(selectedItems().constFirst());
-                    return;
-                }
-                activate(item);
-            });
+    connect(this, &QTreeWidget::itemClicked, this, [this, activate](QTreeWidgetItem* item, int) {
+        // Two refs selected is a comparison; the click that made it is
+        // not also a request to jump to the second one's tip.
+        const QList<QTreeWidgetItem*> refs = selectedRefs();
+        if (refs.size() >= 2) {
+            handlingOwnClick_ = true;
+            const auto done = qScopeGuard([this] { handlingOwnClick_ = false; });
+            screen_ = Screen::History;
+            emit screenRequested(screen_);
+            if (refs.size() == 2) {
+                emit compareRequested(
+                    refs[0]->data(0, kNameRole).toString(), refs[0]->data(0, kOidRole).toString(),
+                    refs[1]->data(0, kNameRole).toString(), refs[1]->data(0, kOidRole).toString());
+            } else {
+                emit compareTooMany(static_cast<int>(refs.size()));
+            }
+            return;
+        }
+        // A Ctrl-click that deselected the second of two leaves one
+        // behind; that one is what is now being looked at.
+        if (!item->isSelected() && selectedItems().size() == 1) {
+            activate(selectedItems().constFirst());
+            return;
+        }
+        activate(item);
+    });
 
     // Kept in the order the rows were picked, because a comparison has a
     // direction — from the first branch chosen to the second — and the
@@ -205,14 +203,14 @@ void RefsSidebar::contextMenuEvent(QContextMenuEvent* event) {
     if (kind == git::RefKind::Tag) {
         QMenu tagMenu(this);
         QAction* visit = tagMenu.addAction(glyph(Glyph::Checkout), tr("Check out %1").arg(name));
-        QAction* pushTag =
-            tagMenu.addAction(glyph(Glyph::Push), tr("Push %1").arg(name));
+        QAction* pushTag = tagMenu.addAction(glyph(Glyph::Push), tr("Push %1").arg(name));
         QAction* copyTag = tagMenu.addAction(glyph(Glyph::Copy), tr("Copy Tag Name"));
         tagMenu.addSeparator();
         QAction* dropTag = tagMenu.addAction(glyph(Glyph::Delete), tr("Delete %1").arg(name));
         tagMenu.setToolTipsVisible(true);
-        describeCommand(visit, tr("Look at the tagged commit. Commits made there belong to no "
-                                  "branch."),
+        describeCommand(visit,
+                        tr("Look at the tagged commit. Commits made there belong to no "
+                           "branch."),
                         QStringLiteral("switch --detach %1").arg(name));
         describeCommand(pushTag, tr("Tags are not sent by Push; this sends this one."),
                         QStringLiteral("push origin refs/tags/%1").arg(name));
@@ -242,7 +240,8 @@ void RefsSidebar::contextMenuEvent(QContextMenuEvent* event) {
                         QStringLiteral("stash pop %1").arg(name));
         describeCommand(apply, tr("Bring the changes back and keep the stash."),
                         QStringLiteral("stash apply %1").arg(name));
-        describeCommand(drop, tr("Throw the stash away."), QStringLiteral("stash drop %1").arg(name));
+        describeCommand(drop, tr("Throw the stash away."),
+                        QStringLiteral("stash drop %1").arg(name));
 
         QAction* picked = stashMenu.exec(event->globalPos());
         if (picked == pop) {
@@ -282,16 +281,14 @@ void RefsSidebar::contextMenuEvent(QContextMenuEvent* event) {
     }
     // From the branch as the remote has it: a local branch's upstream, or the
     // remote branch itself. A branch never pushed has nothing to propose yet.
-    const QString remoteBranch = kind == git::RefKind::RemoteBranch
-                                     ? name
-                                     : item->data(0, kUpstreamRole).toString();
+    const QString remoteBranch =
+        kind == git::RefKind::RemoteBranch ? name : item->data(0, kUpstreamRole).toString();
     QAction* pullRequest = nullptr;
     if (!pullRequestNoun_.isEmpty()) {
-        pullRequest = menu.addAction(glyph(Glyph::Merge),
-                                     remoteBranch.isEmpty()
-                                         ? tr("Create %1 — push the branch first")
-                                               .arg(pullRequestNoun_)
-                                         : tr("Create %1…").arg(pullRequestNoun_));
+        pullRequest = menu.addAction(
+            glyph(Glyph::Merge), remoteBranch.isEmpty()
+                                     ? tr("Create %1 — push the branch first").arg(pullRequestNoun_)
+                                     : tr("Create %1…").arg(pullRequestNoun_));
         pullRequest->setEnabled(!remoteBranch.isEmpty());
     }
 
@@ -310,18 +307,17 @@ void RefsSidebar::contextMenuEvent(QContextMenuEvent* event) {
     // replay, and the dialog would open empty.
     QAction* interactive =
         isHead ? nullptr
-               : menu.addAction(glyph(Glyph::Rebase),
-                                tr("Interactive Rebase onto %1…").arg(name));
+               : menu.addAction(glyph(Glyph::Rebase), tr("Interactive Rebase onto %1…").arg(name));
 
     menu.addSeparator();
     QAction* copy = menu.addAction(glyph(Glyph::Copy), tr("Copy Branch Name"));
     const QString fullName = item->data(0, kFullNameRole).toString();
     const bool isPinned = pinned_.contains(fullName);
-    QAction* pin = fullName.isEmpty()
-                       ? nullptr
-                       : menu.addAction(glyph(Glyph::Pin),
-                                        isPinned ? tr("Unpin %1").arg(name)
-                                                 : tr("Pin %1 to the Top").arg(name));
+    QAction* pin =
+        fullName.isEmpty()
+            ? nullptr
+            : menu.addAction(glyph(Glyph::Pin), isPinned ? tr("Unpin %1").arg(name)
+                                                         : tr("Pin %1 to the Top").arg(name));
     QAction* remove = nullptr;
     if (kind == git::RefKind::LocalBranch) {
         remove = menu.addAction(glyph(Glyph::Delete), tr("Delete %1").arg(name));
@@ -348,8 +344,9 @@ void RefsSidebar::contextMenuEvent(QContextMenuEvent* event) {
                     QStringLiteral("merge %1").arg(name));
     describeCommand(rebase, tr("Replay the current branch's commits on top of this one."),
                     QStringLiteral("rebase %1").arg(name));
-    describeCommand(interactive, tr("Reorder, squash or drop commits while moving onto this "
-                                    "branch."),
+    describeCommand(interactive,
+                    tr("Reorder, squash or drop commits while moving onto this "
+                       "branch."),
                     QStringLiteral("rebase -i %1").arg(name));
     if (pullRequest != nullptr) {
         pullRequest->setToolTip(
@@ -364,8 +361,9 @@ void RefsSidebar::contextMenuEvent(QContextMenuEvent* event) {
         pin->setToolTip(isPinned ? tr("Take it out of the Pinned section.")
                                  : tr("Keep it in a Pinned section at the top of this list."));
     }
-    describeCommand(remove, tr("Delete this branch. Its commits stay while another branch or "
-                               "the reflog holds them."),
+    describeCommand(remove,
+                    tr("Delete this branch. Its commits stay while another branch or "
+                       "the reflog holds them."),
                     QStringLiteral("branch -d %1").arg(name));
 
     QAction* chosen = menu.exec(event->globalPos());
@@ -424,8 +422,8 @@ QTreeWidgetItem* RefsSidebar::addEntry(QTreeWidgetItem* parent, const git::RefEn
     item->setData(0, CurrentRole, entry.isHead);
     item->setData(0, kKindRole, static_cast<int>(entry.kind));
     item->setData(0, kIsHeadRole, entry.isHead);
-    if (!entry.fullName.empty() && (entry.kind == git::RefKind::LocalBranch ||
-                                    entry.kind == git::RefKind::RemoteBranch)) {
+    if (!entry.fullName.empty() &&
+        (entry.kind == git::RefKind::LocalBranch || entry.kind == git::RefKind::RemoteBranch)) {
         item->setData(0, kFullNameRole, QString::fromStdString(entry.fullName));
     }
     if (entry.isDefault) {
@@ -444,8 +442,7 @@ QTreeWidgetItem* RefsSidebar::addEntry(QTreeWidgetItem* parent, const git::RefEn
         item->setData(0, BadgeRole, tracking);
         // Ahead is the count that carries a consequence — work only you have.
         item->setData(0, BadgeToneRole,
-                      static_cast<int>(entry.ahead > 0 ? SidebarTone::Warn
-                                                       : SidebarTone::Default));
+                      static_cast<int>(entry.ahead > 0 ? SidebarTone::Warn : SidebarTone::Default));
         item->setToolTip(0, tr("%1 ahead, %2 behind %3")
                                 .arg(entry.ahead)
                                 .arg(entry.behind)
@@ -470,11 +467,13 @@ QTreeWidgetItem* RefsSidebar::addEntry(QTreeWidgetItem* parent, const git::RefEn
         const QString why = entry.kind == git::RefKind::RemoteBranch
                                 ? tr("The remote's default branch.")
                                 : tr("Follows the remote's default branch.");
-        item->setToolTip(0, item->toolTip(0).isEmpty() ? why : why + QChar('\n') + item->toolTip(0));
+        item->setToolTip(0,
+                         item->toolTip(0).isEmpty() ? why : why + QChar('\n') + item->toolTip(0));
     }
     if (entry.isHead) {
         const QString why = tr("Checked out — the branch you are on.");
-        item->setToolTip(0, item->toolTip(0).isEmpty() ? why : why + QChar('\n') + item->toolTip(0));
+        item->setToolTip(0,
+                         item->toolTip(0).isEmpty() ? why : why + QChar('\n') + item->toolTip(0));
     }
     return item;
 }
@@ -671,8 +670,7 @@ QTreeWidgetItem* RefsSidebar::addWorkspaceRow(QTreeWidgetItem* section, const QS
 void RefsSidebar::addWorkspaceGroup() {
     // The repository by name, then the two places you go —
     // what you are changing, and what has been committed.
-    auto* section =
-        addSection(repositoryName_.isEmpty() ? tr("Repository") : repositoryName_);
+    auto* section = addSection(repositoryName_.isEmpty() ? tr("Repository") : repositoryName_);
     // A name, not a label: shown as the repository spells it, where the other
     // headings are set in capitals.
     // And at full size and in full colour: it titles everything under it.
@@ -688,7 +686,7 @@ void RefsSidebar::addWorkspaceGroup() {
         row->setToolTip(0, tr("HEAD is at %1 and not on any branch. Commits made here are "
                               "reachable only by their id once you check something else out — "
                               "make a branch first if you mean to keep them.")
-                                .arg(QString::fromStdString(refs_->headName)));
+                               .arg(QString::fromStdString(refs_->headName)));
     }
     addWorkspaceRow(section, QStringLiteral("◧"), tr("Local Changes"), Screen::WorkingCopy,
                     changedFiles_, SidebarTone::Default)
@@ -711,8 +709,7 @@ void RefsSidebar::setFilter(const QString& text) {
 }
 
 bool RefsSidebar::matches(const std::string& name) const {
-    return filter_.isEmpty() ||
-           QString::fromStdString(name).contains(filter_, Qt::CaseInsensitive);
+    return filter_.isEmpty() || QString::fromStdString(name).contains(filter_, Qt::CaseInsensitive);
 }
 
 QList<QTreeWidgetItem*> RefsSidebar::selectedRefs() const {
@@ -727,8 +724,7 @@ QList<QTreeWidgetItem*> RefsSidebar::selectedRefs() const {
                 continue;
             }
             const QVariant kind = item->data(0, kKindRole);
-            if (kind.isValid() &&
-                static_cast<git::RefKind>(kind.toInt()) != git::RefKind::Stash &&
+            if (kind.isValid() && static_cast<git::RefKind>(kind.toInt()) != git::RefKind::Stash &&
                 !item->data(0, kOidRole).toString().isEmpty()) {
                 refs << item;
             }
@@ -754,8 +750,8 @@ QString RefsSidebar::keyOf(const QTreeWidgetItem* item) {
         return QStringLiteral("row:%1").arg(item->text(0));
     }
     const QTreeWidgetItem* parent = item->parent();
-    return QStringLiteral("group:%1/%2").arg(parent != nullptr ? parent->text(0) : QString(),
-                                             item->text(0));
+    return QStringLiteral("group:%1/%2")
+        .arg(parent != nullptr ? parent->text(0) : QString(), item->text(0));
 }
 
 void RefsSidebar::setRefs(session::RefSetPtr refs) {

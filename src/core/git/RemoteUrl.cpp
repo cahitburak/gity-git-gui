@@ -72,13 +72,11 @@ std::string remoteUrlWithUser(std::string_view url, std::string_view username) {
     // The *last* '@' before the path ends the userinfo: a URL already holding
     // an unescaped email — the bug this replaced wrote exactly that — has two,
     // and the host is after the second. An '@' after the first '/' is path.
-    const std::string_view authority =
-        url.substr(hostStart, path == std::string_view::npos ? std::string_view::npos
-                                                             : path - hostStart);
+    const std::string_view authority = url.substr(
+        hostStart, path == std::string_view::npos ? std::string_view::npos : path - hostStart);
     const std::size_t atInAuthority = authority.rfind('@');
-    const std::size_t hostBegins = atInAuthority == std::string_view::npos
-                                       ? hostStart
-                                       : hostStart + atInAuthority + 1;
+    const std::size_t hostBegins =
+        atInAuthority == std::string_view::npos ? hostStart : hostStart + atInAuthority + 1;
 
     // Percent-encoded: an account name can be an email, and its '@' written
     // bare would split the address in the wrong place.
@@ -141,8 +139,8 @@ Userinfo findUserinfo(std::string_view text, std::size_t from) {
 /// that, a long run of token characters is no one's name.
 bool looksLikeToken(std::string_view user) {
     static constexpr std::string_view kPrefixes[] = {
-        "ghp_", "gho_", "ghu_", "ghs_", "ghr_", "github_pat_", "glpat-", "gldt-", "glptt-",
-        "ATBB", "ATCTT", "xoxb-", "xoxp-",
+        "ghp_",  "gho_",   "ghu_", "ghs_",  "ghr_",  "github_pat_", "glpat-",
+        "gldt-", "glptt-", "ATBB", "ATCTT", "xoxb-", "xoxp-",
     };
     for (const std::string_view prefix : kPrefixes) {
         if (user.substr(0, prefix.size()) == prefix) {

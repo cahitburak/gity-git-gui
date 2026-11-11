@@ -97,9 +97,7 @@ QWidget* buildAppearanceSection(QWidget* parent) {
                           qobject_cast<QApplication*>(QCoreApplication::instance()));
     });
 
-    auto* note = new QLabel(
-        SettingsDialog::tr("Applied immediately and remembered."),
-        page);
+    auto* note = new QLabel(SettingsDialog::tr("Applied immediately and remembered."), page);
     note->setWordWrap(true);
     applyRole(note, QStringLiteral("note"));
     layout->addWidget(note);
@@ -162,8 +160,7 @@ SettingsDialog::SettingsDialog(const QString& workdir, const QString& originUrl,
     layout->addWidget(buttons);
     connect(buttons, &QDialogButtonBox::rejected, this, &QDialog::accept);
 
-    connect(sections_, &QListWidget::currentRowChanged, pages_,
-            &QStackedWidget::setCurrentIndex);
+    connect(sections_, &QListWidget::currentRowChanged, pages_, &QStackedWidget::setCurrentIndex);
     sections_->setCurrentRow(0);
 }
 

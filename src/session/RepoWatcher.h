@@ -47,7 +47,7 @@ public:
         Worktree = 1, ///< A file in the working tree.
         Index = 2,    ///< What is staged.
         Refs = 4,     ///< A branch, tag or remote-tracking branch.
-        Head = 8,     ///< The checked-out branch or commit, or a merge or rebase starting or ending.
+        Head = 8, ///< The checked-out branch or commit, or a merge or rebase starting or ending.
     };
 
     /// True when the path, relative to the working tree, is ignored by git.

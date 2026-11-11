@@ -70,9 +70,8 @@ std::size_t WorkingCopyStatus::stagedCount() const noexcept {
 
 std::size_t WorkingCopyStatus::unstagedCount() const noexcept {
     return static_cast<std::size_t>(
-        std::count_if(entries.begin(), entries.end(), [](const StatusEntry& e) {
-            return e.hasUnstaged() && !e.isUntracked();
-        }));
+        std::count_if(entries.begin(), entries.end(),
+                      [](const StatusEntry& e) { return e.hasUnstaged() && !e.isUntracked(); }));
 }
 
 std::size_t WorkingCopyStatus::conflictedCount() const noexcept {

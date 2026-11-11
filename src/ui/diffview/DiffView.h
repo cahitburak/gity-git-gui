@@ -47,7 +47,9 @@ public:
     void setShowingStaged(bool staged);
 
     [[nodiscard]] const git::FileDiff* diff() const noexcept { return diff_.get(); }
+
     [[nodiscard]] const git::LineSelection& selection() const noexcept { return selection_; }
+
     void clearSelection();
 
 signals:
@@ -118,6 +120,7 @@ private:
         QRect stage;
         QRect discard;
     };
+
     mutable std::vector<HunkButtons> hunkButtons_;
     int longestLine_ = 0; ///< In characters, for the horizontal range.
 };

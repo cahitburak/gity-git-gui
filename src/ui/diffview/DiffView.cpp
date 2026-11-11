@@ -4,9 +4,9 @@
 #include "ui/theme/Tokens.h"
 
 #include <QFontDatabase>
-#include <QPainter>
 #include <QKeyEvent>
 #include <QMouseEvent>
+#include <QPainter>
 #include <QResizeEvent>
 #include <QScrollBar>
 
@@ -348,8 +348,8 @@ void DiffView::rebuildRows() {
         for (std::uint32_t l = 0; l < hunk.lineCount; ++l) {
             const std::uint32_t lineIndex = hunk.firstLine + l;
             rows_.push_back(Row{false, lineIndex});
-            longestLine_ = std::max<int>(
-                longestLine_, static_cast<int>(diff_->lines[lineIndex].textLength));
+            longestLine_ =
+                std::max<int>(longestLine_, static_cast<int>(diff_->lines[lineIndex].textLength));
         }
     }
     updateScrollBars();
@@ -417,8 +417,8 @@ void DiffView::paintEvent(QPaintEvent* event) {
     if (hasFocus() && cursorRow_ >= 0 && cursorRow_ < static_cast<qsizetype>(rows_.size())) {
         painter.setPen(QPen(tokens::selectionMarker, 1));
         painter.setBrush(Qt::NoBrush);
-        painter.drawRect(QRect(0, static_cast<int>(cursorRow_) * h - scroll,
-                               viewport()->width() - 1, h - 1));
+        painter.drawRect(
+            QRect(0, static_cast<int>(cursorRow_) * h - scroll, viewport()->width() - 1, h - 1));
     }
 
     painter.setPen(theme.separator);
@@ -448,12 +448,10 @@ void DiffView::paintRow(QPainter& painter, const Row& row, int y, int gutter) co
         if (hunkStaging_ != nullptr && row.index < hunkStaging_->size() &&
             hunkStaging_->at(row.index).partial()) {
             const git::HunkStaging& counts = hunkStaging_->at(row.index);
-            const QString note = tr("  ·  %1 of %2 lines staged")
-                                     .arg(counts.staged)
-                                     .arg(counts.total);
+            const QString note =
+                tr("  ·  %1 of %2 lines staged").arg(counts.staged).arg(counts.total);
             painter.setPen(tokens::textLabelDim);
-            painter.drawText(QRect(digit + fm.horizontalAdvance(headerText), y,
-                                   width - digit, h),
+            painter.drawText(QRect(digit + fm.horizontalAdvance(headerText), y, width - digit, h),
                              Qt::AlignVCenter | Qt::AlignLeft, note);
         }
 
@@ -464,8 +462,7 @@ void DiffView::paintRow(QPainter& painter, const Row& row, int y, int gutter) co
                 hunkButtons_.resize(row.index + 1);
             }
             const QFontMetrics buttonMetrics(font());
-            const auto paintButton = [&](int right, const QString& label,
-                                         const QColor& colour) {
+            const auto paintButton = [&](int right, const QString& label, const QColor& colour) {
                 const int buttonWidth = buttonMetrics.horizontalAdvance(label) + 16;
                 const QRect box(right - buttonWidth, y + (h - buttonMetrics.height() - 4) / 2,
                                 buttonWidth, buttonMetrics.height() + 4);
@@ -481,8 +478,7 @@ void DiffView::paintRow(QPainter& painter, const Row& row, int y, int gutter) co
                     paintButton(width - 8, tr("Unstage hunk"), tokens::semanticWarn);
                 hunkButtons_[row.index] = {unstage, QRect()};
             } else {
-                const QRect discard =
-                    paintButton(width - 8, tr("Discard"), tokens::semanticRemove);
+                const QRect discard = paintButton(width - 8, tr("Discard"), tokens::semanticRemove);
                 const QRect stage =
                     paintButton(discard.left() - 6, tr("Stage hunk"), tokens::semanticAdd);
                 hunkButtons_[row.index] = {stage, discard};
@@ -526,12 +522,11 @@ void DiffView::paintRow(QPainter& painter, const Row& row, int y, int gutter) co
     // The pick gutter: a dot on every stageable line, nothing on context. It
     // is the click target, so an empty cell means "nothing to do here".
     if (staging_) {
-        if (line.kind == git::DiffLineKind::Addition ||
-            line.kind == git::DiffLineKind::Deletion) {
+        if (line.kind == git::DiffLineKind::Addition || line.kind == git::DiffLineKind::Deletion) {
             painter.setPen(selection_.count(row.index) != 0 ? theme.diffAddMarker
                                                             : tokens::surfacePickDot);
-            painter.drawText(QRect(0, y, tokens::diffGutterStagePickWidth, h),
-                             Qt::AlignCenter, QStringLiteral("·"));
+            painter.drawText(QRect(0, y, tokens::diffGutterStagePickWidth, h), Qt::AlignCenter,
+                             QStringLiteral("·"));
         }
     }
 
@@ -560,8 +555,7 @@ void DiffView::paintRow(QPainter& painter, const Row& row, int y, int gutter) co
     // every repaint of every row made scrolling past it crawl. Bytes are an
     // over-estimate of characters, so this never cuts short what is visible.
     auto text = diff_->lineText(line);
-    const std::size_t reach =
-        static_cast<std::size_t>((xScroll + width) / std::max(1, digit)) + 64;
+    const std::size_t reach = static_cast<std::size_t>((xScroll + width) / std::max(1, digit)) + 64;
     if (text.size() > reach) {
         text = text.substr(0, reach);
     }

@@ -94,8 +94,7 @@ void readPatch(git_patch* patch, FileDiff& out, std::size_t maxLines);
 
 /// Diffs `path` in `commit` against its first parent.
 [[nodiscard]] FileDiff loadFileDiff(git_repository* repo, const git_oid& commitOid,
-                                    const std::string& path,
-                                    const FileDiffOptions& options = {});
+                                    const std::string& path, const FileDiffOptions& options = {});
 
 /// Diffs `path` as it is at `toOid` against how it is at `fromOid` — the
 /// change you would see going from one commit, or branch tip, to the other.

@@ -14,13 +14,13 @@ namespace gity::ui {
 /// Item data roles the delegate paints from.
 enum WorkingCopyRole {
     PathRole = Qt::UserRole + 1,
-    NameRole,       ///< File name alone — the part worth reading.
-    DirectoryRole,  ///< Everything before it, for the sub-line.
-    StatusRole,     ///< One letter: A, M, D, R, ?
-    ChipRole,       ///< "partial", "conflict", "locked", or empty.
-    ChipKindRole,   ///< ChipKind.
-    SubtitleRole,   ///< The sub-line's trailing explanation.
-    WarningRole,    ///< bool: sub-line uses the warn colour.
+    NameRole,      ///< File name alone — the part worth reading.
+    DirectoryRole, ///< Everything before it, for the sub-line.
+    StatusRole,    ///< One letter: A, M, D, R, ?
+    ChipRole,      ///< "partial", "conflict", "locked", or empty.
+    ChipKindRole,  ///< ChipKind.
+    SubtitleRole,  ///< The sub-line's trailing explanation.
+    WarningRole,   ///< bool: sub-line uses the warn colour.
 };
 
 enum class ChipKind { Add, Neutral, Remove, Warn };
@@ -33,8 +33,7 @@ public:
 
     void paint(QPainter* painter, const QStyleOptionViewItem& option,
                const QModelIndex& index) const override;
-    QSize sizeHint(const QStyleOptionViewItem& option,
-                   const QModelIndex& index) const override;
+    QSize sizeHint(const QStyleOptionViewItem& option, const QModelIndex& index) const override;
 
     /// The checkbox rectangle, so the view can tell a toggle from a selection.
     [[nodiscard]] static QRect checkboxRect(const QRect& row);

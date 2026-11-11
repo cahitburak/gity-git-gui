@@ -23,7 +23,7 @@
 namespace gity::git {
 
 enum class RebaseAction {
-    Pick,   ///< Keep the commit as it is.
+    Pick, ///< Keep the commit as it is.
     /// Keep the changes, replace the message. git's own `reword` opens an
     /// editor Gity cannot show, so this is written as a pick followed by an
     /// amend of the message from a file (see serializeTodo).

@@ -216,8 +216,7 @@ TEST(Staging, CarriageReturnsArePutBack) {
         line.carriageReturn = true;
     }
     const std::string patch = buildPartialPatch(diff, linesOfHunk(diff, 0), false);
-    EXPECT_NE(patch.find(" keep before\r\n-old line\r\n+new line\r\n"), std::string::npos)
-        << patch;
+    EXPECT_NE(patch.find(" keep before\r\n-old line\r\n+new line\r\n"), std::string::npos) << patch;
 }
 
 TEST(Staging, APatchCreatingTheFileSaysSo) {

@@ -75,9 +75,9 @@ void RefsSidebarDelegate::paint(QPainter* painter, const QStyleOptionViewItem& s
     }
 
     const auto tone = static_cast<SidebarTone>(index.data(ToneRole).toInt());
-    const QColor foreground =
-        current && !selected && tone == SidebarTone::Default ? tokens::textStrong
-                                                             : colourFor(tone, selected);
+    const QColor foreground = current && !selected && tone == SidebarTone::Default
+                                  ? tokens::textStrong
+                                  : colourFor(tone, selected);
 
     // QTreeWidget has already indented option.rect by depth, so the glyph box
     // starts at a fixed offset from wherever this row begins.

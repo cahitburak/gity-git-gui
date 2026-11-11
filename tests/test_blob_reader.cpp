@@ -47,8 +47,8 @@ TEST(BlobReader, LargeContentIsNeverScanned) {
 }
 
 TEST(BlobReader, PointerWithoutSizeStillParses) {
-    const BlobContent content = contentOf(
-        "version https://git-lfs.github.com/spec/v1\noid sha256:abc\n");
+    const BlobContent content =
+        contentOf("version https://git-lfs.github.com/spec/v1\noid sha256:abc\n");
     EXPECT_TRUE(content.lfsPointer);
     EXPECT_EQ(content.lfsOid, "sha256:abc");
     EXPECT_EQ(content.lfsSize, 0u);

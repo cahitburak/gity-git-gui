@@ -85,8 +85,7 @@ QRect WorkingCopyDelegate::checkboxRect(const QRect& row) {
     return QRect(row.x() + kPaddingX, row.y() + 8, kCheckboxSize, kCheckboxSize);
 }
 
-QSize WorkingCopyDelegate::sizeHint(const QStyleOptionViewItem& option,
-                                    const QModelIndex&) const {
+QSize WorkingCopyDelegate::sizeHint(const QStyleOptionViewItem& option, const QModelIndex&) const {
     return {0, layoutFor(option.font).height};
 }
 
@@ -118,10 +117,8 @@ void WorkingCopyDelegate::paint(QPainter* painter, const QStyleOptionViewItem& o
         painter->drawRoundedRect(box, 3, 3);
 
         painter->setPen(QPen(tokens::surfaceWindow, 1.8));
-        painter->drawLine(box.left() + 3, box.center().y(), box.center().x() - 1,
-                          box.bottom() - 3);
-        painter->drawLine(box.center().x() - 1, box.bottom() - 3, box.right() - 2,
-                          box.top() + 3);
+        painter->drawLine(box.left() + 3, box.center().y(), box.center().x() - 1, box.bottom() - 3);
+        painter->drawLine(box.center().x() - 1, box.bottom() - 3, box.right() - 2, box.top() + 3);
     } else {
         painter->setPen(QPen(tokens::borderCheckbox, 1));
         painter->setBrush(tokens::surfaceCheckbox);
@@ -149,20 +146,19 @@ void WorkingCopyDelegate::paint(QPainter* painter, const QStyleOptionViewItem& o
         chipFont.setPointSize(std::max(7, option.font.pointSize() - 2));
         const QFontMetrics fm(chipFont);
         chipWidth = fm.horizontalAdvance(chip) + 12;
-        chipRect = QRect(row.right() - kPaddingX - chipWidth, row.y() + 6, chipWidth,
-                         fm.height() + 3);
+        chipRect =
+            QRect(row.right() - kPaddingX - chipWidth, row.y() + 6, chipWidth, fm.height() + 3);
     }
 
     // --- name -----------------------------------------------------------
-    const int nameWidth =
-        row.right() - kPaddingX - x - (chipWidth > 0 ? chipWidth + kGap : 0);
+    const int nameWidth = row.right() - kPaddingX - x - (chipWidth > 0 ? chipWidth + kGap : 0);
     const QFontMetrics nameMetrics(option.font);
     painter->setFont(option.font);
     painter->setPen(selected ? tokens::textSelectedPrimary : tokens::textDefault);
-    painter->drawText(QRect(x, row.y() + layout.firstTop, nameWidth, layout.firstHeight),
-                      Qt::AlignVCenter | Qt::AlignLeft,
-                      nameMetrics.elidedText(index.data(NameRole).toString(), Qt::ElideMiddle,
-                                             nameWidth));
+    painter->drawText(
+        QRect(x, row.y() + layout.firstTop, nameWidth, layout.firstHeight),
+        Qt::AlignVCenter | Qt::AlignLeft,
+        nameMetrics.elidedText(index.data(NameRole).toString(), Qt::ElideMiddle, nameWidth));
 
     if (!chip.isEmpty()) {
         const ChipPalette palette =
@@ -194,8 +190,8 @@ void WorkingCopyDelegate::paint(QPainter* painter, const QStyleOptionViewItem& o
         const int subWidth = row.right() - kPaddingX - (row.x() + kSubIndent);
         painter->drawText(
             QRect(row.x() + kSubIndent, row.y() + layout.secondTop, subWidth, layout.secondHeight),
-                          Qt::AlignVCenter | Qt::AlignLeft,
-                          subMetrics.elidedText(second, Qt::ElideMiddle, subWidth));
+            Qt::AlignVCenter | Qt::AlignLeft,
+            subMetrics.elidedText(second, Qt::ElideMiddle, subWidth));
     }
 
     // The row the keyboard is on, when the list has focus: an outline, so it

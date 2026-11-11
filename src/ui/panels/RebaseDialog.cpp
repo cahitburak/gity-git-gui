@@ -8,11 +8,11 @@
 
 #include <QApplication>
 #include <QCoreApplication>
-#include <QKeyEvent>
 #include <QDialogButtonBox>
 #include <QFontDatabase>
 #include <QHBoxLayout>
 #include <QHeaderView>
+#include <QKeyEvent>
 #include <QLabel>
 #include <QPainter>
 #include <QPlainTextEdit>
@@ -189,19 +189,19 @@ RebaseDialog::RebaseDialog(session::RepoSession& session, const QString& baseOid
     controls->addStretch(1);
     for (const ActionChoice& choice : kChoices) {
         const git::RebaseAction action = choice.action;
-        auto* button = new QPushButton(action == git::RebaseAction::Reword
-                                           ? tr("Reword…")
-                                           : QCoreApplication::translate(
-                                                 "gity::ui::RebaseDialog", choice.label),
-                                       this);
+        auto* button = new QPushButton(
+            action == git::RebaseAction::Reword
+                ? tr("Reword…")
+                : QCoreApplication::translate("gity::ui::RebaseDialog", choice.label),
+            this);
         // Styled by gity.qss from this property — the same chip colours as
         // the list, so the button says how much it changes before it is
         // pressed.
         button->setProperty("gityChip", chipKind(action));
         button->setToolTip(
-            QStringLiteral("%1  (%2)").arg(
-                QCoreApplication::translate("gity::ui::RebaseDialog", choice.explanation),
-                QString::fromLatin1(choice.key)));
+            QStringLiteral("%1  (%2)")
+                .arg(QCoreApplication::translate("gity::ui::RebaseDialog", choice.explanation),
+                     QString::fromLatin1(choice.key)));
         if (action == git::RebaseAction::Reword) {
             connect(button, &QPushButton::clicked, this, &RebaseDialog::reword);
         } else {
@@ -209,7 +209,6 @@ RebaseDialog::RebaseDialog(session::RepoSession& session, const QString& baseOid
                     [this, action] { applyActionToSelection(action); });
         }
         controls->addWidget(button);
-
     }
     // The letters `git rebase -i` uses — p, r, e, s, f, d — taken on the
     // list itself, before its type-to-search can claim the letter.
@@ -352,8 +351,8 @@ void RebaseDialog::setCommits(const QStringList& oids, const QStringList& subjec
 
 void RebaseDialog::setAction(QTreeWidgetItem* item, git::RebaseAction action) {
     item->setData(0, kActionRole, static_cast<int>(action));
-    item->setText(0, QCoreApplication::translate("gity::ui::RebaseDialog",
-                                                 choiceFor(action).label));
+    item->setText(0,
+                  QCoreApplication::translate("gity::ui::RebaseDialog", choiceFor(action).label));
     // The subject shows what the commit will say afterwards: the new message
     // for a reword, the old one otherwise.
     const QString subject = item->data(0, kSubjectRole).toString();
@@ -399,8 +398,8 @@ void RebaseDialog::reword() {
     auto* edit = new QPlainTextEdit(message, &dialog);
     edit->setFont(QFontDatabase::systemFont(QFontDatabase::FixedFont));
     layout->addWidget(edit, 1);
-    auto* note = new QLabel(tr("The first line is the summary. The changes stay as they are."),
-                            &dialog);
+    auto* note =
+        new QLabel(tr("The first line is the summary. The changes stay as they are."), &dialog);
     applyRole(note, QStringLiteral("note"));
     layout->addWidget(note);
     auto* buttons = new QDialogButtonBox(QDialogButtonBox::Cancel, &dialog);
@@ -433,8 +432,8 @@ void RebaseDialog::showCurrentChanges() {
         return;
     }
     shownOid_ = item->data(0, kOidRole).toString();
-    changesTitle_->setText(tr("Changes in %1 — %2")
-                               .arg(shownOid_.left(8), item->data(0, kSubjectRole).toString()));
+    changesTitle_->setText(
+        tr("Changes in %1 — %2").arg(shownOid_.left(8), item->data(0, kSubjectRole).toString()));
     files_->setFiles({});
     diff_->clearDiff();
     diff_->setPlaceholder(tr("Loading…"));
