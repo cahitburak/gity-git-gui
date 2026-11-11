@@ -1,0 +1,227 @@
+// The undo log against real repositories. ADR-011 calls the rule it keeps
+// "the one everything rests on", and until these existed only its pure
+// planning functions were tested.
+#include "TempRepo.h"
+
+#include "session/GitProcess.h"
+#include "session/UndoLog.h"
+
+#include <gtest/gtest.h>
+
+#include <atomic>
+
+using gity::session::GitProcess;
+using gity::session::RepoState;
+using gity::session::UndoLog;
+using gity::test::TempRepo;
+
+namespace {
+
+QString gitDir(const TempRepo& repo) {
+    return repo.dir() + QStringLiteral("/.git");
+}
+
+/// What RepoWorker::beginUndo does.
+RepoState begin(const UndoLog& log, bool duringOperation = false) {
+    RepoState state = log.capture(true, false);
+    state.duringOperation = duringOperation;
+    return state;
+}
+
+bool mergeInProgress(const TempRepo& repo) {
+    return QFile::exists(gitDir(repo) + QStringLiteral("/MERGE_HEAD"));
+}
+
+} // namespace
+
+TEST(UndoLog, UndoingACommitPutsTheBranchAndFilesBack) {
+    TempRepo repo;
+    repo.write("a.txt", "one\n");
+    repo.commitAll();
+    const QString base = repo.head();
+
+    UndoLog log;
+    log.load(repo.dir(), gitDir(repo));
+    RepoState before = begin(log);
+    repo.write("a.txt", "two\n");
+    repo.commitAll("second");
+    log.record(QStringLiteral("Commit"), std::move(before), false, false);
+    EXPECT_EQ(log.undoLabel(), QStringLiteral("Commit"));
+
+    const auto outcome = log.undo(false, true);
+    ASSERT_TRUE(outcome.ok) << outcome.message.toStdString();
+    EXPECT_EQ(repo.head(), base);
+    EXPECT_EQ(repo.read("a.txt"), "one\n");
+    EXPECT_EQ(log.redoLabel(), QStringLiteral("Commit"));
+}
+
+TEST(UndoLog, AMergeFinishedInATerminalDoesNotSwallowTheNextCommit) {
+    // The merge stops on a conflict and is recorded as waiting. It is then
+    // finished outside Gity, and the next commit in Gity must be an entry of
+    // its own — not folded into "Merge", where undoing the merge would take
+    // the commit with it.
+    TempRepo repo;
+    repo.write("f.txt", "base\n");
+    repo.commitAll();
+    repo.git({"switch", "-q", "-c", "side"});
+    repo.write("f.txt", "side\n");
+    repo.commitAll("side");
+    repo.git({"switch", "-q", "main"});
+    repo.write("f.txt", "main\n");
+    repo.commitAll("main");
+
+    UndoLog log;
+    log.load(repo.dir(), gitDir(repo));
+    RepoState beforeMerge = begin(log);
+    static_cast<void>(GitProcess::run(repo.dir(), {"merge", "side"}));
+    ASSERT_TRUE(mergeInProgress(repo));
+    log.record(QStringLiteral("Merge"), std::move(beforeMerge), true, true);
+    ASSERT_TRUE(log.hasPending());
+
+    // Finished in a terminal.
+    repo.write("f.txt", "resolved\n");
+    repo.git({"add", "f.txt"});
+    repo.git({"commit", "-q", "--no-edit"});
+    const QString mergeCommit = repo.head();
+
+    // Then a commit in Gity, begun with nothing in progress.
+    RepoState beforeCommit = begin(log, false);
+    repo.write("g.txt", "new\n");
+    repo.commitAll("unrelated");
+    log.record(QStringLiteral("Commit"), std::move(beforeCommit), false, false);
+
+    EXPECT_FALSE(log.hasPending());
+    EXPECT_EQ(log.undoLabel(), QStringLiteral("Commit"));
+    ASSERT_TRUE(log.undo(false, true).ok);
+    EXPECT_EQ(repo.head(), mergeCommit) << "undoing the commit must leave the merge";
+    EXPECT_EQ(log.undoLabel(), QStringLiteral("Merge"));
+}
+
+TEST(UndoLog, AStalePendingEntryIsSettledSoUndoStillWorks) {
+    TempRepo repo;
+    repo.write("f.txt", "base\n");
+    repo.commitAll();
+    repo.git({"switch", "-q", "-c", "side"});
+    repo.write("f.txt", "side\n");
+    repo.commitAll("side");
+    repo.git({"switch", "-q", "main"});
+    repo.write("f.txt", "main\n");
+    repo.commitAll("main");
+    const QString beforeMergeHead = repo.head();
+
+    UndoLog log;
+    log.load(repo.dir(), gitDir(repo));
+    RepoState beforeMerge = begin(log);
+    static_cast<void>(GitProcess::run(repo.dir(), {"merge", "side"}));
+    log.record(QStringLiteral("Merge"), std::move(beforeMerge), true, true);
+
+    repo.write("f.txt", "resolved\n");
+    repo.git({"add", "f.txt"});
+    repo.git({"commit", "-q", "--no-edit"});
+
+    log.settle(false);
+    EXPECT_FALSE(log.hasPending());
+    ASSERT_TRUE(log.undo(false, true).ok);
+    EXPECT_EQ(repo.head(), beforeMergeHead);
+}
+
+TEST(UndoLog, NothingIsRecordedWhileTheSessionIsClosing) {
+    TempRepo repo;
+    repo.write("a.txt", "one\n");
+    repo.commitAll();
+
+    UndoLog log;
+    log.load(repo.dir(), gitDir(repo));
+    RepoState before = begin(log);
+    repo.write("a.txt", "two\n");
+    repo.commitAll("second");
+
+    std::atomic<bool> closing{true};
+    GitProcess::setThreadAbortFlag(&closing);
+    log.record(QStringLiteral("Commit"), std::move(before), false, false);
+    GitProcess::setThreadAbortFlag(nullptr);
+
+    EXPECT_TRUE(log.undoLabel().isEmpty());
+}
+
+TEST(UndoLog, TwoLogsOnOneRepositoryKeepEachOthersEntries) {
+    TempRepo repo;
+    repo.write("a.txt", "one\n");
+    repo.commitAll();
+
+    UndoLog first;
+    UndoLog second;
+    first.load(repo.dir(), gitDir(repo));
+    second.load(repo.dir(), gitDir(repo));
+
+    RepoState before = begin(first);
+    repo.write("a.txt", "two\n");
+    repo.commitAll("by the first window");
+    first.record(QStringLiteral("Commit"), std::move(before), false, false);
+
+    before = begin(second);
+    repo.git({"tag", "v1"});
+    second.record(QStringLiteral("Tag"), std::move(before), false, false);
+
+    UndoLog reader;
+    reader.load(repo.dir(), gitDir(repo));
+    ASSERT_TRUE(reader.undo(false, true).ok);
+    EXPECT_EQ(reader.undoLabel(), QStringLiteral("Commit")) << "the first window's entry was lost";
+}
+
+TEST(UndoLog, ACorruptLogIsSetAsideNotSilentlyEmptied) {
+    TempRepo repo;
+    repo.write("a.txt", "one\n");
+    repo.commitAll();
+    QDir().mkpath(gitDir(repo) + QStringLiteral("/gity"));
+    repo.write(".git/gity/undo.json", "{ not json");
+
+    UndoLog log;
+    log.load(repo.dir(), gitDir(repo));
+    const QStringList aside = QDir(gitDir(repo) + QStringLiteral("/gity"))
+                                  .entryList({QStringLiteral("undo.json.corrupt-*")});
+    EXPECT_EQ(aside.size(), 1);
+}
+
+TEST(UndoLog, ADeletedAnnotatedTagSurvivesGarbageCollection) {
+    TempRepo repo;
+    repo.write("a.txt", "one\n");
+    repo.commitAll();
+    repo.git({"tag", "-a", "v1", "-m", "release"});
+    const QString tagObject = repo.git({"rev-parse", "refs/tags/v1"}).output.trimmed();
+
+    UndoLog log;
+    log.load(repo.dir(), gitDir(repo));
+    RepoState before = begin(log);
+    repo.git({"tag", "-d", "v1"});
+    log.record(QStringLiteral("Delete tag"), std::move(before), false, false);
+
+    repo.git({"reflog", "expire", "--expire-unreachable=now", "--all"});
+    repo.git({"gc", "-q", "--prune=now"});
+
+    const auto outcome = log.undo(false, true);
+    ASSERT_TRUE(outcome.ok) << outcome.message.toStdString();
+    EXPECT_EQ(repo.git({"rev-parse", "refs/tags/v1"}).output.trimmed(), tagObject);
+}
+
+TEST(UndoLog, ALockedIndexStopsTheUndoBeforeAnythingMoves) {
+    TempRepo repo;
+    repo.write("a.txt", "one\n");
+    repo.commitAll();
+
+    UndoLog log;
+    log.load(repo.dir(), gitDir(repo));
+    RepoState before = begin(log);
+    repo.write("a.txt", "two\n");
+    repo.commitAll("second");
+    const QString second = repo.head();
+    log.record(QStringLiteral("Commit"), std::move(before), false, false);
+
+    repo.write(".git/index.lock", "");
+    const auto outcome = log.undo(false, true);
+    QFile::remove(gitDir(repo) + QStringLiteral("/index.lock"));
+
+    EXPECT_FALSE(outcome.ok);
+    EXPECT_EQ(repo.head(), second) << "the branch moved although the undo refused";
+    EXPECT_EQ(log.undoLabel(), QStringLiteral("Commit"));
+}

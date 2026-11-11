@@ -91,6 +91,9 @@ void RepoWorker::open(const QString& path) {
         info.headRef = headRefName(repo);
         emit opened(info);
         undo_.load(workdir_, QString::fromUtf8(git_repository_path(repo)));
+        // A merge left waiting when Gity last closed may have been finished
+        // in a terminal since.
+        undo_.settle(operationInProgress());
         reportUndo();
 
         // Refs before history: the sidebar is the first thing that can be
@@ -244,18 +247,19 @@ RepoState RepoWorker::beginUndo() {
     if (!repo_) {
         return {};
     }
-    return undo_.capture(true, worktreeClean());
+    RepoState state = undo_.capture(true, worktreeClean());
+    state.duringOperation = operationInProgress();
+    return state;
 }
 
 void RepoWorker::endUndo(const QString& verb, RepoState before, bool filesChanged) {
     if (!repo_ || (before.headOid.isEmpty() && before.refs.empty())) {
         return;
     }
-    // Abandoning something Gity did not start has nothing of ours to undo;
-    // abandoning something it did closes that entry (UndoLog::record).
-    if (verb == QStringLiteral("Abort") && !undo_.hasPending()) {
-        return;
-    }
+    // Abandoning something Gity started closes that entry (UndoLog::record).
+    // Abandoning something it did not start is recorded as an entry of its
+    // own: `merge --abort` throws away conflict resolutions in progress, and
+    // the snapshot taken before it is the only copy of them.
     undo_.record(verb, std::move(before), filesChanged, operationInProgress());
     reportUndo();
 }
@@ -265,6 +269,7 @@ void RepoWorker::reportUndo() {
 }
 
 void RepoWorker::undo() {
+    undo_.settle(operationInProgress());
     const UndoLog::Outcome outcome = undo_.undo(operationInProgress(), worktreeClean());
     emit historyEditFinished(QObject::tr("Undo"), outcome.ok, false, outcome.message);
     reportUndo();
@@ -273,6 +278,7 @@ void RepoWorker::undo() {
 }
 
 void RepoWorker::redo() {
+    undo_.settle(operationInProgress());
     const UndoLog::Outcome outcome = undo_.redo(operationInProgress(), worktreeClean());
     emit historyEditFinished(QObject::tr("Redo"), outcome.ok, false, outcome.message);
     reportUndo();
@@ -1851,6 +1857,9 @@ void RepoWorker::discardPaths(const QStringList& paths) {
         args += tracked;
         const GitResult result = GitProcess::run(workdir_, args, 120000);
         if (!result.ok()) {
+            // Recorded even so: git may have restored some paths before it
+            // failed on one, and the snapshot is the only copy of them.
+            endUndo(QObject::tr("Discard"), std::move(undoBefore), true);
             emit historyEditFinished(QObject::tr("Discard"), false, false,
                                      result.firstProblemLine());
             refreshStatus();
@@ -1869,6 +1878,9 @@ void RepoWorker::discardPaths(const QStringList& paths) {
         }
     }
     if (!stuck.isEmpty()) {
+        // The tracked files are already restored, and the other untracked
+        // ones deleted: that much has happened and must be undoable.
+        endUndo(QObject::tr("Discard"), std::move(undoBefore), true);
         emit historyEditFinished(QObject::tr("Discard"), false, false,
                                  QObject::tr("Could not delete %1").arg(stuck.join(", ")));
         refreshStatus();

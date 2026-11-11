@@ -378,6 +378,10 @@ void GitProcess::setThreadAbortFlag(const std::atomic<bool>* flag) {
     t_abort = flag;
 }
 
+bool GitProcess::aborting() noexcept {
+    return t_abort != nullptr && t_abort->load(std::memory_order_relaxed);
+}
+
 GitResult GitProcess::run(const QString& workdir, const QStringList& args, int timeoutMs) {
     Request request;
     request.workdir = workdir;

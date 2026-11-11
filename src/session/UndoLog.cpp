@@ -7,6 +7,9 @@
 #include <QJsonArray>
 #include <QJsonDocument>
 #include <QJsonObject>
+#include <QLockFile>
+#include <QSaveFile>
+#include <QUuid>
 
 #include <algorithm>
 #include <set>
@@ -105,17 +108,63 @@ UndoEntry entryFromJson(const QJsonObject& json) {
 
 } // namespace
 
+namespace {
+
+/// Held while the log is read, changed and written back. Two windows on one
+/// repository each keep a log in memory; without this, whichever saved last
+/// erased what the other had recorded.
+class LogLock {
+public:
+    explicit LogLock(const QString& gitDir)
+        : lock_(QDir(gitDir).filePath(QStringLiteral("gity/undo.lock"))) {
+        QDir().mkpath(QDir(gitDir).filePath(QStringLiteral("gity")));
+        // A lock left by a crashed Gity is stale after this long; nothing
+        // legitimately holds it for more than a restore takes.
+        lock_.setStaleLockTime(10 * 60 * 1000);
+        if (!lock_.tryLock(10000)) {
+            qWarning("gity: the undo log is locked by another process; going ahead without it");
+        }
+    }
+
+private:
+    QLockFile lock_;
+};
+
+} // namespace
+
+QString UndoLog::logPath() const {
+    return QDir(gitDir_).filePath(QStringLiteral("gity/undo.json"));
+}
+
 void UndoLog::load(const QString& workdir, const QString& gitDir) {
     workdir_ = workdir;
     gitDir_ = gitDir;
+    const LogLock lock(gitDir_);
+    read();
+}
+
+void UndoLog::read() {
     undo_.clear();
     redo_.clear();
 
-    QFile file(QDir(gitDir_).filePath(QStringLiteral("gity/undo.json")));
+    QFile file(logPath());
     if (!file.open(QIODevice::ReadOnly)) {
         return;
     }
-    const QJsonObject root = QJsonDocument::fromJson(file.readAll()).object();
+    QJsonParseError error{};
+    const QJsonDocument document = QJsonDocument::fromJson(file.readAll(), &error);
+    file.close();
+    if (error.error != QJsonParseError::NoError || !document.isObject()) {
+        // Not silently empty: set aside where it can be looked at, and said.
+        const QString aside =
+            logPath() + QStringLiteral(".corrupt-") +
+            QDateTime::currentDateTimeUtc().toString(QStringLiteral("yyyyMMddTHHmmss"));
+        QFile::rename(logPath(), aside);
+        qWarning("gity: the undo log could not be read (%s); it was moved to %s",
+                 qPrintable(error.errorString()), qPrintable(aside));
+        return;
+    }
+    const QJsonObject root = document.object();
     for (const QJsonValue& value : root.value(QStringLiteral("undo")).toArray()) {
         undo_.push_back(entryFromJson(value.toObject()));
     }
@@ -134,11 +183,18 @@ void UndoLog::save() const {
     for (const UndoEntry& entry : redo_) {
         redo.append(toJson(entry));
     }
-    QFile file(QDir(gitDir_).filePath(QStringLiteral("gity/undo.json")));
-    if (file.open(QIODevice::WriteOnly | QIODevice::Truncate)) {
-        file.write(QJsonDocument(QJsonObject{{QStringLiteral("undo"), undo},
-                                             {QStringLiteral("redo"), redo}})
-                       .toJson(QJsonDocument::Indented));
+    // Written beside and renamed into place: a crash part way through leaves
+    // the previous log, never half of one.
+    QSaveFile file(logPath());
+    if (!file.open(QIODevice::WriteOnly)) {
+        qWarning("gity: could not write the undo log: %s", qPrintable(file.errorString()));
+        return;
+    }
+    file.write(QJsonDocument(QJsonObject{{QStringLiteral("undo"), undo},
+                                         {QStringLiteral("redo"), redo}})
+                   .toJson(QJsonDocument::Indented));
+    if (!file.commit()) {
+        qWarning("gity: could not write the undo log: %s", qPrintable(file.errorString()));
     }
 }
 
@@ -149,6 +205,9 @@ RepoState UndoLog::capture(bool withWorktree, bool worktreeClean) const {
     const GitResult head =
         GitProcess::run(workdir_, {QStringLiteral("symbolic-ref"), QStringLiteral("-q"),
                                    QStringLiteral("HEAD")});
+    // symbolic-ref and rev-parse fail legitimately (detached, unborn); what
+    // makes a capture worthless is git not finishing at all.
+    state.valid = head.started && !head.timedOut;
     if (head.ok()) {
         state.headRef = firstLine(head);
     }
@@ -158,10 +217,12 @@ RepoState UndoLog::capture(bool withWorktree, bool worktreeClean) const {
     if (headOid.ok()) {
         state.headOid = firstLine(headOid);
     }
+    state.valid = state.valid && headOid.started && !headOid.timedOut;
 
     const GitResult refs = GitProcess::run(
         workdir_, {QStringLiteral("for-each-ref"), QStringLiteral("--format=%(refname) %(objectname)"),
                    QStringLiteral("refs/heads"), QStringLiteral("refs/tags")});
+    state.valid = state.valid && refs.ok();
     for (const QString& line : refs.output.split(QChar('\n'), Qt::SkipEmptyParts)) {
         const qsizetype space = line.lastIndexOf(QChar(' '));
         if (space > 0) {
@@ -172,6 +233,7 @@ RepoState UndoLog::capture(bool withWorktree, bool worktreeClean) const {
     const GitResult stashes = GitProcess::run(
         workdir_, {QStringLiteral("stash"), QStringLiteral("list"),
                    QStringLiteral("--format=%H%x00%gs")});
+    state.valid = state.valid && stashes.ok();
     for (const QString& line : stashes.output.split(QChar('\n'), Qt::SkipEmptyParts)) {
         const qsizetype separator = line.indexOf(QChar('\0'));
         if (separator > 0) {
@@ -201,7 +263,11 @@ RepoState UndoLog::capture(bool withWorktree, bool worktreeClean) const {
     // The working copy as a tree, untracked files included, built in a
     // scratch index so the real one is not touched. Starting from a copy of
     // the real index lets git reuse its record of which files are unchanged.
-    const QString scratch = QDir(gitDir_).filePath(QStringLiteral("gity/snapshot-index"));
+    //
+    // Named per capture: two windows on one repository used to share one
+    // scratch file and could build each other's snapshot.
+    const QString scratch = QDir(gitDir_).filePath(
+        QStringLiteral("gity/snapshot-index-") + QUuid::createUuid().toString(QUuid::Id128));
     QDir().mkpath(QDir(gitDir_).filePath(QStringLiteral("gity")));
     QFile::remove(scratch);
     QFile::copy(QDir(gitDir_).filePath(QStringLiteral("index")), scratch);
@@ -218,6 +284,8 @@ RepoState UndoLog::capture(bool withWorktree, bool worktreeClean) const {
     QFile::remove(scratch);
     if (tree.ok()) {
         state.worktreeTree = firstLine(tree);
+    } else {
+        state.valid = false; // a "before" with no files cannot be returned to
     }
     // The index as it stands — what was staged. A conflicted index cannot
     // be written as a tree; then the working copy stands in for it.
@@ -247,12 +315,38 @@ void UndoLog::keepAlive(const UndoEntry& entry) const {
     if (!entry.before.headOid.isEmpty()) {
         keep.insert(entry.before.headOid);
     }
+    QStringList tagObjects;
     for (const auto& [name, oid] : entry.before.refs) {
         const auto after = entry.after.refs.find(name);
-        if ((after == entry.after.refs.end() || after->second != oid) &&
-            name.rfind("refs/heads/", 0) == 0) {
-            keep.insert(QString::fromStdString(oid));
+        if (after != entry.after.refs.end() && after->second == oid) {
+            continue;
         }
+        if (name.rfind("refs/heads/", 0) == 0) {
+            keep.insert(QString::fromStdString(oid));
+        } else if (name.rfind("refs/tags/", 0) == 0) {
+            // A tag can name an annotated tag object rather than a commit, and
+            // commit-tree only takes commits as parents. The commit it points
+            // at is kept that way; the tag object itself below.
+            const GitResult peeled = GitProcess::run(
+                workdir_, {QStringLiteral("rev-parse"), QStringLiteral("-q"),
+                           QStringLiteral("--verify"),
+                           QString::fromStdString(oid) + QStringLiteral("^{commit}")});
+            if (peeled.ok()) {
+                keep.insert(firstLine(peeled));
+            }
+            if (peeled.ok() && firstLine(peeled) != QString::fromStdString(oid)) {
+                tagObjects << QString::fromStdString(oid);
+            }
+        }
+    }
+    // Each tag object an operation removed is kept by an entry in a reflog of
+    // its own, exactly as the snapshots are: otherwise "Undo Delete tag"
+    // fails once gc has pruned the unreachable tag.
+    for (const QString& tag : tagObjects) {
+        static_cast<void>(GitProcess::run(
+            workdir_, {QStringLiteral("update-ref"), QStringLiteral("--create-reflog"),
+                       QStringLiteral("-m"), QStringLiteral("gity: before %1").arg(entry.verb),
+                       QStringLiteral("refs/gity/tags"), tag}));
     }
     for (const StashEntry& stash : entry.before.stashes) {
         keep.insert(QString::fromStdString(stash.oid));
@@ -280,24 +374,44 @@ void UndoLog::keepAlive(const UndoEntry& entry) const {
 
 void UndoLog::record(const QString& verb, RepoState before, bool worktreeChanged,
                      bool operationInProgress) {
+    // The session is closing and has stopped git part way: neither the state
+    // read before nor the one readable now can be trusted, and an entry built
+    // from them would undo to nonsense. Better no entry than a wrong one.
+    if (GitProcess::aborting() || !before.valid) {
+        return;
+    }
     const RepoState after = capture(false, true);
+    if (!after.valid) {
+        return;
+    }
+
+    const LogLock lock(gitDir_);
+    read();
 
     // An operation that stopped earlier is completed — or abandoned — by
     // whatever runs next: continue, abort, or a commit that concludes a
     // merge. It stays one entry, so undoing it undoes the whole thing.
+    //
+    // But only if this operation began while that one was still underway. If
+    // nothing was in progress when it started, the stopped operation was
+    // finished elsewhere — in a terminal — and this is something new: folding
+    // it in would make undoing the merge also undo an unrelated commit.
     if (!undo_.empty() && undo_.back().pending) {
-        UndoEntry& open = undo_.back();
-        if (operationInProgress) {
-            open.after = after;
-        } else if (sameRefs(open.before, after)) {
-            undo_.pop_back(); // abandoned: nothing left to undo
-        } else {
-            open.after = after;
-            open.pending = false;
-            keepAlive(open);
+        if (before.duringOperation) {
+            UndoEntry& open = undo_.back();
+            if (operationInProgress) {
+                open.after = after;
+            } else if (sameRefs(open.before, after)) {
+                undo_.pop_back(); // abandoned: nothing left to undo
+            } else {
+                open.after = after;
+                open.pending = false;
+                keepAlive(open);
+            }
+            save();
+            return;
         }
-        save();
-        return;
+        closePending(before);
     }
 
     UndoEntry entry;
@@ -307,7 +421,8 @@ void UndoLog::record(const QString& verb, RepoState before, bool worktreeChanged
     entry.after = after;
     entry.pending = operationInProgress;
     if (!operationInProgress && !worktreeChanged && sameRefs(entry.before, entry.after)) {
-        return; // it changed nothing
+        save(); // it changed nothing — but closing a stale entry may have
+        return;
     }
     keepAlive(entry);
     undo_.push_back(std::move(entry));
@@ -315,6 +430,39 @@ void UndoLog::record(const QString& verb, RepoState before, bool worktreeChanged
         undo_.erase(undo_.begin());
     }
     redo_.clear();
+    save();
+}
+
+void UndoLog::closePending(const RepoState& now) {
+    if (undo_.empty() || !undo_.back().pending) {
+        return;
+    }
+    UndoEntry& open = undo_.back();
+    if (sameRefs(open.before, now)) {
+        undo_.pop_back(); // abandoned elsewhere: nothing of it is left
+        return;
+    }
+    open.after = now;
+    open.after.worktreeTree.clear();
+    open.after.indexTree.clear();
+    open.pending = false;
+    keepAlive(open);
+}
+
+void UndoLog::settle(bool operationInProgress) {
+    if (operationInProgress || GitProcess::aborting()) {
+        return;
+    }
+    const LogLock lock(gitDir_);
+    read();
+    if (undo_.empty() || !undo_.back().pending) {
+        return;
+    }
+    const RepoState now = capture(false, true);
+    if (!now.valid) {
+        return;
+    }
+    closePending(now);
     save();
 }
 
@@ -338,12 +486,38 @@ UndoLog::Outcome UndoLog::redo(bool operationInProgress, bool worktreeClean) {
     return restore(redo_, undo_, operationInProgress, worktreeClean, QObject::tr("Redid"));
 }
 
+namespace {
+
+/// The update-ref transaction that makes `changes`, and the one that takes
+/// them back. Each line names the value it expects, so a ref someone moved in
+/// the meantime fails the whole transaction instead of being overwritten.
+QByteArray refTransaction(const std::vector<git::RefChange>& changes, bool inverse) {
+    QByteArray commands;
+    for (const git::RefChange& change : changes) {
+        const QByteArray ref = QByteArray::fromStdString(change.ref);
+        const QByteArray from = QByteArray::fromStdString(inverse ? change.to : change.from);
+        const QByteArray to = QByteArray::fromStdString(inverse ? change.from : change.to);
+        if (to.isEmpty()) {
+            commands += "delete " + ref + " " + from + "\n";
+        } else if (from.isEmpty()) {
+            commands += "create " + ref + " " + to + "\n";
+        } else {
+            commands += "update " + ref + " " + to + " " + from + "\n";
+        }
+    }
+    return commands;
+}
+
+} // namespace
+
 UndoLog::Outcome UndoLog::restore(std::vector<UndoEntry>& from, std::vector<UndoEntry>& to,
                                   bool operationInProgress, bool worktreeClean,
                                   const QString& word) {
     if (operationInProgress) {
         return {false, QObject::tr("Finish or abandon the operation in progress first.")};
     }
+    const LogLock lock(gitDir_);
+    read();
     if (from.empty() || from.back().pending) {
         return {false, QObject::tr("Nothing to undo.")};
     }
@@ -351,36 +525,92 @@ UndoLog::Outcome UndoLog::restore(std::vector<UndoEntry>& from, std::vector<Undo
     const GitProcess::InternalScope internal;
     const QString reason = QStringLiteral("gity: %1 %2").arg(word.toLower(), entry.verb);
 
+    // Everything that could stop the restore part way is checked before
+    // anything moves. A half-done undo — branches back, files not — is worse
+    // than one that refuses.
+    if (QFile::exists(QDir(gitDir_).filePath(QStringLiteral("index.lock")))) {
+        return {false, QObject::tr("Another git process is using this repository (index.lock "
+                                   "exists). Nothing was changed; try again when it finishes.")};
+    }
+
     // The state being left, in full: it is what the opposite action returns
-    // to, so nothing the undo overwrites is lost.
+    // to, so nothing the undo overwrites is lost. Without it there would be
+    // nothing to redo back to, so no snapshot means no undo.
     RepoState leaving = capture(true, worktreeClean);
+    if (!leaving.valid || leaving.worktreeTree.isEmpty()) {
+        return {false, QObject::tr("Could not snapshot the working copy as it is now, so "
+                                   "undoing could lose changes. Nothing was changed.")};
+    }
+
+    const git::RefRestorePlan plan =
+        git::planRefRestore(entry.before.refs, entry.after.refs, leaving.refs);
+    const git::StashRestorePlan stashes =
+        git::planStashRestore(entry.before.stashes, entry.after.stashes, leaving.stashes);
+
+    // Every object the restore will point at must still exist. Snapshots live
+    // as long as git's reflog expiry, and a gc after that prunes them.
+    {
+        QByteArray wanted;
+        const auto want = [&wanted](const std::string& oid) {
+            if (!oid.empty()) {
+                wanted += QByteArray::fromStdString(oid) + "\n";
+            }
+        };
+        want(entry.before.worktreeTree.toStdString());
+        want(entry.before.indexTree.toStdString());
+        if (entry.before.headRef.isEmpty()) {
+            want(entry.before.headOid.toStdString());
+        }
+        for (const git::RefChange& change : plan.changes) {
+            want(change.to);
+        }
+        for (const StashEntry& stash : stashes.store) {
+            want(stash.oid);
+        }
+        if (!wanted.isEmpty()) {
+            const GitResult check = GitProcess::runWithInput(
+                workdir_, {QStringLiteral("cat-file"), QStringLiteral("--batch-check")}, wanted);
+            if (!check.ok() || check.output.contains(QStringLiteral(" missing"))) {
+                return {false, QObject::tr("Part of what this would restore no longer exists — "
+                                           "git has pruned it. Nothing was changed.")};
+            }
+        }
+    }
 
     // Refs first, in one transaction, and only the ones still where the
     // operation left them (UndoPlan).
-    const git::RefRestorePlan plan =
-        git::planRefRestore(entry.before.refs, entry.after.refs, leaving.refs);
     if (!plan.changes.empty()) {
-        QByteArray commands;
-        for (const git::RefChange& change : plan.changes) {
-            const QByteArray ref = QByteArray::fromStdString(change.ref);
-            if (change.to.empty()) {
-                commands += "delete " + ref + " " + QByteArray::fromStdString(change.from) + "\n";
-            } else if (change.from.empty()) {
-                commands += "create " + ref + " " + QByteArray::fromStdString(change.to) + "\n";
-            } else {
-                commands += "update " + ref + " " + QByteArray::fromStdString(change.to) + " " +
-                            QByteArray::fromStdString(change.from) + "\n";
-            }
-        }
         const GitResult updated = GitProcess::runWithInput(
             workdir_, {QStringLiteral("update-ref"), QStringLiteral("-m"), reason,
                        QStringLiteral("--stdin")},
-            commands);
+            refTransaction(plan.changes, false));
         if (!updated.ok()) {
-            return {false, QObject::tr("Could not move the branches back: %1")
+            return {false, QObject::tr("Could not move the branches back: %1. Nothing was "
+                                       "changed.")
                                .arg(updated.firstProblemLine())};
         }
     }
+
+    // Puts the refs and HEAD back as they were before this restore began, if
+    // the files cannot follow them.
+    const auto rollBack = [&] {
+        if (!plan.changes.empty()) {
+            static_cast<void>(GitProcess::runWithInput(
+                workdir_, {QStringLiteral("update-ref"), QStringLiteral("-m"), reason,
+                           QStringLiteral("--stdin")},
+                refTransaction(plan.changes, true)));
+        }
+        if (!leaving.headRef.isEmpty()) {
+            static_cast<void>(GitProcess::run(
+                workdir_, {QStringLiteral("symbolic-ref"), QStringLiteral("HEAD"),
+                           leaving.headRef}));
+        } else if (!leaving.headOid.isEmpty()) {
+            static_cast<void>(GitProcess::run(
+                workdir_, {QStringLiteral("update-ref"), QStringLiteral("--no-deref"),
+                           QStringLiteral("HEAD"), leaving.headOid}));
+        }
+    };
+    QStringList problems;
 
     // If the branch HEAD is on moved again since, the working copy belongs to
     // that newer state: rolling the files back under it would make the new
@@ -396,15 +626,21 @@ UndoLog::Outcome UndoLog::restore(std::vector<UndoEntry>& from, std::vector<Undo
         // see above
     } else if (entry.before.headRef != entry.after.headRef ||
         (entry.before.headRef.isEmpty() && entry.before.headOid != entry.after.headOid)) {
+        GitResult moved;
         if (!entry.before.headRef.isEmpty()) {
-            static_cast<void>(GitProcess::run(
-                workdir_, {QStringLiteral("symbolic-ref"), QStringLiteral("-m"), reason,
-                           QStringLiteral("HEAD"), entry.before.headRef}));
+            moved = GitProcess::run(workdir_, {QStringLiteral("symbolic-ref"), QStringLiteral("-m"),
+                                               reason, QStringLiteral("HEAD"),
+                                               entry.before.headRef});
         } else if (!entry.before.headOid.isEmpty()) {
-            static_cast<void>(GitProcess::run(
+            moved = GitProcess::run(
                 workdir_, {QStringLiteral("update-ref"), QStringLiteral("--no-deref"),
                            QStringLiteral("-m"), reason, QStringLiteral("HEAD"),
-                           entry.before.headOid}));
+                           entry.before.headOid});
+        }
+        if (moved.started && !moved.ok()) {
+            rollBack();
+            return {false, QObject::tr("Could not move HEAD back: %1. Nothing was changed.")
+                               .arg(moved.firstProblemLine())};
         }
     }
 
@@ -415,11 +651,18 @@ UndoLog::Outcome UndoLog::restore(std::vector<UndoEntry>& from, std::vector<Undo
                        entry.before.worktreeTree},
             300000);
         if (!files.ok()) {
-            return {false, QObject::tr("Could not restore the working copy: %1")
+            // read-tree -u checks before it writes, so a failure leaves the
+            // files as they were; the refs are put back to match them.
+            rollBack();
+            return {false, QObject::tr("Could not restore the working copy: %1. Nothing was "
+                                       "changed.")
                                .arg(files.firstProblemLine())};
         }
-        static_cast<void>(GitProcess::run(
-            workdir_, {QStringLiteral("read-tree"), entry.before.indexTree}));
+        if (!GitProcess::run(workdir_, {QStringLiteral("read-tree"), entry.before.indexTree})
+                 .ok()) {
+            problems << QObject::tr("what was staged could not be restored, so the index "
+                                    "matches the files");
+        }
 
         // Submodules are repositories of their own, so restoring this one's
         // files does not move them. The snapshot recorded where each one was
@@ -454,8 +697,6 @@ UndoLog::Outcome UndoLog::restore(std::vector<UndoEntry>& from, std::vector<Undo
     }
 
     // Stashes the operation removed come back; ones it made go.
-    const git::StashRestorePlan stashes =
-        git::planStashRestore(entry.before.stashes, entry.after.stashes, leaving.stashes);
     for (const std::string& oid : stashes.drop) {
         const GitResult list = GitProcess::run(
             workdir_, {QStringLiteral("stash"), QStringLiteral("list"), QStringLiteral("--format=%H")});
@@ -468,9 +709,15 @@ UndoLog::Outcome UndoLog::restore(std::vector<UndoEntry>& from, std::vector<Undo
         }
     }
     for (const StashEntry& stash : stashes.store) {
-        static_cast<void>(GitProcess::run(
-            workdir_, {QStringLiteral("stash"), QStringLiteral("store"), QStringLiteral("-m"),
-                       QString::fromStdString(stash.message), QString::fromStdString(stash.oid)}));
+        if (!GitProcess::run(workdir_, {QStringLiteral("stash"), QStringLiteral("store"),
+                                        QStringLiteral("-m"), QString::fromStdString(stash.message),
+                                        QString::fromStdString(stash.oid)})
+                 .ok()) {
+            problems << QObject::tr("the stash \"%1\" could not be put back (it is still "
+                                    "%2)")
+                            .arg(QString::fromStdString(stash.message),
+                                 QString::fromStdString(stash.oid).left(10));
+        }
     }
 
     UndoEntry opposite;
@@ -495,6 +742,9 @@ UndoLog::Outcome UndoLog::restore(std::vector<UndoEntry>& from, std::vector<Undo
         if (headSkipped) {
             message += QObject::tr(" The working copy was left as it is.");
         }
+    }
+    if (!problems.isEmpty()) {
+        message += QObject::tr(" But %1.").arg(problems.join(QStringLiteral("; ")));
     }
     return {true, message};
 }

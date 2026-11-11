@@ -55,6 +55,7 @@ if(TARGET gity::session)
         session/TempRepo.h
         session/test_index_writes.cpp
         session/test_git_process.cpp
+        session/test_undo_log.cpp
     )
     target_include_directories(gity_session_tests PRIVATE ${PROJECT_SOURCE_DIR}/src)
     target_link_libraries(gity_session_tests

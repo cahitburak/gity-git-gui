@@ -36,6 +36,14 @@ struct RepoState {
     /// Captured only for the state an undo returns to.
     QString worktreeTree;
     QString indexTree;
+    /// Every command that read this state ran to completion. A capture taken
+    /// while the session was closing — or with git timing out — is not a
+    /// state anything can be restored to.
+    bool valid = true;
+    /// A merge, rebase or other stopped operation was underway when this was
+    /// captured. Not stored: it only decides how the next record() treats an
+    /// entry still waiting to be finished.
+    bool duringOperation = false;
 };
 
 struct UndoEntry {
@@ -66,6 +74,12 @@ public:
     void record(const QString& verb, RepoState before, bool worktreeChanged,
                 bool operationInProgress);
 
+    /// Closes an entry left waiting for an operation that is no longer in
+    /// progress — finished or abandoned somewhere else, such as a terminal.
+    /// It is kept as what happened up to now, so it cannot absorb whatever
+    /// Gity does next.
+    void settle(bool operationInProgress);
+
     /// An operation is stopped part way and waiting to be finished.
     [[nodiscard]] bool hasPending() const;
     [[nodiscard]] QString undoLabel() const;
@@ -84,7 +98,13 @@ private:
     Outcome restore(std::vector<UndoEntry>& from, std::vector<UndoEntry>& to,
                     bool operationInProgress, bool worktreeClean, const QString& word);
     void keepAlive(const UndoEntry& entry) const;
+    /// Closes the waiting entry with `now` as its result.
+    void closePending(const RepoState& now);
+    /// Reads the log from disk, replacing what is in memory. Another window
+    /// on the same repository may have written it since.
+    void read();
     void save() const;
+    [[nodiscard]] QString logPath() const;
 
     QString workdir_;
     QString gitDir_;

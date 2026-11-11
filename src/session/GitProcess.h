@@ -113,6 +113,11 @@ public:
     /// hour-long clone finishes on its own. Null removes it.
     static void setThreadAbortFlag(const std::atomic<bool>* flag);
 
+    /// The calling thread's abort flag is set: its session is closing, and
+    /// every git it starts will be stopped. Bookkeeping that would record the
+    /// outcome — the undo log — must not trust what it reads now.
+    [[nodiscard]] static bool aborting() noexcept;
+
     /// One finished git invocation, for the command log. Never carries stdin
     /// — a commit message or a credential — and passwords in URL arguments
     /// are masked before it is built.
