@@ -1,5 +1,6 @@
 #pragma once
 
+#include "SavedState.h"
 #include "session/RepoSession.h"
 #include "session/SessionHub.h"
 #include "session/SwitchContext.h"
@@ -12,7 +13,6 @@
 #include <functional>
 
 #include <QMainWindow>
-#include <QSettings>
 #include <memory>
 
 #include "core/git/HistoryStream.h"
@@ -129,8 +129,7 @@ private slots:
     void onExternalChange(int kinds);
 
 private:
-    /// Repositories opened in their own right, most recent first.
-    [[nodiscard]] QStringList recentRepositories() const;
+    /// Adds `path` to the recent repositories, when the session is saved.
     void rememberRepository(const QString& path);
     /// Asks the session for a preview; showPreview takes it from there.
     void askPreview(gity::session::Preview::Kind kind, const QString& target = {},
@@ -256,7 +255,7 @@ private:
     bool awaitingRebaseBases_ = false;
     /// Saved tabs whose folder could not be found at start-up — a drive not
     /// mounted — kept in the saved list so they are not forgotten.
-    QList<QPair<QString, QString>> unavailableTabs_;
+    QList<saved::Tab> unavailableTabs_;
 
     /// What a repository was showing, kept while another tab is on screen.
     struct ViewState {
@@ -274,12 +273,8 @@ private:
 
     /// What switching to `ref` involves, from the loaded refs and status.
     [[nodiscard]] gity::session::SwitchContext switchContext(const QString& ref) const;
-    /// The branches pinned in `workdir`'s sidebar, as full ref names.
-    [[nodiscard]] static QStringList pinnedBranches(const QString& workdir);
     /// The host's provider: by name, or else as chosen for an account on it.
     [[nodiscard]] static gity::git::Provider providerFor(const std::string& remoteUrl);
-    /// Every repository's pins, as stored: (working directory, full ref names).
-    [[nodiscard]] static QList<QPair<QString, QStringList>> readPinned(QSettings& settings);
     /// A commit to select once the streaming history reaches it.
     QString pendingSelectOid_;
     QElapsedTimer sinceOpen_;

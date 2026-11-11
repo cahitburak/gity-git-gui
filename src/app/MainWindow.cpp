@@ -1,5 +1,7 @@
 #include "MainWindow.h"
 
+#include "SavedState.h"
+
 #include "core/git/Provider.h"
 #include "core/git/PullRequest.h"
 #include "session/Accounts.h"
@@ -53,7 +55,6 @@
 #include <QPushButton>
 #include <QRadioButton>
 #include <QScreen>
-#include <QSettings>
 #include <QSignalBlocker>
 #include <QSplitter>
 #include <QStackedWidget>
@@ -77,10 +78,6 @@ namespace {
 /// indices were literals, and deleting a screen quietly repointed every
 /// literal after it at the wrong one.
 enum Screen : int { ScreenHistory = 0, ScreenChanges = 1, ScreenWelcome = 2 };
-
-/// How many repositories File ▸ Open Recent and the welcome screen remember.
-constexpr int kRecentLimit = 12;
-const QString kRecentKey = QStringLiteral("recent/repositories");
 
 /// The Changes tab, under the graph.
 constexpr int kChangesTab = 1;
@@ -253,7 +250,7 @@ MainWindow::MainWindow(QWidget* parent) : QMainWindow(parent) {
     connect(welcome_, &gity::ui::WelcomePanel::openRequested, this, &MainWindow::chooseRepository);
     connect(welcome_, &gity::ui::WelcomePanel::cloneRequested, this, &MainWindow::chooseClone);
     connect(welcome_, &gity::ui::WelcomePanel::recentActivated, this, &MainWindow::openRepository);
-    welcome_->setRecent(recentRepositories());
+    welcome_->setRecent(saved::recentRepositories());
     tabs->setCurrentIndex(ScreenWelcome);
 
     // The banner sits above every screen rather than inside one: being
@@ -502,23 +499,20 @@ MainWindow::MainWindow(QWidget* parent) : QMainWindow(parent) {
         if (!persistSession_) {
             return;
         }
-        // Plain lists, so the file stays readable and editable by hand.
+        saved::Tabs open;
         QStringList paths;
-        QStringList parents;
         for (const QVariant& tab : repoTabs_->state()) {
-            paths << tab.toMap().value(QStringLiteral("path")).toString();
-            parents << tab.toMap().value(QStringLiteral("parent")).toString();
+            const QString path = tab.toMap().value(QStringLiteral("path")).toString();
+            paths << path;
+            open.tabs.append({path, tab.toMap().value(QStringLiteral("parent")).toString()});
         }
-        for (const auto& [missingPath, missingParent] : std::as_const(unavailableTabs_)) {
-            if (!paths.contains(missingPath)) {
-                paths << missingPath;
-                parents << missingParent;
+        for (const saved::Tab& missing : std::as_const(unavailableTabs_)) {
+            if (!paths.contains(missing.path)) {
+                open.tabs.append(missing);
             }
         }
-        QSettings settings(QStringLiteral("Gity"), QStringLiteral("Gity"));
-        settings.setValue(QStringLiteral("session/tabs"), paths);
-        settings.setValue(QStringLiteral("session/parents"), parents);
-        settings.setValue(QStringLiteral("session/current"), repoTabs_->currentIndex());
+        open.current = repoTabs_->currentIndex();
+        saved::saveOpenTabs(open);
     });
     connect(repoTabs_, &gity::ui::RepositoryTabs::repositoryClosed, this,
             [this](const QString& path) { retireSession(path); });
@@ -556,7 +550,7 @@ MainWindow::MainWindow(QWidget* parent) : QMainWindow(parent) {
                 if (currentWorkdir_.isEmpty()) {
                     return;
                 }
-                QStringList pinned = pinnedBranches(currentWorkdir_);
+                QStringList pinned = saved::pinnedBranches(currentWorkdir_);
                 pinned.removeAll(fullName);
                 if (pin) {
                     pinned << fullName;
@@ -564,26 +558,7 @@ MainWindow::MainWindow(QWidget* parent) : QMainWindow(parent) {
                 // Per repository, by path, in Gity's own settings: a pin is a
                 // way of looking at the repository, not something to write
                 // into it.
-                QSettings settings(QStringLiteral("Gity"), QStringLiteral("Gity"));
-                QList<QPair<QString, QStringList>> all = readPinned(settings);
-                all.erase(
-                    std::remove_if(all.begin(), all.end(),
-                                   [this](const auto& e) { return e.first == currentWorkdir_; }),
-                    all.end());
-                if (!pinned.isEmpty()) {
-                    all.append({currentWorkdir_, pinned});
-                }
-                // An array of plain entries, so the file stays readable and
-                // editable by hand.
-                settings.remove(QStringLiteral("pinnedBranches"));
-                settings.beginWriteArray(QStringLiteral("pinnedBranches"),
-                                         static_cast<int>(all.size()));
-                for (int i = 0; i < all.size(); ++i) {
-                    settings.setArrayIndex(i);
-                    settings.setValue(QStringLiteral("repository"), all[i].first);
-                    settings.setValue(QStringLiteral("branches"), all[i].second);
-                }
-                settings.endArray();
+                saved::setPinnedBranches(currentWorkdir_, pinned);
                 refs_->setPinned(pinned);
             });
     connect(
@@ -704,7 +679,7 @@ void MainWindow::buildMenus() {
     QMenu* recent = file->addMenu(tr("Open &Recent"));
     connect(recent, &QMenu::aboutToShow, this, [this, recent] {
         recent->clear();
-        const QStringList paths = recentRepositories();
+        const QStringList paths = saved::recentRepositories();
         for (const QString& path : paths) {
             QAction* action =
                 recent->addAction(QStringLiteral("%1  —  %2")
@@ -719,7 +694,7 @@ void MainWindow::buildMenus() {
         recent->addSeparator();
         recent->addAction(tr("Clear Recent"), this, [this] {
             if (persistSession_) {
-                QSettings(QStringLiteral("Gity"), QStringLiteral("Gity")).remove(kRecentKey);
+                saved::clearRecentRepositories();
             }
             welcome_->setRecent({});
         });
@@ -1049,29 +1024,11 @@ void MainWindow::buildStatusBar() {
     statusBar()->addPermanentWidget(countLabel_);
 }
 
-QStringList MainWindow::recentRepositories() const {
-    return QSettings(QStringLiteral("Gity"), QStringLiteral("Gity"))
-        .value(kRecentKey)
-        .toStringList();
-}
-
 void MainWindow::rememberRepository(const QString& path) {
     if (!persistSession_) {
         return;
     }
-    QStringList recent = recentRepositories();
-    const QString canonical = gity::ui::RepositoryTabs::canonical(path);
-    recent.erase(std::remove_if(recent.begin(), recent.end(),
-                                [&canonical](const QString& entry) {
-                                    return gity::ui::RepositoryTabs::canonical(entry) == canonical;
-                                }),
-                 recent.end());
-    recent.prepend(canonical);
-    while (recent.size() > kRecentLimit) {
-        recent.removeLast();
-    }
-    QSettings(QStringLiteral("Gity"), QStringLiteral("Gity")).setValue(kRecentKey, recent);
-    welcome_->setRecent(recent);
+    welcome_->setRecent(saved::rememberRepository(path));
 }
 
 bool MainWindow::eventFilter(QObject* watched, QEvent* event) {
@@ -1092,36 +1049,30 @@ void MainWindow::setSessionPersistence(bool enabled) {
     // Pane sizes come back as the user left them, and are saved as they are
     // dragged. Every named splitter takes part — the ones inside panels too —
     // so a new one only needs a name (2026-09 UI review).
-    QSettings settings(QStringLiteral("Gity"), QStringLiteral("Gity"));
     for (QSplitter* splitter : findChildren<QSplitter*>()) {
         const QString name = splitter->objectName();
         if (name.isEmpty()) {
             continue;
         }
-        const QByteArray saved =
-            settings.value(QStringLiteral("layout/%1").arg(name)).toByteArray();
-        if (!saved.isEmpty()) {
+        const QByteArray state = saved::splitterState(name);
+        if (!state.isEmpty()) {
             // A saved state carries its own collapsible flag — and sizes from
             // when panes could still be collapsed to nothing — so the rule is
             // put back afterwards, and the sizes clamped to the floors with it.
-            splitter->restoreState(saved);
+            splitter->restoreState(state);
             splitter->setChildrenCollapsible(false);
             splitter->setSizes(splitter->sizes());
         }
         connect(splitter, &QSplitter::splitterMoved, this, [this, splitter, name] {
             if (persistSession_) {
-                QSettings(QStringLiteral("Gity"), QStringLiteral("Gity"))
-                    .setValue(QStringLiteral("layout/%1").arg(name), splitter->saveState());
+                saved::saveSplitterState(name, splitter->saveState());
             }
         });
     }
 }
 
 void MainWindow::restoreSession(bool openCurrent) {
-    const QSettings settings(QStringLiteral("Gity"), QStringLiteral("Gity"));
-    const QStringList paths = settings.value(QStringLiteral("session/tabs")).toStringList();
-    const QStringList parents = settings.value(QStringLiteral("session/parents")).toStringList();
-    const int current = settings.value(QStringLiteral("session/current"), 0).toInt();
+    const saved::Tabs tabs = saved::openTabs();
 
     // Repositories that cannot be reached are left out rather than reopened
     // into an error dialog each — but not forgotten: one on a drive that is
@@ -1130,20 +1081,20 @@ void MainWindow::restoreSession(bool openCurrent) {
     // dropped for good.
     QString currentPath;
     unavailableTabs_.clear();
-    for (int i = 0; i < paths.size(); ++i) {
-        const QString& path = paths.at(i);
-        if (path.isEmpty()) {
+    for (int i = 0; i < tabs.tabs.size(); ++i) {
+        const saved::Tab& tab = tabs.tabs.at(i);
+        if (tab.path.isEmpty()) {
             continue;
         }
-        if (!QFileInfo::exists(path + QStringLiteral("/.git"))) {
-            if (!QFileInfo::exists(path)) {
-                unavailableTabs_ << qMakePair(path, i < parents.size() ? parents.at(i) : QString());
+        if (!QFileInfo::exists(tab.path + QStringLiteral("/.git"))) {
+            if (!QFileInfo::exists(tab.path)) {
+                unavailableTabs_ << tab;
             }
             continue;
         }
-        repoTabs_->open(path, i < parents.size() ? parents.at(i) : QString());
-        if (i == current || currentPath.isEmpty()) {
-            currentPath = path;
+        repoTabs_->open(tab.path, tab.parent);
+        if (i == tabs.current || currentPath.isEmpty()) {
+            currentPath = tab.path;
         }
     }
     if (openCurrent && !currentPath.isEmpty()) {
@@ -1306,28 +1257,6 @@ void MainWindow::openPullRequestPage(const QString& remoteBranch) {
                              6000);
 }
 
-QList<QPair<QString, QStringList>> MainWindow::readPinned(QSettings& settings) {
-    QList<QPair<QString, QStringList>> all;
-    const int count = settings.beginReadArray(QStringLiteral("pinnedBranches"));
-    for (int i = 0; i < count; ++i) {
-        settings.setArrayIndex(i);
-        all.append({settings.value(QStringLiteral("repository")).toString(),
-                    settings.value(QStringLiteral("branches")).toStringList()});
-    }
-    settings.endArray();
-    return all;
-}
-
-QStringList MainWindow::pinnedBranches(const QString& workdir) {
-    QSettings settings(QStringLiteral("Gity"), QStringLiteral("Gity"));
-    for (const auto& [repository, branches] : readPinned(settings)) {
-        if (repository == workdir) {
-            return branches;
-        }
-    }
-    return {};
-}
-
 void MainWindow::showFilterState(const gity::git::CommitFilter& filter) {
     filterBar_->showState(filter.active());
     graph_->setPlaceholder(filter.active() ? tr("No commit matches these filters") : QString());
@@ -1379,7 +1308,7 @@ void MainWindow::onOpened(const gity::session::RepoInfo& info) {
     syncNetworkState();
     updateRepositoryTitle();
     refs_->setRepositoryName(QDir(info.workdir).dirName());
-    refs_->setPinned(pinnedBranches(info.workdir));
+    refs_->setPinned(saved::pinnedBranches(info.workdir));
     changes_->setWorkdir(info.workdir);
     // Remembered once it has actually opened — a path that failed is not
     // worth offering again — and only if opened in its own right: a

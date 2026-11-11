@@ -13,6 +13,8 @@ qt_standard_project_setup()
 qt_add_executable(gity_app
     MainWindow.cpp
     MainWindow.h
+    SavedState.cpp
+    SavedState.h
     main.cpp
 )
 
