@@ -32,6 +32,8 @@ add_library(gity_ui STATIC
     panels/AccountsPanel.cpp
     panels/Confirm.cpp
     panels/SettingsDialog.cpp
+    panels/SwitchDialogs.cpp
+    panels/SwitchDialogs.h
     panels/CommitDetailPanel.cpp
     panels/CommitDetailPanel.h
     panels/RefsSidebar.cpp

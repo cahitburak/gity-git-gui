@@ -26,6 +26,8 @@ add_library(gity_session STATIC
     SessionHub.cpp
     SessionHub.h
     SessionTypes.h
+    SwitchContext.cpp
+    SwitchContext.h
     WorkerAccounts.cpp
     WorkerBranches.cpp
     WorkerHistory.cpp

@@ -21,6 +21,7 @@
 #include "ui/panels/RemotesDialog.h"
 #include "ui/panels/RepositoryTabs.h"
 #include "ui/panels/SettingsDialog.h"
+#include "ui/panels/SwitchDialogs.h"
 #include "ui/panels/WelcomePanel.h"
 #include "ui/panels/WorkingCopyPanel.h"
 #include "ui/theme/Theme.h"
@@ -51,7 +52,6 @@
 #include <QMessageBox>
 #include <QPushButton>
 #include <QRadioButton>
-#include <QRegularExpression>
 #include <QScreen>
 #include <QSettings>
 #include <QSignalBlocker>
@@ -1868,293 +1868,50 @@ void MainWindow::updateRepositoryTitle() {
     setWindowTitle(tr("%1 — submodule of %2 — Gity").arg(QDir(current).dirName(), parent));
 }
 
-namespace {
-
-/// What to do with uncommitted changes when switching, asked up front. Shared
-/// by Checkout and New Branch, which both move the working copy.
-struct ChangesChoice {
-    QRadioButton* keep = nullptr;
-    QRadioButton* stash = nullptr;
-    QRadioButton* discard = nullptr;
-    QLabel* explain = nullptr;
-
-    [[nodiscard]] gity::session::RepoSession::LocalChanges value() const {
-        using Changes = gity::session::RepoSession::LocalChanges;
-        return discard->isChecked() ? Changes::Discard
-               : stash->isChecked() ? Changes::StashAndReapply
-                                    : Changes::Keep;
-    }
-
-    void setVisible(bool visible) const {
-        for (QWidget* widget : {static_cast<QWidget*>(keep), static_cast<QWidget*>(stash),
-                                static_cast<QWidget*>(discard), static_cast<QWidget*>(explain)}) {
-            widget->setVisible(visible);
-        }
-    }
-
-    /// Explains the chosen option, and makes the button say what it does:
-    /// red, and naming the discard, when that is what it will do.
-    void describe(QPushButton* go, const QString& text, const QString& discardText) const {
-        if (discard->isChecked() && !discard->isHidden()) {
-            explain->setText(MainWindow::tr("Uncommitted edits to tracked files are thrown "
-                                            "away; new, untracked files stay. Edit ▸ Undo "
-                                            "brings the edits back."));
-            go->setText(discardText);
-            gity::ui::applyRole(go, QStringLiteral("destructive"));
-            return;
-        }
-        explain->setText(stash->isChecked()
-                             ? MainWindow::tr("If reapplying conflicts, the changes stay in "
-                                              "the stash until you resolve them.")
-                             : MainWindow::tr("git refuses to switch if a change would be "
-                                              "overwritten; nothing is lost either way."));
-        go->setText(text);
-        gity::ui::applyRole(go, QStringLiteral("primary"));
-    }
-};
-
-ChangesChoice addChangesChoice(QDialog* dialog, QVBoxLayout* layout, const QString& shown) {
-    ChangesChoice choice;
-    choice.keep =
-        new QRadioButton(MainWindow::tr("Keep changes — carry them to %1").arg(shown), dialog);
-    choice.stash = new QRadioButton(
-        MainWindow::tr("Stash and reapply — set them aside, switch, bring them back"), dialog);
-    choice.discard = new QRadioButton(MainWindow::tr("Discard changes"), dialog);
-    gity::ui::applyRole(choice.discard, QStringLiteral("error"));
-    choice.keep->setChecked(true);
-    for (QRadioButton* option : {choice.keep, choice.stash, choice.discard}) {
-        layout->addWidget(option);
-    }
-    choice.explain = new QLabel(dialog);
-    choice.explain->setWordWrap(true);
-    gity::ui::applyRole(choice.explain, QStringLiteral("note"));
-    layout->addWidget(choice.explain);
-    return choice;
-}
-
-} // namespace
-
-MainWindow::SwitchContext MainWindow::switchContext(const QString& ref) const {
-    using Session = gity::session::RepoSession;
-    SwitchContext context;
-    QStringList submodulePaths;
-    QString headOid;
-    QString refOid;
-    const auto hex = [](const git_oid& oid) {
-        char buffer[GIT_OID_SHA1_HEXSIZE + 1] = {};
-        git_oid_tostr(buffer, sizeof(buffer), &oid);
-        return QString::fromLatin1(buffer);
-    };
-    if (currentRefs_) {
-        for (const auto& branch : currentRefs_->localBranches) {
-            if (branch.isHead) {
-                headOid = hex(branch.target);
-            }
-            if (QString::fromStdString(branch.name) == ref) {
-                context.kind = Session::RefKind::Local;
-                refOid = hex(branch.target);
-            }
-        }
-        for (const auto& branch : currentRefs_->remoteBranches) {
-            if (QString::fromStdString(branch.name) == ref) {
-                context.kind = Session::RefKind::Remote;
-                refOid = hex(branch.target);
-            }
-        }
-        for (const auto& submodule : currentRefs_->submodules) {
-            if (submodule.initialised) {
-                submodulePaths << QString::fromStdString(submodule.path);
-            }
-        }
-    }
-    context.hasSubmodules = !submodulePaths.isEmpty();
-    // Branching at the commit you are on moves nothing on disk, so there is
-    // nothing to decide about the changes.
-    context.sameCommit = ref.isEmpty() || (!headOid.isEmpty() && refOid == headOid);
-    // Which of the changes are only submodules sitting at another commit —
-    // not edits anyone made, and exactly what switching branches leaves
-    // behind when submodules are not updated.
-    if (currentStatus_) {
-        for (const auto& entry : currentStatus_->entries) {
-            if (submodulePaths.contains(QString::fromStdString(entry.path))) {
-                ++context.submoduleChanges;
-            }
-        }
-    }
-    return context;
+gity::session::SwitchContext MainWindow::switchContext(const QString& ref) const {
+    return gity::session::switchContext(currentRefs_.get(), currentStatus_.get(), ref);
 }
 
 void MainWindow::confirmCheckout(const QString& ref) {
-    using Session = gity::session::RepoSession;
     if (currentWorkdir_.isEmpty()) {
         return;
     }
-
     // What is being switched to: a remote branch becomes a local one tracking
     // it; a tag or commit is checked out detached.
-    const SwitchContext context = switchContext(ref);
-    const Session::RefKind kind = context.kind;
-    const bool hasSubmodules = context.hasSubmodules;
-    const int submoduleChanges = context.submoduleChanges;
-    const QString shown = kind == Session::RefKind::Remote ? ref.section(QChar('/'), 1) : ref;
-    const int changes = changedFiles_;
+    const gity::session::SwitchContext context = switchContext(ref);
 
     // Nothing to decide: switch, and bring submodules along.
-    if (changes == 0) {
-        session()->requestCheckout(ref, kind, Session::LocalChanges::Keep, hasSubmodules);
+    if (changedFiles_ == 0) {
+        session()->requestCheckout(ref, context.kind, gity::session::LocalChanges::Keep,
+                                   context.hasSubmodules);
         return;
     }
-
     // Asked before switching rather than discovered after: what to do with
     // the changes, and whether submodules follow the branch.
-    QDialog dialog(this);
-    dialog.setWindowTitle(tr("Switch to %1").arg(shown));
-    dialog.setMinimumWidth(500);
-    auto* layout = new QVBoxLayout(&dialog);
-    const bool onlySubmodules = submoduleChanges == changes;
-    auto* intro = new QLabel(
-        onlySubmodules
-            ? tr("Changed: %n submodule(s), checked out at a different commit than %1 records "
-                 "— left behind by an earlier switch, not edits of yours. Updating submodules "
-                 "after switching puts them where %2 records them.",
-                 nullptr, changes)
-                  .arg(currentRefs_ && !currentRefs_->headName.empty()
-                           ? QString::fromStdString(currentRefs_->headName)
-                           : tr("the current branch"),
-                       shown)
-            : tr("You have %n uncommitted change(s).", nullptr, changes) +
-                  (submoduleChanges > 0
-                       ? QChar(' ') + tr("%n of them are submodules at another commit, which "
-                                         "updating submodules takes care of.",
-                                         nullptr, submoduleChanges)
-                       : QString()),
-        &dialog);
-    intro->setWordWrap(true);
-    layout->addWidget(intro);
-
-    const ChangesChoice choice = addChangesChoice(&dialog, layout, shown);
-
-    auto* update =
-        new QCheckBox(tr("Update submodules to the commits %1 records").arg(shown), &dialog);
-    update->setChecked(true);
-    update->setVisible(hasSubmodules);
-    layout->addWidget(update);
-
-    auto* buttons = new QDialogButtonBox(QDialogButtonBox::Cancel, &dialog);
-    QPushButton* go = buttons->addButton(tr("Switch"), QDialogButtonBox::AcceptRole);
-    go->setDefault(true);
-    layout->addWidget(buttons);
-    connect(buttons, &QDialogButtonBox::accepted, &dialog, &QDialog::accept);
-    connect(buttons, &QDialogButtonBox::rejected, &dialog, &QDialog::reject);
-
-    const auto refresh = [choice, go] {
-        choice.describe(go, tr("Switch"), tr("Discard and Switch"));
-    };
-    for (QRadioButton* option : {choice.keep, choice.stash, choice.discard}) {
-        connect(option, &QRadioButton::toggled, &dialog, refresh);
+    gity::ui::CheckoutDialog dialog(
+        ref, context, changedFiles_,
+        currentRefs_ ? QString::fromStdString(currentRefs_->headName) : QString(), this);
+    if (dialog.exec() == QDialog::Accepted) {
+        session()->requestCheckout(ref, context.kind, dialog.changes(), dialog.updateSubmodules());
     }
-    refresh();
-
-    if (dialog.exec() != QDialog::Accepted) {
-        return;
-    }
-    session()->requestCheckout(ref, kind, choice.value(), hasSubmodules && update->isChecked());
 }
 
 void MainWindow::openNewBranchDialog(const QString& base) {
-    using Session = gity::session::RepoSession;
     if (currentWorkdir_.isEmpty()) {
         return;
     }
-    const SwitchContext context = switchContext(base);
-
-    QDialog dialog(this);
-    dialog.setWindowTitle(tr("New Branch"));
-    dialog.setMinimumWidth(500);
-    auto* layout = new QVBoxLayout(&dialog);
-
-    auto* intro = new QLabel(base.isEmpty() ? tr("Starts at the current commit.")
-                                            : tr("Starts at %1.").arg(base),
-                             &dialog);
-    intro->setWordWrap(true);
-    layout->addWidget(intro);
-
-    auto* name = new QLineEdit(&dialog);
-    name->setPlaceholderText(tr("Branch name"));
-    layout->addWidget(name);
-    auto* problem = new QLabel(&dialog);
-    gity::ui::applyRole(problem, QStringLiteral("warn"));
-    problem->setVisible(false);
-    layout->addWidget(problem);
-
-    auto* checkout = new QCheckBox(tr("Check out the new branch"), &dialog);
-    checkout->setChecked(true);
-    layout->addWidget(checkout);
-
-    // The same choices a checkout offers, when switching would move the
-    // working copy to another commit with changes in it.
-    const bool askChanges = changedFiles_ > 0 && !context.sameCommit;
-    auto* changesIntro =
-        new QLabel(tr("You have %n uncommitted change(s).", nullptr, changedFiles_), &dialog);
-    changesIntro->setWordWrap(true);
-    layout->addWidget(changesIntro);
-    const ChangesChoice choice = addChangesChoice(&dialog, layout, tr("the new branch"));
-
-    auto* update = new QCheckBox(
-        tr("Update submodules to the commits %1 records").arg(base.isEmpty() ? tr("it") : base),
-        &dialog);
-    update->setChecked(true);
-    layout->addWidget(update);
-
-    auto* buttons = new QDialogButtonBox(QDialogButtonBox::Cancel, &dialog);
-    QPushButton* go = buttons->addButton(tr("Create"), QDialogButtonBox::AcceptRole);
-    go->setDefault(true);
-    layout->addWidget(buttons);
-    connect(buttons, &QDialogButtonBox::accepted, &dialog, &QDialog::accept);
-    connect(buttons, &QDialogButtonBox::rejected, &dialog, &QDialog::reject);
-
+    const gity::session::SwitchContext context = switchContext(base);
     QStringList existing;
     if (currentRefs_) {
         for (const auto& branch : currentRefs_->localBranches) {
             existing << QString::fromStdString(branch.name);
         }
     }
-    const auto refresh = [&] {
-        const bool switching = checkout->isChecked();
-        changesIntro->setVisible(switching && askChanges);
-        choice.setVisible(switching && askChanges);
-        update->setVisible(switching && context.hasSubmodules && !context.sameCommit);
-        choice.describe(go, switching ? tr("Create and Switch") : tr("Create"),
-                        tr("Create, Discard and Switch"));
-
-        // Refused here rather than by git after the dialog has gone.
-        const QString wanted = name->text().trimmed();
-        QString why;
-        if (existing.contains(wanted)) {
-            why = tr("A branch named %1 already exists.").arg(wanted);
-        } else if (wanted.contains(QRegularExpression(QStringLiteral("\\s")))) {
-            why = tr("Branch names cannot contain spaces.");
-        }
-        problem->setText(why);
-        problem->setVisible(!why.isEmpty());
-        go->setEnabled(!wanted.isEmpty() && why.isEmpty());
-        dialog.adjustSize();
-    };
-    connect(name, &QLineEdit::textChanged, &dialog, refresh);
-    connect(checkout, &QCheckBox::toggled, &dialog, refresh);
-    for (QRadioButton* option : {choice.keep, choice.stash, choice.discard}) {
-        connect(option, &QRadioButton::toggled, &dialog, refresh);
+    gity::ui::NewBranchDialog dialog(base, context, changedFiles_, existing, this);
+    if (dialog.exec() == QDialog::Accepted) {
+        session()->requestCreateBranch(dialog.name(), base, context.kind, dialog.switchesTo(),
+                                       dialog.changes(), dialog.updateSubmodules());
     }
-    refresh();
-
-    if (dialog.exec() != QDialog::Accepted) {
-        return;
-    }
-    const bool switching = checkout->isChecked();
-    session()->requestCreateBranch(
-        name->text().trimmed(), base, context.kind, switching,
-        switching && askChanges ? choice.value() : Session::LocalChanges::Keep,
-        switching && context.hasSubmodules && !context.sameCommit && update->isChecked());
 }
 
 void MainWindow::showScreen(gity::ui::RefsSidebar::Screen screen) {

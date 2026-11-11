@@ -2,6 +2,7 @@
 
 #include "session/RepoSession.h"
 #include "session/SessionHub.h"
+#include "session/SwitchContext.h"
 #include "ui/model/HistoryModel.h"
 #include "ui/panels/RefsSidebar.h"
 
@@ -271,16 +272,8 @@ private:
     /// The working copy as last reported, for questions a dialog must ask.
     gity::session::StatusPtr currentStatus_;
 
-    /// What switching to a ref involves, read from the loaded refs and status.
-    struct SwitchContext {
-        gity::session::RepoSession::RefKind kind = gity::session::RepoSession::RefKind::Detached;
-        bool hasSubmodules = false;
-        int submoduleChanges = 0;
-        /// The ref is at the commit already checked out (or is empty: HEAD).
-        bool sameCommit = false;
-    };
-
-    [[nodiscard]] SwitchContext switchContext(const QString& ref) const;
+    /// What switching to `ref` involves, from the loaded refs and status.
+    [[nodiscard]] gity::session::SwitchContext switchContext(const QString& ref) const;
     /// The branches pinned in `workdir`'s sidebar, as full ref names.
     [[nodiscard]] static QStringList pinnedBranches(const QString& workdir);
     /// The host's provider: by name, or else as chosen for an account on it.
