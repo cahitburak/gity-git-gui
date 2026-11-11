@@ -129,6 +129,8 @@ private slots:
     void onRowSelected(qsizetype row);
     /// Shows what a pull, merge, rebase or push will do, and runs it if chosen.
     void showPreview(gity::session::PreviewPtr preview);
+    /// Something changed outside Gity: RepoWatcher::Change flags.
+    void onExternalChange(int kinds);
 
 private:
     /// Repositories opened in their own right, most recent first.

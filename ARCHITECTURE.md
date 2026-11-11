@@ -293,18 +293,36 @@ repository handle and runs requests in order. The UI thread never touches libgit
   boundary.
 - **Transfer.** Results reach the UI as immutable values in `std::shared_ptr<const T>`, by queued
   signal. No shared mutable state, so no locks in the hot path.
-- **Superseding.** A request answered after a newer one of the same kind (the user clicked another
-  commit) is dropped, by generation number. A history walk is cancelled mid-flight when superseded.
+- **Superseding.** A request superseded by a newer one of the same kind (the user clicked another
+  commit) is skipped, by generation number, or its answer dropped if it was already running. A
+  history walk is cancelled mid-flight when superseded.
+- **One per repository, not per window.** Each tab's repository has its own session; the window
+  is wired once, to a relay that the session on screen forwards to, so a result from a repository
+  in another tab never reaches it. (Corrected in November 2026: the first version shared one
+  session across every tab, and a preview asked for in one repository could run in another.)
+
+### Noticing changes made outside Gity
+
+Built in November 2026 (`src/session/RepoWatcher`), as this ADR planned, with one platform gap:
+
+- **The repository's metadata** — HEAD, the index, refs and the markers of a merge or rebase — is
+  watched on every platform with `QFileSystemWatcher`. It is a handful of directories, and git
+  writes each of these files by renaming a lock file over it, so every change shows up as a change
+  to a directory. Modification times decide what changed; Gity's own `refs/gity` is ignored.
+- **The working tree** is watched on Linux with inotify directly, skipping ignored directories and
+  nested repositories. On macOS and Windows the native recursive watchers (FSEvents,
+  `ReadDirectoryChangesW`) are still to come; until then the status is re-read whenever the window
+  is brought back to the front, which is when an edit made elsewhere is looked for.
+- Changes are debounced at 250 ms and reported as kinds: a saved file costs a status read, a moved
+  branch a history walk. A change is *absorbed* when the worker reads the repository itself, so
+  Gity's own commands do not trigger a second read.
+- The watcher lives on the repository's worker thread, because deciding whether a path is ignored
+  asks libgit2.
 
 ### Not built yet
 
-The first version of this ADR also planned a **pool of read threads**, each with its own handle, and
-a **file-system watcher** so changes made outside Gity refresh the view. Neither exists: one worker
-has been fast enough so far, and Gity re-reads the repository after its own operations. The watcher
-is on the [roadmap](ROADMAP.md). When it is built, it should use inotify, FSEvents and
-`ReadDirectoryChangesW` directly for the working tree — `QFileSystemWatcher`'s per-platform limits
-make it unusable on large trees — and debounce at about 250 ms, treating the index, HEAD and refs as
-separate things to invalidate.
+A **pool of read threads**, each with its own handle. One worker per repository has been fast
+enough so far.
 
 ---
 
@@ -627,7 +645,7 @@ must include.
 | **Largely untested** outside one person's use, and macOS and Windows barely used at all | **High** | Said plainly in the README; testing is the first item on the [roadmap](ROADMAP.md) |
 | **Memory at 1M commits** is unsettled — libgit2's default object cache dominates, and capping it slows the cold walk | Medium | Profile on a truly large repository, then choose the cache size deliberately |
 | **libgit2's `status` is slower than git's** (33 ms against 13 ms on the real project) and scales the wrong way; a dirty working copy is unmeasured | Medium | Parallelize the status pass, or route bulk status through `git` |
-| **Changes made outside Gity are not noticed** until it next re-reads the repository | Medium | The file-system watcher planned in ADR-004 |
+| **Changes made outside Gity are noticed late on macOS and Windows** — only when the window is brought back to the front | Low | Native FSEvents and `ReadDirectoryChangesW` working-tree watchers (ADR-004) |
 | **Signing and notarization** lead time blocks the macOS and Windows releases | Medium | Apply early; open-source signing programmes exist |
 | **Three-platform drift** when development happens on Linux | Medium | CI builds macOS and Windows on demand; run them before every release |
 | HiDPI and mixed-DPI setups on Linux | Low | Qt 6 handles per-screen DPI; verify on real hardware |

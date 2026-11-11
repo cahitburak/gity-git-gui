@@ -14,6 +14,7 @@
 #include "GitProcess.h"
 #include "IndexWrites.h"
 #include "Background.h"
+#include "RepoWatcher.h"
 #include "CredentialInventory.h"
 
 #include <QDir>
@@ -98,6 +99,11 @@ void RepoWorker::open(const QString& path) {
         undo_.settle(operationInProgress());
         reportUndo();
 
+        // What is read from here on covers every change seen so far.
+        if (watcher_ != nullptr && watcher_->workdir() == workdir_) {
+            watcher_->absorb();
+        }
+
         // Refs before history: the sidebar is the first thing that can be
         // filled, and it is cheap next to the walk.
         emit refsReady(std::make_shared<const gity::git::RefSet>(gity::git::loadRefs(repo)));
@@ -117,12 +123,45 @@ void RepoWorker::open(const QString& path) {
 
         emit finished(static_cast<quint64>(stats.commits), stats.firstChunkMs, stats.totalMs,
                       stats.cancelled);
+        // After the walk, not before it: setting up the watches walks the
+        // directory tree, and the first rows of history matter more.
+        watchRepository();
     } catch (const gity::git::GitException& e) {
         emit failed(QString::fromStdString(e.error().message),
                     QString::fromStdString(e.error().raw));
     } catch (const std::exception& e) {
         emit failed(QString::fromUtf8(e.what()), {});
     }
+}
+
+void RepoWorker::watchRepository() {
+    if (!repo_) {
+        return;
+    }
+    if (watcher_ != nullptr && watcher_->workdir() == QDir(workdir_).absolutePath()) {
+        return; // a reopen of the same repository keeps its watches
+    }
+    delete watcher_;
+    watcher_ = nullptr;
+    const char* gitDir = git_repository_path(repo_.get());
+    const char* commonDir = git_repository_commondir(repo_.get());
+    if (gitDir == nullptr || git_repository_is_bare(repo_.get()) != 0) {
+        return;
+    }
+    // Asked of libgit2, on this thread, which owns the repository handle.
+    // A directory is asked about with a trailing slash, so patterns that only
+    // match directories ("build/") apply.
+    auto ignored = [this](const QString& relative, bool isDirectory) {
+        int result = 0;
+        const QByteArray path =
+            (isDirectory ? relative + QChar('/') : relative).toUtf8();
+        return git_ignore_path_is_ignored(&result, repo_.get(), path.constData()) == 0 &&
+               result != 0;
+    };
+    watcher_ = new RepoWatcher(workdir_, QString::fromUtf8(gitDir),
+                               QString::fromUtf8(commonDir != nullptr ? commonDir : gitDir),
+                               std::move(ignored), this);
+    connect(watcher_, &RepoWatcher::changed, this, &RepoWorker::externalChange);
 }
 
 void RepoWorker::loadDetail(const QString& oidHex, quint64 generation) {
@@ -838,6 +877,11 @@ void RepoWorker::runSwitch(const QString& verb, QStringList args, const QString&
 void RepoWorker::refreshStatus() {
     if (!repo_) {
         return;
+    }
+    // Whatever changed up to now is in the status about to be read; only
+    // what changes after it is news.
+    if (watcher_ != nullptr) {
+        watcher_->absorb();
     }
     try {
         emit statusReady(std::make_shared<const gity::git::WorkingCopyStatus>(
@@ -2142,6 +2186,7 @@ RepoSession::RepoSession(QObject* parent) : QObject(parent) {
             &RepoSession::historyEditFinished);
     connect(worker_, &RepoWorker::commitsSinceReady, this, &RepoSession::commitsSinceReady);
     connect(worker_, &RepoWorker::headAncestorsReady, this, &RepoSession::headAncestorsReady);
+    connect(worker_, &RepoWorker::externalChange, this, &RepoSession::externalChange);
     connect(worker_, &RepoWorker::editStopPrepared, this, &RepoSession::editStopPrepared);
     connect(worker_, &RepoWorker::editStopChanged, this, &RepoSession::editStopChanged);
     connect(worker_, &RepoWorker::commitPeekReady, this, &RepoSession::commitPeekReady);

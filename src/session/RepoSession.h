@@ -197,6 +197,8 @@ signals:
                            const QStringList& subjects);
     /// HEAD and its first-parent ancestors, newest first.
     void headAncestorsReady(const QStringList& oids, const QStringList& subjects);
+    /// Something changed outside Gity: RepoWatcher::Change flags.
+    void externalChange(int kinds);
     void locksReady(gity::session::LockListPtr locks, bool supported);
     /// What Undo and Redo would do now; empty when there is nothing.
     void undoStateChanged(const QString& undoLabel, const QString& redoLabel);
@@ -209,6 +211,9 @@ signals:
                             const QString& defaultAccount, const QString& chosen);
 
 private:
+    /// Starts watching the repository just opened, or keeps the watcher it
+    /// already has for it.
+    void watchRepository();
     /// Reports a staging write that failed, and refreshes status either way.
     void reportIndexWrite(const GitResult& result);
     [[nodiscard]] bool operationInProgress() const;
@@ -243,6 +248,8 @@ private:
     /// Thread-confined to the worker by construction (ADR-004).
     gity::git::RepositoryHandle repo_;
     QString workdir_;
+    /// Changes made outside Gity; a child, so it goes with the worker.
+    class RepoWatcher* watcher_ = nullptr;
     /// Active commit filter; inactive walks the whole history.
     gity::git::CommitFilter filter_;
 };
@@ -528,6 +535,8 @@ signals:
                            const QStringList& subjects);
     /// HEAD and its first-parent ancestors, newest first.
     void headAncestorsReady(const QStringList& oids, const QStringList& subjects);
+    /// Something changed outside Gity: RepoWatcher::Change flags.
+    void externalChange(int kinds);
     /// `supported` false means the remote has no locking API, which is a
     /// normal answer and not an error.
     void locksReady(gity::session::LockListPtr locks, bool supported);

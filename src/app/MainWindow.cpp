@@ -4,6 +4,7 @@
 #include "ui/graphview/GraphHeader.h"
 #include "ui/diffview/DiffView.h"
 #include "session/GitProcess.h"
+#include "session/RepoWatcher.h"
 #include "ui/panels/CommitDetailPanel.h"
 #include "ui/panels/CloneDialog.h"
 #include "ui/panels/Confirm.h"
@@ -499,6 +500,18 @@ MainWindow::MainWindow(QWidget* parent) : QMainWindow(parent) {
     connect(&relay_, &gity::session::RepoSession::previewReady, this, &MainWindow::showPreview);
     connect(&relay_, &gity::session::RepoSession::headAncestorsReady, this,
             &MainWindow::offerInteractiveRebase);
+    connect(&relay_, &gity::session::RepoSession::externalChange, this,
+            &MainWindow::onExternalChange);
+    // Where the working tree is not watched (macOS and Windows for now), or
+    // a watch limit was reached, coming back to the window is when an edit
+    // made elsewhere is most likely to be looked for.
+    connect(qApp, &QGuiApplication::applicationStateChanged, this,
+            [this](Qt::ApplicationState state) {
+                if (state == Qt::ApplicationActive && !currentWorkdir_.isEmpty() &&
+                    !session_->busy()) {
+                    session_->requestStatus();
+                }
+            });
     connect(refs_, &gity::ui::RefsSidebar::interactiveRebaseRequested, this,
             [this](const QString& oid, const QString& label) { startRebase(oid, label); });
     connect(repoTabs_, &gity::ui::RepositoryTabs::tabsChanged, this, [this] {
@@ -2927,6 +2940,28 @@ void MainWindow::onNetworkProgress(const QString& phase, int percent) {
 void MainWindow::onNetworkStarted(const QString& verb) {
     syncNetworkState();
     statusBar()->showMessage(tr("%1…").arg(verb));
+}
+
+void MainWindow::onExternalChange(int kinds) {
+    if (currentWorkdir_.isEmpty()) {
+        return;
+    }
+    // Gity's own command is running: it re-reads the repository when it is
+    // done, and reading now would only show it half way.
+    if (session_->busy()) {
+        return;
+    }
+    using Change = gity::session::RepoWatcher::Change;
+    if ((kinds & (Change::Refs | Change::Head)) != 0) {
+        // A branch moved or HEAD changed: the history and the sidebar are
+        // stale, and a refresh keeps the selected commit and the draft.
+        statusBar()->showMessage(tr("The repository changed outside Gity — refreshed."), 4000);
+        openRepository(currentWorkdir_);
+        return;
+    }
+    // Files or what is staged: the status is enough, and the Changes screen
+    // re-reads the diff of the file it is showing.
+    session_->requestStatus();
 }
 
 void MainWindow::syncNetworkState() {
