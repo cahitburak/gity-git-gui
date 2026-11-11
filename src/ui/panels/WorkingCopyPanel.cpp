@@ -280,7 +280,7 @@ WorkingCopyPanel::WorkingCopyPanel(QWidget* parent) : QWidget(parent) {
         const std::string patch =
             git::buildPartialPatch(*current, diff_->selection(), viewingStaged_);
         if (!patch.empty()) {
-            emit applyPatchRequested(QString::fromStdString(patch));
+            emit applyPatchRequested(QByteArray::fromStdString(patch));
         }
     });
 
@@ -294,7 +294,7 @@ WorkingCopyPanel::WorkingCopyPanel(QWidget* parent) : QWidget(parent) {
         one.insert(lineIndex);
         const std::string patch = git::buildPartialPatch(*current, one, viewingStaged_);
         if (!patch.empty()) {
-            emit applyPatchRequested(QString::fromStdString(patch));
+            emit applyPatchRequested(QByteArray::fromStdString(patch));
         }
     });
 
@@ -306,7 +306,7 @@ WorkingCopyPanel::WorkingCopyPanel(QWidget* parent) : QWidget(parent) {
         const std::string patch = git::buildPartialPatch(
             *current, git::linesOfHunk(*current, hunkIndex), viewingStaged_);
         if (!patch.empty()) {
-            emit applyPatchRequested(QString::fromStdString(patch));
+            emit applyPatchRequested(QByteArray::fromStdString(patch));
         }
     });
 
@@ -328,7 +328,7 @@ WorkingCopyPanel::WorkingCopyPanel(QWidget* parent) : QWidget(parent) {
         const std::string patch = git::buildPartialPatch(
             *current, git::linesOfHunk(*current, hunkIndex), true);
         if (!patch.empty()) {
-            emit discardHunkRequested(QString::fromStdString(patch));
+            emit discardHunkRequested(QByteArray::fromStdString(patch));
         }
     });
 

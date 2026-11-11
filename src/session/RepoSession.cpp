@@ -11,6 +11,7 @@
 #include "core/git/Repository.h"
 #include "core/git/WorkingCopy.h"
 #include "GitProcess.h"
+#include "IndexWrites.h"
 #include "CredentialInventory.h"
 
 #include <QDir>
@@ -838,36 +839,24 @@ void RepoWorker::stage(const QStringList& paths) {
     if (!repo_) {
         return;
     }
-    try {
-        std::vector<std::string> native;
-        native.reserve(static_cast<std::size_t>(paths.size()));
-        for (const QString& path : paths) {
-            native.push_back(path.toStdString());
-        }
-        gity::git::stageFiles(repo_.get(), native);
-        refreshStatus();
-    } catch (const gity::git::GitException& e) {
-        emit commitFailed(QString::fromStdString(e.error().message),
-                          QString::fromStdString(e.error().raw));
-    }
+    reportIndexWrite(index::stagePaths(workdir_, paths));
 }
 
 void RepoWorker::unstage(const QStringList& paths) {
     if (!repo_) {
         return;
     }
-    try {
-        std::vector<std::string> native;
-        native.reserve(static_cast<std::size_t>(paths.size()));
-        for (const QString& path : paths) {
-            native.push_back(path.toStdString());
-        }
-        gity::git::unstageFiles(repo_.get(), native);
-        refreshStatus();
-    } catch (const gity::git::GitException& e) {
-        emit commitFailed(QString::fromStdString(e.error().message),
-                          QString::fromStdString(e.error().raw));
+    reportIndexWrite(index::unstagePaths(workdir_, paths));
+}
+
+void RepoWorker::reportIndexWrite(const GitResult& result) {
+    if (!result.ok()) {
+        emit commitFailed(result.firstProblemLine(), result.errorOutput);
     }
+    // Refreshed whether it worked or not: a write that half happened — some
+    // paths staged before a filter failed on the next — has to be shown as it
+    // is, not as it was.
+    refreshStatus();
 }
 
 void RepoWorker::loadWorkingFileDiff(const QString& path, bool staged, quint64 generation) {
@@ -894,32 +883,23 @@ void RepoWorker::loadWorkingFileDiff(const QString& path, bool staged, quint64 g
     }
 }
 
-void RepoWorker::applyPatch(const QString& patchText) {
-    if (!repo_ || patchText.isEmpty()) {
+void RepoWorker::applyPatch(const QByteArray& patch) {
+    if (!repo_ || patch.isEmpty()) {
         return;
     }
-    try {
-        gity::git::applyPatchToIndex(repo_.get(), patchText.toStdString());
-        refreshStatus();
-    } catch (const gity::git::GitException& e) {
-        emit commitFailed(QString::fromStdString(e.error().message),
-                          QString::fromStdString(e.error().raw));
-    }
+    reportIndexWrite(index::applyToIndex(workdir_, patch));
 }
 
-void RepoWorker::discardPatch(const QString& patchText) {
-    if (!repo_ || patchText.isEmpty()) {
+void RepoWorker::discardPatch(const QByteArray& patch) {
+    if (!repo_ || patch.isEmpty()) {
         return;
     }
     RepoState undoBefore = beginUndo();
-    try {
-        gity::git::applyPatchToWorktree(repo_.get(), patchText.toStdString());
+    const GitResult result = index::applyToWorktree(workdir_, patch);
+    if (result.ok()) {
         endUndo(QObject::tr("Discard hunk"), std::move(undoBefore), true);
-        refreshStatus();
-    } catch (const gity::git::GitException& e) {
-        emit commitFailed(QString::fromStdString(e.error().message),
-                          QString::fromStdString(e.error().raw));
     }
+    reportIndexWrite(result);
 }
 
 namespace {
@@ -2612,15 +2592,14 @@ void RepoSession::requestUnlock(const QString& path, bool force) {
         Qt::QueuedConnection);
 }
 
-void RepoSession::requestDiscardPatch(const QString& patchText) {
+void RepoSession::requestDiscardPatch(const QByteArray& patch) {
     QMetaObject::invokeMethod(
-        worker_, [this, patchText] { worker_->discardPatch(patchText); },
-        Qt::QueuedConnection);
+        worker_, [this, patch] { worker_->discardPatch(patch); }, Qt::QueuedConnection);
 }
 
-void RepoSession::requestApplyPatch(const QString& patchText) {
+void RepoSession::requestApplyPatch(const QByteArray& patch) {
     QMetaObject::invokeMethod(
-        worker_, [this, patchText] { worker_->applyPatch(patchText); }, Qt::QueuedConnection);
+        worker_, [this, patch] { worker_->applyPatch(patch); }, Qt::QueuedConnection);
 }
 
 void RepoSession::requestCommit(const QString& message, bool amend) {

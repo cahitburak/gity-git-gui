@@ -35,6 +35,10 @@ struct DiffLine {
     std::uint32_t newLine = 0;
     std::uint32_t textOffset = 0;
     std::uint32_t textLength = 0;
+    /// The line ended in CR LF. The text is stored without either, so the diff
+    /// view shows no stray glyph — but a patch rebuilt from it must put the CR
+    /// back, or it no longer matches a file committed with CRLF endings.
+    bool carriageReturn = false;
 };
 
 struct DiffHunk {
@@ -51,6 +55,12 @@ struct FileDiff {
     std::string path;
     std::string oldPath;
     ChangeStatus status = ChangeStatus::Unknown;
+
+    /// Git file modes of the two sides; 0 where the side does not exist — an
+    /// untracked or added file has no old side, a deleted one no new side. A
+    /// patch that creates or deletes the file has to say so in its header.
+    std::uint32_t oldMode = 0;
+    std::uint32_t newMode = 0;
 
     bool binary = false;
     /// True when the file was skipped for size. A 40 MB generated asset has no
@@ -76,6 +86,11 @@ struct FileDiffOptions {
     std::size_t maxLines = 200000;
     std::uint32_t contextLines = 3;
 };
+
+/// Fills `out` from a libgit2 patch: status, modes and the binary flag from its
+/// delta, then every hunk and line, stopping at `maxLines`. The one place a
+/// patch becomes a FileDiff, for history and working copy alike.
+void readPatch(git_patch* patch, FileDiff& out, std::size_t maxLines);
 
 /// Diffs `path` in `commit` against its first parent.
 [[nodiscard]] FileDiff loadFileDiff(git_repository* repo, const git_oid& commitOid,

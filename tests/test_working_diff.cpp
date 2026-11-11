@@ -1,11 +1,12 @@
-// The one test here that builds a real repository.
+// Diffs read from a real repository.
 //
-// Every other test in this suite is pure logic, deliberately. This defect
-// could not be caught that way: it was an interaction between two libgit2
-// option flags, where a pathspec silently matched nothing unless untracked
-// directories were also recursed. Nothing about the shape of the code was
-// wrong — only what libgit2 does with the combination — so the only test that
-// could have found it is one that asks libgit2.
+// These defects could not be caught with pure logic: the first was an
+// interaction between two libgit2 option flags, where a pathspec silently
+// matched nothing unless untracked directories were also recursed. Nothing
+// about the shape of the code was wrong — only what libgit2 does with the
+// combination — so the only test that could have found it is one that asks
+// libgit2. Writes to the index go through git and are tested with the session
+// layer (tests/session).
 #include "core/git/Staging.h"
 
 #include <gtest/gtest.h>
@@ -144,54 +145,44 @@ TEST(WorkingDiff, AnUnchangedFileHasNoHunks) {
     EXPECT_TRUE(diff.hunks.empty());
 }
 
-namespace {
-
-std::string readFile(const std::filesystem::path& path) {
-    std::string contents;
-    std::FILE* file = std::fopen(path.string().c_str(), "rb");
-    if (file == nullptr) {
-        return contents;
-    }
-    char buffer[4096];
-    std::size_t read = 0;
-    while ((read = std::fread(buffer, 1, sizeof(buffer), file)) > 0) {
-        contents.append(buffer, read);
-    }
-    std::fclose(file);
-    return contents;
-}
-
-bool isStaged(git_repository* repo, const char* path) {
-    unsigned int flags = 0;
-    if (git_status_file(&flags, repo, path) < 0) {
-        return false;
-    }
-    return (flags & (GIT_STATUS_INDEX_NEW | GIT_STATUS_INDEX_MODIFIED |
-                     GIT_STATUS_INDEX_DELETED)) != 0;
-}
-
-} // namespace
-
-TEST(WorkingDiff, DiscardingAnUnstagedHunkRewritesTheFile) {
-    // Discard hunk works on the *unstaged* diff — index against worktree — so
-    // the reversed patch describes the worktree and nothing else. Applied to
-    // the index as well, it cannot match, and the discard fails outright.
+TEST(WorkingDiff, ABinaryFileIsReportedAsBinary) {
+    // libgit2 only learns a file is binary when it loads the contents, which
+    // happens when the patch is built — reading the flag earlier missed it.
     Repo repo;
-    repo.write("Assets/Player.cs", "one\n");
+    repo.write("Assets/icon.bin", std::string("\x89PNG\0\0\x01", 7));
     repo.commitAll();
-    repo.write("Assets/Player.cs", "one\ntwo\n");
+    repo.write("Assets/icon.bin", std::string("\x89PNG\0\0\x02", 7));
+
+    const auto diff = gity::git::loadWorkingDiff(repo.get(), "Assets/icon.bin",
+                                                 gity::git::DiffSide::Unstaged, {});
+    EXPECT_TRUE(diff.binary);
+}
+
+TEST(WorkingDiff, CrLfEndingsAreRememberedButNotShown) {
+    Repo repo;
+    repo.write("Assets/Player.cs", "one\r\ntwo\r\n");
+    repo.commitAll();
+    repo.write("Assets/Player.cs", "one\r\nTWO\r\n");
 
     const auto diff = gity::git::loadWorkingDiff(repo.get(), "Assets/Player.cs",
                                                  gity::git::DiffSide::Unstaged, {});
-    ASSERT_EQ(diff.hunks.size(), 1u);
-    const std::string patch =
-        gity::git::buildPartialPatch(diff, gity::git::linesOfHunk(diff, 0), true);
-    ASSERT_FALSE(patch.empty());
+    ASSERT_FALSE(diff.lines.empty());
+    for (const auto& line : diff.lines) {
+        EXPECT_TRUE(line.carriageReturn);
+        EXPECT_EQ(diff.lineText(line).find('\r'), std::string_view::npos);
+    }
+}
 
-    EXPECT_NO_THROW(gity::git::applyPatchToWorktree(repo.get(), patch));
-    EXPECT_EQ(readFile(std::filesystem::path(git_repository_workdir(repo.get())) /
-                       "Assets/Player.cs"),
-              "one\n");
+TEST(WorkingDiff, AnUntrackedFileHasNoOldSide) {
+    Repo repo;
+    repo.write("Assets/Player.cs", "one\n");
+    repo.commitAll();
+    repo.write("Assets/New.cs", "fresh\n");
+
+    const auto diff = gity::git::loadWorkingDiff(repo.get(), "Assets/New.cs",
+                                                 gity::git::DiffSide::Unstaged, {});
+    EXPECT_EQ(diff.oldMode, 0u);
+    EXPECT_NE(diff.newMode, 0u);
 }
 
 TEST(WorkingDiff, APathWithGlobCharactersDiffsOnlyThatFile) {
@@ -207,20 +198,6 @@ TEST(WorkingDiff, APathWithGlobCharactersDiffsOnlyThatFile) {
     const auto diff = gity::git::loadWorkingDiff(repo.get(), "Assets/[id].cs",
                                                  gity::git::DiffSide::Unstaged, {});
     EXPECT_TRUE(diff.hunks.empty()) << "[id].cs is unchanged; d.cs's change leaked in";
-}
-
-TEST(WorkingDiff, UnstagingAPathWithGlobCharactersLeavesItsNeighbours) {
-    Repo repo;
-    repo.write("Assets/[id].cs", "one\n");
-    repo.write("Assets/d.cs", "one\n");
-    repo.commitAll();
-    repo.write("Assets/[id].cs", "two\n");
-    repo.write("Assets/d.cs", "two\n");
-    gity::git::stageFiles(repo.get(), {"Assets/[id].cs", "Assets/d.cs"});
-
-    gity::git::unstageFiles(repo.get(), {"Assets/[id].cs"});
-    EXPECT_FALSE(isStaged(repo.get(), "Assets/[id].cs"));
-    EXPECT_TRUE(isStaged(repo.get(), "Assets/d.cs")) << "unstaging [id].cs unstaged d.cs";
 }
 
 #include "core/git/FileDiff.h"

@@ -60,8 +60,8 @@ signals:
     void unstageRequested(const QStringList& paths);
     void diffRequested(const QString& path, bool staged);
     void commitRequested(const QString& message, bool amend);
-    void applyPatchRequested(const QString& patchText);
-    void discardHunkRequested(const QString& patchText);
+    void applyPatchRequested(const QByteArray& patch);
+    void discardHunkRequested(const QByteArray& patch);
     void discardRequested(const QStringList& paths);
     /// Stash just these files, leaving the rest of the working copy alone.
     void stashRequested(const QStringList& paths);

@@ -248,7 +248,7 @@ flowchart TB
 | Backend | Operations | Why |
 |---|---|---|
 | **libgit2** | History walk and graph topology, commit details, diffs, status, refs, blob reads for the diff and image views | Called thousands of times per interaction: must be in-process and free of parsing |
-| **git** | Commit, merge, rebase (including interactive), cherry-pick, revert, stash, checkout, reset, discard, clone, fetch, pull, push, submodule update, LFS | Runs the user's hooks, credential helper, LFS filters, merge drivers, signing and config exactly as their terminal does |
+| **git** | Staging and unstaging (whole file, hunk and line), commit, merge, rebase (including interactive), cherry-pick, revert, stash, checkout, reset, discard, clone, fetch, pull, push, submodule update, LFS | Runs the user's hooks, credential helper, LFS filters, merge drivers, signing and config exactly as their terminal does |
 
 ### The GitProcess contract
 
@@ -266,6 +266,11 @@ Running `git` is only safe if it is done the same way every time. One type, `Git
 - **Progress and cancellation.** `--progress` parsed into the progress bar; cancelling terminates
   the process.
 - **A command log.** Every invocation is reported, with passwords in URLs masked (ADR-011).
+
+> **Correction, from the November 2026 review.** Staging was first built on libgit2's index calls,
+> as "only index manipulation". It was not harmless: libgit2 runs no external clean filter, so a
+> file under LFS was staged whole and one under git-crypt in plaintext. Every index write now goes
+> through `git add`, `git reset` and `git apply` (`src/session/IndexWrites`).
 
 > **Consequence.** Two backends mean two error vocabularies. Both are turned into one
 > user-facing explanation at the session boundary — a failed fetch says "the credentials being used

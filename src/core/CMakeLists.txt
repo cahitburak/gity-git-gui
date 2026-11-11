@@ -12,8 +12,6 @@ endif()
 
 add_library(gity_core STATIC
     git/GitError.h
-    git/Stash.cpp
-    git/Stash.h
     git/Staging.cpp
     git/NetworkOutcome.cpp
     git/RemoteUrl.cpp

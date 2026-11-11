@@ -14,6 +14,8 @@ add_library(gity_session STATIC
     UndoLog.cpp
     GitProcess.cpp
     GitProcess.h
+    IndexWrites.cpp
+    IndexWrites.h
     RepoSession.cpp
     RepoSession.h
 )

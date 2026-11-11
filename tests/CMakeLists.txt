@@ -44,3 +44,21 @@ target_link_libraries(gity_tests
 )
 
 gtest_discover_tests(gity_tests)
+
+# The session layer runs real git, so its tests need QtCore — and only QtCore
+# and the session library: QtWidgets here would still mean the layering broke.
+# Not built by the headless leg, which has no Qt.
+if(TARGET gity::session)
+    add_executable(gity_session_tests
+        session/main.cpp
+        session/TempRepo.h
+        session/test_index_writes.cpp
+    )
+    target_include_directories(gity_session_tests PRIVATE ${PROJECT_SOURCE_DIR}/src)
+    target_link_libraries(gity_session_tests
+        PRIVATE gity::session
+        PRIVATE gity::warnings
+        PRIVATE GTest::gtest
+    )
+    gtest_discover_tests(gity_session_tests DISCOVERY_TIMEOUT 30)
+endif()

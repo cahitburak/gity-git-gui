@@ -110,8 +110,8 @@ public slots:
     void stage(const QStringList& paths);
     void unstage(const QStringList& paths);
     void loadWorkingFileDiff(const QString& path, bool staged, quint64 generation);
-    void applyPatch(const QString& patchText);
-    void discardPatch(const QString& patchText);
+    void applyPatch(const QByteArray& patch);
+    void discardPatch(const QByteArray& patch);
     void runNetwork(const QString& verb, const QStringList& args);
     /// Fetches every remote, keeping each one's default branch current — and,
     /// with `withSubmodules`, every remote of each initialised submodule.
@@ -205,6 +205,8 @@ signals:
                             const QString& defaultAccount, const QString& chosen);
 
 private:
+    /// Reports a staging write that failed, and refreshes status either way.
+    void reportIndexWrite(const GitResult& result);
     [[nodiscard]] bool operationInProgress() const;
     [[nodiscard]] bool worktreeClean() const;
     [[nodiscard]] bool localBranchExists(const QString& name) const;
@@ -289,10 +291,10 @@ public:
     /// Applies a patch the UI built from the diff it is showing. Sending the
     /// patch rather than a line selection means a stale view fails cleanly
     /// instead of staging the wrong lines.
-    void requestApplyPatch(const QString& patchText);
+    void requestApplyPatch(const QByteArray& patch);
 
-    /// Reverts a patch from the worktree. Irreversible; the caller confirms.
-    void requestDiscardPatch(const QString& patchText);
+    /// Reverts a patch from the worktree. Recorded for undo; the caller confirms.
+    void requestDiscardPatch(const QByteArray& patch);
 
     /// ADR-003 — every network verb goes through the git binary, so the
     /// user's credential helper, SSH agent, LFS filters and hooks all behave
