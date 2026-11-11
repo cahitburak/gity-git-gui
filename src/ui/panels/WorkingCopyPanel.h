@@ -6,7 +6,7 @@
 //
 #pragma once
 
-#include "session/RepoSession.h"
+#include "session/SessionTypes.h"
 
 #include <QWidget>
 

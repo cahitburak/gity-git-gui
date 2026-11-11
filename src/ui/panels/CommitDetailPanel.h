@@ -1,7 +1,7 @@
 // The commit detail panel — ADR-002 chrome, ordinary widgets.
 #pragma once
 
-#include "session/RepoSession.h"
+#include "session/SessionTypes.h"
 
 #include <QWidget>
 

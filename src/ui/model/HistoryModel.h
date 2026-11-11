@@ -7,7 +7,7 @@
 #pragma once
 
 #include "core/model/HistoryChunk.h"
-#include "session/RepoSession.h"
+#include "session/SessionTypes.h"
 
 #include <QString>
 

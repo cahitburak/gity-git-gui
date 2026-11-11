@@ -11,7 +11,7 @@
 #pragma once
 
 #include "core/git/Staging.h"
-#include "session/RepoSession.h"
+#include "session/SessionTypes.h"
 
 #include <QAbstractScrollArea>
 

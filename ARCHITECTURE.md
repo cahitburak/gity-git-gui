@@ -300,6 +300,12 @@ repository handle and runs requests in order. The UI thread never touches libgit
   is wired once, to a relay that the session on screen forwards to, so a result from a repository
   in another tab never reaches it. (Corrected in November 2026: the first version shared one
   session across every tab, and a preview asked for in one repository could run in another.)
+- **Two halves.** `RepoSession` is the UI thread's side: it numbers requests and queues them.
+  `RepoWorker` is the thread's side: it owns the handle and runs them. The values crossing between
+  them are declared in `SessionTypes.h`, which is all a panel that only shows results includes.
+  The worker is one class, since every command shares its handle, undo log and cancel flag, but its
+  code is split by area: `RepoWorker.cpp` (opening, reads, undo) and `WorkerNetwork`,
+  `WorkerHistory`, `WorkerBranches`, `WorkerWorkingCopy`, `WorkerPreview` and `WorkerAccounts`.
 
 ### Noticing changes made outside Gity
 

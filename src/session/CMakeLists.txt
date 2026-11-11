@@ -18,9 +18,18 @@ add_library(gity_session STATIC
     IndexWrites.cpp
     IndexWrites.h
     RepoSession.cpp
+    RepoSession.h
     RepoWatcher.cpp
     RepoWatcher.h
-    RepoSession.h
+    RepoWorker.cpp
+    RepoWorker.h
+    SessionTypes.h
+    WorkerAccounts.cpp
+    WorkerBranches.cpp
+    WorkerHistory.cpp
+    WorkerNetwork.cpp
+    WorkerPreview.cpp
+    WorkerWorkingCopy.cpp
 )
 add_library(gity::session ALIAS gity_session)
 
