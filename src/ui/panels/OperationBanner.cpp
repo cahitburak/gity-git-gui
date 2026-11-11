@@ -73,6 +73,16 @@ void OperationBanner::setOperation(git::Operation operation, const QString& noun
 
     continue_->setVisible(true);
     abort_->setVisible(true);
+    // The command behind each button, as for every other button in Gity.
+    const QString command = QString::fromUtf8(git::operationCommand(operation).data(),
+                                              static_cast<qsizetype>(
+                                                  git::operationCommand(operation).size()));
+    continue_->setToolTip(tr("Carry on with the staged resolution.\n\ngit %1 --continue")
+                              .arg(command));
+    abort_->setToolTip(tr("Go back to where you were before it started, throwing away what "
+                          "has been resolved. Edit ▸ Undo can bring that back.\n\ngit %1 "
+                          "--abort")
+                           .arg(command));
     if (!editing_.isEmpty()) {
         text_->setText(tr("Stopped to edit \"%1\". Its changes are staged in Local Changes: "
                           "change, stage or unstage them, then Continue — it recommits them "

@@ -338,6 +338,7 @@ MainWindow::MainWindow(QWidget* parent) : QMainWindow(parent) {
     buildMenus();
     buildToolBar();
     buildStatusBar();
+    syncNetworkState(); // nothing is open yet
 
     connect(&relay_, &gity::session::RepoSession::opened, this, &MainWindow::onOpened);
     connect(&relay_, &gity::session::RepoSession::refsReady, this, &MainWindow::onRefsReady);
@@ -478,13 +479,12 @@ MainWindow::MainWindow(QWidget* parent) : QMainWindow(parent) {
             &MainWindow::confirmCheckout);
     connect(refs_, &gity::ui::RefsSidebar::deleteTagRequested, this,
             [this](const QString& name) {
-                const auto answer = QMessageBox::question(
-                    this, tr("Delete tag?"),
-                    tr("Delete \"%1\" locally?\n\nA tag already pushed stays on the remote "
-                       "until it is deleted there too.")
-                        .arg(name),
-                    QMessageBox::Yes | QMessageBox::No, QMessageBox::No);
-                if (answer == QMessageBox::Yes) {
+                // The button says what it does, and Cancel is the default.
+                if (gity::ui::confirmDestructive(
+                        this, tr("Delete tag?"), tr("Delete \"%1\" locally?").arg(name),
+                        tr("A tag already pushed stays on the remote until it is deleted "
+                           "there too. Edit ▸ Undo brings the local one back."),
+                        tr("Delete Tag"))) {
                     session_->requestDeleteTag(name);
                 }
             });
@@ -497,6 +497,8 @@ MainWindow::MainWindow(QWidget* parent) : QMainWindow(parent) {
     connect(refs_, &gity::ui::RefsSidebar::rebaseOntoRequested, this,
             [this](const QString& ref) { askPreview(gity::session::Preview::Kind::Rebase, ref); });
     connect(&relay_, &gity::session::RepoSession::previewReady, this, &MainWindow::showPreview);
+    connect(&relay_, &gity::session::RepoSession::headAncestorsReady, this,
+            &MainWindow::offerInteractiveRebase);
     connect(refs_, &gity::ui::RefsSidebar::interactiveRebaseRequested, this,
             [this](const QString& oid, const QString& label) { startRebase(oid, label); });
     connect(repoTabs_, &gity::ui::RepositoryTabs::tabsChanged, this, [this] {
@@ -509,6 +511,12 @@ MainWindow::MainWindow(QWidget* parent) : QMainWindow(parent) {
         for (const QVariant& tab : repoTabs_->state()) {
             paths << tab.toMap().value(QStringLiteral("path")).toString();
             parents << tab.toMap().value(QStringLiteral("parent")).toString();
+        }
+        for (const auto& [missingPath, missingParent] : std::as_const(unavailableTabs_)) {
+            if (!paths.contains(missingPath)) {
+                paths << missingPath;
+                parents << missingParent;
+            }
         }
         QSettings settings(QStringLiteral("Gity"), QStringLiteral("Gity"));
         settings.setValue(QStringLiteral("session/tabs"), paths);
@@ -538,8 +546,8 @@ MainWindow::MainWindow(QWidget* parent) : QMainWindow(parent) {
             [this](const QString& ref) {
                 if (gity::ui::confirmDestructive(
                         this, tr("Drop stash?"), tr("Discard %1?").arg(ref),
-                        tr("The changes it holds are gone — a dropped stash is not "
-                           "reachable from this client afterwards."),
+                        tr("Its changes leave the stash list. Edit ▸ Undo puts it back, for "
+                           "as long as git keeps unreachable objects (30 days by default)."),
                         tr("Drop Stash"))) {
                     session_->requestStashDrop(ref);
                 }
@@ -805,13 +813,16 @@ void MainWindow::buildMenus() {
     repository->addSeparator();
     // Lambdas, not the slot itself: triggered(bool checked) would arrive as
     // withSubmodules = false.
-    repository->addAction(tr("&Fetch with Submodules"), QKeySequence(Qt::CTRL | Qt::Key_R), this,
-                          [this] { session_->requestFetch(true); });
-    repository->addAction(tr("Fetch This Repository Only"), this,
-                          [this] { session_->requestFetch(false); });
-    repository->addAction(tr("&Pull"), this, [this] { askPreview(gity::session::Preview::Kind::Pull); });
-    repository->addAction(tr("Pu&sh"), QKeySequence(Qt::CTRL | Qt::SHIFT | Qt::Key_P), this,
-                          [this] { askPreview(gity::session::Preview::Kind::Push); });
+    networkMenuActions_ = {
+        repository->addAction(tr("&Fetch with Submodules"), QKeySequence(Qt::CTRL | Qt::Key_R),
+                              this, [this] { session_->requestFetch(true); }),
+        repository->addAction(tr("Fetch This Repository Only"), this,
+                              [this] { session_->requestFetch(false); }),
+        repository->addAction(tr("&Pull"), this,
+                              [this] { askPreview(gity::session::Preview::Kind::Pull); }),
+        repository->addAction(tr("Pu&sh"), QKeySequence(Qt::CTRL | Qt::SHIFT | Qt::Key_P), this,
+                              [this] { askPreview(gity::session::Preview::Kind::Push); }),
+    };
     repository->addSeparator();
     repository->addAction(tr("Refresh &LFS Locks"), this,
                                   [this] { session_->requestLocks(); });
@@ -832,6 +843,18 @@ void MainWindow::buildMenus() {
     QMenu* stash = menuBar()->addMenu(tr("&Stash"));
     stash->addAction(tr("&Stash Changes…"), QKeySequence(Qt::CTRL | Qt::SHIFT | Qt::Key_S),
                      this, &MainWindow::chooseStash);
+
+    // Everything in these menus acts on the repository on screen, so none of
+    // it — shortcuts included — is live while there is none. The toolbar's
+    // twins were disabled; these were not, and Ctrl+R during a fetch queued
+    // a second one.
+    for (QMenu* menu : {repository, branch, stash}) {
+        for (QAction* action : menu->actions()) {
+            if (!action->isSeparator()) {
+                repositoryMenuActions_ << action;
+            }
+        }
+    }
 
 
     edit->addSeparator();
@@ -857,13 +880,16 @@ void MainWindow::buildMenus() {
         git_libgit2_version(&libgit2Major, &libgit2Minor, &libgit2Patch);
         QMessageBox::about(
             this, tr("About Gity"),
-            tr("<b>Gity</b><br>A Git client."
-               "<br><br>git %1 · libgit2 %2.%3.%4<br>Qt %5")
-                .arg(gity::session::GitProcess::version())
+            tr("<b>Gity %6</b><br>A Git client."
+               "<br><br>git %1 · libgit2 %2.%3.%4<br>Qt %5"
+               "<br><br>MIT licence. Qt is used under the LGPL v3 and libgit2 under the GPL v2 "
+               "with a linking exception; see THIRD_PARTY_NOTICES.md.")
+                .arg(gity::session::GitProcess::version().toHtmlEscaped())
                 .arg(libgit2Major)
                 .arg(libgit2Minor)
                 .arg(libgit2Patch)
-                .arg(QStringLiteral(QT_VERSION_STR)));
+                .arg(QStringLiteral(QT_VERSION_STR))
+                .arg(QCoreApplication::applicationVersion().toHtmlEscaped()));
     });
 }
 
@@ -1167,12 +1193,22 @@ void MainWindow::restoreSession(bool openCurrent) {
     const QStringList parents = settings.value(QStringLiteral("session/parents")).toStringList();
     const int current = settings.value(QStringLiteral("session/current"), 0).toInt();
 
-    // Repositories moved or deleted since are left out rather than reopened
-    // into an error dialog each.
+    // Repositories that cannot be reached are left out rather than reopened
+    // into an error dialog each — but not forgotten: one on a drive that is
+    // not mounted today is kept in the saved list, so it comes back when the
+    // drive does. Only a folder that is there with no repository in it is
+    // dropped for good.
     QString currentPath;
+    unavailableTabs_.clear();
     for (int i = 0; i < paths.size(); ++i) {
         const QString& path = paths.at(i);
-        if (path.isEmpty() || !QFileInfo::exists(path + QStringLiteral("/.git"))) {
+        if (path.isEmpty()) {
+            continue;
+        }
+        if (!QFileInfo::exists(path + QStringLiteral("/.git"))) {
+            if (!QFileInfo::exists(path)) {
+                unavailableTabs_ << qMakePair(path, i < parents.size() ? parents.at(i) : QString());
+            }
             continue;
         }
         repoTabs_->open(path, i < parents.size() ? parents.at(i) : QString());
@@ -1558,9 +1594,7 @@ void MainWindow::onRefsReady(gity::session::RefSetPtr refs) {
     model_.setRefs(refs);
     currentRefs_ = refs;
     if (refs) {
-        for (QAction* action : {fetchAction_, pullAction_, pushAction_}) {
-            action->setEnabled(true);
-        }
+        syncNetworkState();
         // Merge needs somewhere to merge from.
         const bool somewhereToGo =
             refs->localBranches.size() + refs->remoteBranches.size() > 1;
@@ -1947,9 +1981,9 @@ void MainWindow::confirmReset(const QString& oid, const QString& subject) {
     layout->addWidget(warning);
     const auto updateWarning = [warning, hard] {
         warning->setText(hard->isChecked()
-                             ? tr("Uncommitted work in the working copy is destroyed and "
-                                  "cannot be recovered — the reflog holds commits, not "
-                                  "unsaved edits.")
+                             ? tr("Uncommitted work in the working copy is thrown away. Gity "
+                                  "snapshots it first, so Edit ▸ Undo brings it back — but "
+                                  "nothing outside Gity can.")
                              : QString());
     };
     connect(hard, &QRadioButton::toggled, &dialog, updateWarning);
@@ -2527,20 +2561,28 @@ void MainWindow::openSettings(SettingsPage page) {
 }
 
 void MainWindow::chooseInteractiveRebase() {
-    if (currentWorkdir_.isEmpty() || model_.rowCount() == 0) {
+    if (currentWorkdir_.isEmpty()) {
         return;
     }
+    // The bases come from git, not from the graph: the graph's rows include
+    // every other branch, and a filter's matches, and a base that is not an
+    // ancestor of HEAD rebases nothing the user meant.
+    awaitingRebaseBases_ = true;
+    session_->requestHeadAncestors(31);
+}
 
-    // The base is picked from the history in front of the user rather than by
-    // asking for a number of commits: "rebase everything above this one" is
-    // the question an interactive rebase actually answers.
-    constexpr std::size_t kOffered = 30;
-    const std::size_t available = std::min<std::size_t>(model_.rowCount(), kOffered + 1);
+void MainWindow::offerInteractiveRebase(const QStringList& oids, const QStringList& subjects) {
+    if (!awaitingRebaseBases_) {
+        return;
+    }
+    awaitingRebaseBases_ = false;
+
+    // Row 0 is HEAD itself, which has nothing above it to rebase.
     QStringList choices;
-    std::vector<QString> bases;
-    for (std::size_t row = 1; row < available; ++row) {
-        choices << tr("%1  %2").arg(model_.shortId(row), model_.summary(row));
-        bases.push_back(model_.fullId(row));
+    std::vector<qsizetype> rows;
+    for (qsizetype row = 1; row < oids.size(); ++row) {
+        choices << tr("%1  %2").arg(oids.at(row).left(7), subjects.at(row));
+        rows.push_back(row);
     }
     if (choices.isEmpty()) {
         QMessageBox::information(
@@ -2549,6 +2591,8 @@ void MainWindow::chooseInteractiveRebase() {
         return;
     }
 
+    // "Rebase everything above this one" is the question an interactive
+    // rebase actually answers, so the base is picked rather than counted.
     bool accepted = false;
     const QString chosen = QInputDialog::getItem(
         this, tr("Interactive Rebase"),
@@ -2562,8 +2606,8 @@ void MainWindow::chooseInteractiveRebase() {
     if (index < 0) {
         return;
     }
-    startRebase(bases[static_cast<std::size_t>(index)],
-                model_.summary(static_cast<std::size_t>(index) + 1));
+    const qsizetype row = rows[static_cast<std::size_t>(index)];
+    startRebase(oids.at(row), subjects.at(row));
 }
 
 void MainWindow::chooseRebase() {
@@ -2886,9 +2930,16 @@ void MainWindow::onNetworkStarted(const QString& verb) {
 }
 
 void MainWindow::syncNetworkState() {
+    const bool open = !currentWorkdir_.isEmpty();
     const bool busy = session_->networkBusy();
+    for (QAction* action : repositoryMenuActions_) {
+        action->setEnabled(open);
+    }
+    for (QAction* action : networkMenuActions_) {
+        action->setEnabled(open && !busy);
+    }
     for (QAction* action : {fetchAction_, pullAction_, pushAction_}) {
-        action->setEnabled(!busy && !currentWorkdir_.isEmpty());
+        action->setEnabled(open && !busy);
     }
     cancelNetwork_->setVisible(busy);
 }

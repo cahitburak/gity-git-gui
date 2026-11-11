@@ -203,9 +203,8 @@ inline QColor fillChangedRow{QColor(230, 169, 79, 9)};
 }
 
 
-/// Lane colours cycle by lane index. Six, not eight: the spec fixes the count
-/// because edge colour is the *parent's* lane colour and a longer cycle makes
-/// adjacent lanes harder to tell apart.
+/// Lane colours cycle by lane index, in TOKENS.json's order. Edge colour is
+/// the *parent's* lane colour, so neighbouring entries are chosen to differ.
 inline const std::array<QColor, 11> graphLanes{QColor(0x6A, 0xA9, 0xE0), QColor(0xE6, 0xA9, 0x4F), QColor(0x82, 0xC4, 0x8D), QColor(0xC7, 0x8F, 0xC9), QColor(0xD9, 0x80, 0x80), QColor(0x5F, 0xBE, 0xC4), QColor(0x7C, 0x7C, 0xE4), QColor(0xD0, 0xE0, 0x69), QColor(0xE0, 0x69, 0xE0), QColor(0x69, 0xE0, 0x69), QColor(0xC4, 0xA9, 0x82)};
 
 [[nodiscard]] inline QColor laneColor(int lane) noexcept {

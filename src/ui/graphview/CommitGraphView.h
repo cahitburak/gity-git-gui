@@ -77,7 +77,6 @@ private:
 
     [[nodiscard]] int rowHeight() const;
     [[nodiscard]] int laneX(int lane) const;
-    [[nodiscard]] int graphGutterWidth() const;
     [[nodiscard]] qsizetype rowAt(int viewportY) const;
     /// Scrolls just far enough that `row` is fully visible.
     void scrollToRow(qsizetype row);

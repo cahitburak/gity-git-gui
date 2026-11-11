@@ -1712,6 +1712,27 @@ void RepoWorker::runInteractiveRebase(const QString& baseOid,
     refreshStatus();
 }
 
+void RepoWorker::loadHeadAncestors(int limit) {
+    if (!repo_) {
+        return;
+    }
+    const GitResult result = GitProcess::run(
+        workdir_, {QStringLiteral("log"), QStringLiteral("--first-parent"),
+                   QStringLiteral("-n"), QString::number(limit),
+                   QStringLiteral("--format=%H%x00%s"), QStringLiteral("HEAD"),
+                   QStringLiteral("--")});
+    QStringList oids;
+    QStringList subjects;
+    for (const QString& line : result.output.split(QChar('\n'), Qt::SkipEmptyParts)) {
+        const qsizetype separator = line.indexOf(QChar('\0'));
+        if (separator > 0) {
+            oids << line.left(separator);
+            subjects << line.mid(separator + 1);
+        }
+    }
+    emit headAncestorsReady(oids, subjects);
+}
+
 void RepoWorker::loadCommitsSince(const QString& baseOid) {
     if (!repo_) {
         return;
@@ -2111,6 +2132,7 @@ RepoSession::RepoSession(QObject* parent) : QObject(parent) {
     connect(worker_, &RepoWorker::historyEditFinished, this,
             &RepoSession::historyEditFinished);
     connect(worker_, &RepoWorker::commitsSinceReady, this, &RepoSession::commitsSinceReady);
+    connect(worker_, &RepoWorker::headAncestorsReady, this, &RepoSession::headAncestorsReady);
     connect(worker_, &RepoWorker::editStopPrepared, this, &RepoSession::editStopPrepared);
     connect(worker_, &RepoWorker::editStopChanged, this, &RepoSession::editStopChanged);
     connect(worker_, &RepoWorker::commitPeekReady, this, &RepoSession::commitPeekReady);
@@ -2436,6 +2458,10 @@ void RepoSession::requestInteractiveRebase(const QString& baseOid,
                                            const std::vector<git::RebaseStep>& steps) {
     post([this, baseOid, steps] { worker_->runInteractiveRebase(baseOid, steps); },
         Qt::QueuedConnection);
+}
+
+void RepoSession::requestHeadAncestors(int limit) {
+    postRead([this, limit] { worker_->loadHeadAncestors(limit); });
 }
 
 void RepoSession::requestCommitsSince(const QString& baseOid) {

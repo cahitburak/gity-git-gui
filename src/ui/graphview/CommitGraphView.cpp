@@ -119,12 +119,6 @@ int CommitGraphView::laneX(int lane) const {
     return m.laneOriginX + lane * m.laneWidth;
 }
 
-int CommitGraphView::graphGutterWidth() const {
-    const auto& m = Theme::current().metrics;
-    const int lanes = model_ != nullptr ? std::min<int>(model_->maxLanes(), kMaxDrawnLanes) : 1;
-    return m.laneOriginX + lanes * m.laneWidth + m.gutterPadding;
-}
-
 void CommitGraphView::rowsAppended() {
     updateScrollBars();
     viewport()->update();
@@ -221,7 +215,10 @@ void CommitGraphView::paintRow(QPainter& painter, qsizetype row, int y) const {
 
     const graph::GraphRow& record = view.row();
     const QColor laneColor = theme.laneColor(record.lane);
-    const int cx = laneX(record.lane);
+    // Past the last drawn lane the column stops growing and edges are not
+    // drawn; the node sits at the edge of the column rather than floating out
+    // over the message.
+    const int cx = laneX(std::min<int>(record.lane, kMaxDrawnLanes - 1));
     const int cy = y + h / 2;
 
     // Node geometry is from the spec, not invented: a merge is a hollow ring
@@ -246,7 +243,8 @@ void CommitGraphView::paintRow(QPainter& painter, qsizetype row, int y) const {
     const QColor secondary = selected ? tokens::textSelectedDim : theme.textFaint;
 
     const GraphColumns columns =
-        GraphColumns::forWidth(width, model_ != nullptr ? model_->maxLanes() : 1);
+        GraphColumns::forWidth(
+            width, model_ != nullptr ? std::min<int>(model_->maxLanes(), kMaxDrawnLanes) : 1);
     const auto index = static_cast<std::size_t>(row);
 
     // Ref chips sit inline, just before the subject (2026-09 UI review): the

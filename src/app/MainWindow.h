@@ -96,6 +96,7 @@ private slots:
     void chooseComparison();
     void chooseRebase();
     void chooseInteractiveRebase();
+    void offerInteractiveRebase(const QStringList& oids, const QStringList& subjects);
     void confirmReset(const QString& oid, const QString& subject);
     void chooseNewTag();
     void openSettings(gity::app::MainWindow::SettingsPage page = SettingsPage::General);
@@ -189,6 +190,10 @@ private:
     QSet<const gity::session::RepoSession*> openedSessions_;
     QList<QMetaObject::Connection> forwarding_;
     QToolButton* cancelNetwork_ = nullptr;
+    /// The Repository, Branch and Stash menus' entries, and the network ones
+    /// among them, enabled with the toolbar's.
+    QList<QAction*> repositoryMenuActions_;
+    QList<QAction*> networkMenuActions_;
     gity::ui::HistoryModel model_;
     gity::ui::CommitGraphView* graph_ = nullptr;
     gity::ui::GraphHeader* graphHeader_ = nullptr;
@@ -270,6 +275,11 @@ private:
     QString pendingBranchDelete_;
 
     bool persistSession_ = false;
+    /// Interactive Rebase was chosen and its list of bases is on its way.
+    bool awaitingRebaseBases_ = false;
+    /// Saved tabs whose folder could not be found at start-up — a drive not
+    /// mounted — kept in the saved list so they are not forgotten.
+    QList<QPair<QString, QString>> unavailableTabs_;
 
     /// What a repository was showing, kept while another tab is on screen.
     struct ViewState {

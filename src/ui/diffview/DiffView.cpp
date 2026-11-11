@@ -33,9 +33,20 @@ DiffView::DiffView(QWidget* parent) : QAbstractScrollArea(parent) {
 QFont DiffView::monoFont() const {
     // A diff is columnar: alignment carries meaning, so the platform's fixed
     // font is not a stylistic choice here.
-    QFont font = QFontDatabase::systemFont(QFontDatabase::FixedFont);
-    font.setPointSizeF(QFontInfo(this->font()).pointSizeF());
-    return font;
+    if (!monoFontValid_) {
+        monoFont_ = QFontDatabase::systemFont(QFontDatabase::FixedFont);
+        monoFont_.setPointSizeF(QFontInfo(this->font()).pointSizeF());
+        monoFontValid_ = true;
+    }
+    return monoFont_;
+}
+
+void DiffView::changeEvent(QEvent* event) {
+    if (event->type() == QEvent::FontChange || event->type() == QEvent::StyleChange) {
+        monoFontValid_ = false;
+        rebuildRows();
+    }
+    QAbstractScrollArea::changeEvent(event);
 }
 
 int DiffView::rowHeight() const {
@@ -276,6 +287,14 @@ void DiffView::keyPressEvent(QKeyEvent* event) {
 }
 
 void DiffView::setDiff(FileDiffPtr diff, session::HunkStagingPtr staging) {
+    // The same file again — re-read after staging a hunk of it — keeps its
+    // place. Jumping back to the top meant staging hunk 30 of a long file
+    // and then scrolling back down to find hunk 31.
+    const bool sameFile = diff_ && diff && diff_->path == diff->path;
+    const int keptTop = verticalScrollBar()->value();
+    const int keptLeft = horizontalScrollBar()->value();
+    const qsizetype keptCursor = cursorRow_;
+
     hunkStaging_ = std::move(staging);
     diff_ = std::move(diff);
     selection_.clear();
@@ -283,8 +302,16 @@ void DiffView::setDiff(FileDiffPtr diff, session::HunkStagingPtr staging) {
     cursorRow_ = -1;
     emit selectionChanged(0);
     rebuildRows();
-    verticalScrollBar()->setValue(0);
-    horizontalScrollBar()->setValue(0);
+    if (sameFile) {
+        verticalScrollBar()->setValue(std::min(keptTop, verticalScrollBar()->maximum()));
+        horizontalScrollBar()->setValue(std::min(keptLeft, horizontalScrollBar()->maximum()));
+        if (keptCursor >= 0 && keptCursor < static_cast<qsizetype>(rows_.size())) {
+            cursorRow_ = keptCursor;
+        }
+    } else {
+        verticalScrollBar()->setValue(0);
+        horizontalScrollBar()->setValue(0);
+    }
     viewport()->update();
 }
 
@@ -538,7 +565,25 @@ void DiffView::paintRow(QPainter& painter, const Row& row, int y, int gutter) co
     if (text.size() > reach) {
         text = text.substr(0, reach);
     }
-    painter.drawText(QRect(gutter + digit - xScroll, y, xScroll + width, h),
+    // Nor what is scrolled off to the left: far right in a minified line,
+    // every row converted the whole prefix on every paint. Skipped only when
+    // the prefix is plain ASCII with no tab, where one byte is exactly one
+    // column; anything else is drawn from the start, as before.
+    std::size_t skip = 0;
+    if (xScroll > 0) {
+        const std::size_t wanted =
+            std::min(text.size(), static_cast<std::size_t>(xScroll / std::max(1, digit)));
+        while (skip < wanted && static_cast<unsigned char>(text[skip]) < 0x80 &&
+               text[skip] != '\t') {
+            ++skip;
+        }
+        if (skip < wanted) {
+            skip = 0;
+        }
+        text.remove_prefix(skip);
+    }
+    const int skipped = static_cast<int>(skip) * digit;
+    painter.drawText(QRect(gutter + digit - xScroll + skipped, y, xScroll + width - skipped, h),
                      Qt::AlignVCenter | Qt::AlignLeft,
                      QString::fromUtf8(text.data(), static_cast<qsizetype>(text.size())));
 }

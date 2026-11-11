@@ -138,9 +138,8 @@ def main() -> int:
     lanes = ", ".join(to_qcolor(c) for c in color["graphLanes"])
     lines += [
         "",
-        "/// Lane colours cycle by lane index. Six, not eight: the spec fixes the count",
-        "/// because edge colour is the *parent's* lane colour and a longer cycle makes",
-        "/// adjacent lanes harder to tell apart.",
+        "/// Lane colours cycle by lane index, in TOKENS.json's order. Edge colour is",
+        "/// the *parent's* lane colour, so neighbouring entries are chosen to differ.",
         f"inline const std::array<QColor, {len(color['graphLanes'])}> graphLanes{{{lanes}}};",
         "",
         "[[nodiscard]] inline QColor laneColor(int lane) noexcept {",

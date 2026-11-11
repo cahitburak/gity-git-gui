@@ -94,14 +94,16 @@ ImageDiffView::ImageDiffView(QWidget* parent) : QWidget(parent) {
     auto* group = new QButtonGroup(this);
     group->setExclusive(true);
 
-    const std::pair<const char*, Mode> modes[] = {
-        {"Side by side", Mode::SideBySide},
-        {"Difference", Mode::Difference},
-        {"Onion skin", Mode::OnionSkin},
+    // Translated where they are written: tr() on a variable is invisible to
+    // lupdate, so these were never offered for translation.
+    const std::pair<QString, Mode> modes[] = {
+        {tr("Side by side"), Mode::SideBySide},
+        {tr("Difference"), Mode::Difference},
+        {tr("Onion skin"), Mode::OnionSkin},
     };
     for (const auto& [label, mode] : modes) {
         auto* button = new QToolButton(modeBar_);
-        button->setText(tr(label));
+        button->setText(label);
         button->setCheckable(true);
         button->setChecked(mode == Mode::SideBySide);
         button->setAutoRaise(true);
@@ -248,9 +250,12 @@ void ImageDiffView::paintEvent(QPaintEvent*) {
                   .arg(composite_.width())
                   .arg(composite_.height())
                   .arg(diff_->changedPixelPercent, 0, 'f', 1)
-            : tr("%1 × %2 · HEAD under working copy")
+            // The sides by name: for a commit they are its parent and the
+            // commit, not HEAD and the working copy.
+            : tr("%1 × %2 · %3 under %4")
                   .arg(composite_.width())
-                  .arg(composite_.height());
+                  .arg(composite_.height())
+                  .arg(diff_->before.label, diff_->after.label);
 
     paintPane(painter, body, label, metadata, tokens::semanticWarn, composite_);
 }

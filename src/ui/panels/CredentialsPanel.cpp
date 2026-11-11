@@ -121,6 +121,9 @@ CredentialsPanel::CredentialsPanel(QWidget* parent) : QWidget(parent) {
     refresh_ = new QPushButton(tr("Look Up Again"), this);
     remove_ = new QPushButton(tr("Remove"), this);
     save_ = new QPushButton(tr("Save"), this);
+    refresh_->setToolTip(tr("Ask the credential helper again.\n\ngit credential fill"));
+    remove_->setToolTip(tr("Make the credential helper forget it.\n\ngit credential reject"));
+    save_->setToolTip(tr("Hand it to the credential helper to keep.\n\ngit credential approve"));
     applyRole(remove_, QStringLiteral("destructive"));
     applyRole(save_, QStringLiteral("primary"));
     buttons->addWidget(refresh_);

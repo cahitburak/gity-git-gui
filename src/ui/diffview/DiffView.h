@@ -62,6 +62,7 @@ signals:
     void stageSelectionRequested();
 
 protected:
+    void changeEvent(QEvent* event) override;
     void focusInEvent(QFocusEvent* event) override;
     void focusOutEvent(QFocusEvent* event) override;
     void paintFocus(QPainter& painter) const;
@@ -86,6 +87,10 @@ private:
     [[nodiscard]] int rowHeight() const;
     [[nodiscard]] int gutterWidth() const;
     [[nodiscard]] QFont monoFont() const;
+    /// Built once, not per call: rowHeight and paintRow ask for it many times
+    /// a paint, and each build is a font database lookup.
+    mutable QFont monoFont_;
+    mutable bool monoFontValid_ = false;
 
     FileDiffPtr diff_;
     /// Per-hunk staged counts. Distinct from `staging_`, which is the *mode*

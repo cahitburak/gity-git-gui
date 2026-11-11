@@ -127,6 +127,7 @@ public slots:
     void runBranchCommand(const QString& verb, const QStringList& args);
     void runInteractiveRebase(const QString& baseOid, const std::vector<git::RebaseStep>& steps);
     void loadCommitsSince(const QString& baseOid);
+    void loadHeadAncestors(int limit);
     void loadLocks();
     void runLockCommand(const QString& verb, const QStringList& args);
     void discardPaths(const QStringList& paths);
@@ -194,6 +195,8 @@ signals:
                              gity::session::FileDiffPtr diff);
     void commitsSinceReady(const QString& baseOid, const QStringList& oids,
                            const QStringList& subjects);
+    /// HEAD and its first-parent ancestors, newest first.
+    void headAncestorsReady(const QStringList& oids, const QStringList& subjects);
     void locksReady(gity::session::LockListPtr locks, bool supported);
     /// What Undo and Redo would do now; empty when there is nothing.
     void undoStateChanged(const QString& undoLabel, const QString& redoLabel);
@@ -432,6 +435,10 @@ public:
     /// list. Asked of git rather than read off the graph: the graph shows
     /// every branch, and only HEAD's own ancestry is being rewritten.
     void requestCommitsSince(const QString& baseOid);
+    /// HEAD and up to `limit` commits below it on its first-parent line —
+    /// the bases an interactive rebase of this branch can start from. The
+    /// graph is no help: its rows include every other branch.
+    void requestHeadAncestors(int limit);
 
 
     /// Decodes both sides of a binary asset. Supersedes like the other
@@ -519,6 +526,8 @@ signals:
                              gity::session::FileDiffPtr diff);
     void commitsSinceReady(const QString& baseOid, const QStringList& oids,
                            const QStringList& subjects);
+    /// HEAD and its first-parent ancestors, newest first.
+    void headAncestorsReady(const QStringList& oids, const QStringList& subjects);
     /// `supported` false means the remote has no locking API, which is a
     /// normal answer and not an error.
     void locksReady(gity::session::LockListPtr locks, bool supported);

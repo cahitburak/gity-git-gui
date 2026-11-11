@@ -73,6 +73,10 @@ RemotesDialog::RemotesDialog(session::RepoSession& session, QWidget* parent)
     rename_ = new QPushButton(tr("Rename…"), this);
     editUrl_ = new QPushButton(tr("Change URL…"), this);
     remove_ = new QPushButton(tr("Remove"), this);
+    add->setToolTip(QStringLiteral("git remote add <name> <url>"));
+    rename_->setToolTip(QStringLiteral("git remote rename <old> <new>"));
+    editUrl_->setToolTip(QStringLiteral("git remote set-url <name> <url>"));
+    remove_->setToolTip(QStringLiteral("git remote remove <name>"));
     buttonRow->addWidget(add);
     buttonRow->addWidget(rename_);
     buttonRow->addWidget(editUrl_);
@@ -247,13 +251,10 @@ void RemotesDialog::removeSelected() {
     }
     // Confirmed, because it takes the remote's tracking refs with it — the
     // commits survive, but the branches you were reading them through do not.
-    const auto answer = QMessageBox::question(
-        this, tr("Remove Remote"),
-        tr("Remove \"%1\"?\n\nIts remote-tracking branches go with it. Nothing is deleted on "
-           "the server, and no commit of yours is lost.")
-            .arg(name),
-        QMessageBox::Yes | QMessageBox::No, QMessageBox::No);
-    if (answer != QMessageBox::Yes) {
+    if (!confirmDestructive(this, tr("Remove remote?"), tr("Remove \"%1\"?").arg(name),
+                            tr("Its remote-tracking branches go with it. Nothing is deleted on "
+                               "the server, and no commit of yours is lost."),
+                            tr("Remove Remote"))) {
         return;
     }
     changed_ = true;

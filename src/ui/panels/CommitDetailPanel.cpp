@@ -29,13 +29,16 @@ QString whenText(std::int64_t seconds) {
 
 QColor statusColour(git::ChangeStatus status, const Theme& theme) {
     switch (status) {
+    // The diff's own add and remove colours, so a file's status and its lines
+    // agree. Lane colours were used before, and lane 4 is red: added files
+    // showed as red and deleted ones as purple.
     case git::ChangeStatus::Added:
-        return theme.laneColor(4); // green-ish in both palettes
+        return theme.diffAddMarker;
     case git::ChangeStatus::Deleted:
-        return theme.laneColor(3); // red-ish
+        return theme.diffDelMarker;
     case git::ChangeStatus::Renamed:
     case git::ChangeStatus::Copied:
-        return theme.laneColor(2);
+        return theme.laneColor(0);
     default:
         return theme.textMuted;
     }

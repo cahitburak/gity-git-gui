@@ -258,6 +258,8 @@ RebaseDialog::RebaseDialog(session::RepoSession& session, const QString& baseOid
 
     auto* buttons = new QDialogButtonBox(QDialogButtonBox::Cancel, this);
     start_ = buttons->addButton(tr("Start rebase"), QDialogButtonBox::AcceptRole);
+    start_->setToolTip(tr("Rewrite these commits as listed. Edit ▸ Undo puts the branch "
+                          "back.\n\ngit rebase -i <base>"));
     applyRole(start_, QStringLiteral("primary"));
     layout->addWidget(buttons);
     connect(buttons, &QDialogButtonBox::accepted, this, &QDialog::accept);
