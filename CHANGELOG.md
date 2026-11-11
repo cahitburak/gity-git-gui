@@ -1,5 +1,35 @@
 # Changelog
 
+## Unreleased
+
+A review of the whole codebase, and what it found fixed. Details are in the commit messages and
+[ROADMAP.md](ROADMAP.md).
+
+* **Staging goes through `git`.** It used libgit2's index, which runs no external clean filter: a
+  file under LFS was staged whole and one under git-crypt in plaintext. Partial staging also
+  works now on CRLF files, on new files, when unstaging part of a hunk, and on deleted lines that
+  start with `-- `.
+* **Undo can be trusted.** A merge finished in a terminal no longer absorbs the next commit; an
+  undo that cannot finish changes nothing; the log is written atomically, shared safely between
+  windows, and kept when a deleted annotated tag is garbage-collected.
+* **One worker per repository.** A preview, a fetch or a status from one tab can no longer act on
+  or appear in another, and a long fetch no longer blocks opening another repository. Network
+  commands can be cancelled; quitting during a commit or rebase asks, and waits for it.
+* **Changes made outside Gity are noticed** — edits, commits and checkouts — on Linux as they
+  happen, elsewhere when the window is brought forward.
+* **Tokens stay off screen** in the command log, git's errors and the remotes dialog; prompts and
+  commit subjects are shown as text, never as markup.
+* Crashes fixed: filtered history, an absurd progress line from a server, and two dialogs that held
+  pointers into data a refresh could replace.
+* The sidebar, the welcome screen's recent list and the commit menu work from the keyboard, and
+  staging rows are read out by screen readers.
+* Many smaller fixes: `git am` and multi-commit cherry-picks recognised, binary files shown as
+  binary, file status colours, the diff keeping its place after staging, reword keeping lines that
+  start with `#`, and more.
+* CI packages releases (AppImage, macOS disk image, Windows zip) into a draft release on a tag, and
+  checks sanitizers, versions, desktop metadata and formatting. Tests now include real
+  repositories driven through `git`: 260 in all, up from 187.
+
 ## 0.1.0 — 2026-09-29
 
 The first public release of Gity: a cross-platform Git client in C++20 and Qt 6. It has not been
