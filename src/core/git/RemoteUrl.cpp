@@ -100,4 +100,123 @@ std::string remoteUrlWithUser(std::string_view url, std::string_view username) {
     return result;
 }
 
+namespace {
+
+/// Where a URL's userinfo lies within `text`, starting the search at `from`:
+/// the characters between "://" and the '@' that ends the authority.
+struct Userinfo {
+    std::size_t begin = std::string_view::npos;
+    std::size_t end = 0; ///< The '@'.
+};
+
+bool endsAuthority(char c) noexcept {
+    return c == '/' || c == '?' || c == '#' || c == '\'' || c == '"' || c == '<' || c == '>' ||
+           std::isspace(static_cast<unsigned char>(c)) != 0;
+}
+
+Userinfo findUserinfo(std::string_view text, std::size_t from) {
+    while (true) {
+        const std::size_t scheme = text.find("://", from);
+        if (scheme == std::string_view::npos) {
+            return {};
+        }
+        const std::size_t begin = scheme + 3;
+        std::size_t at = std::string_view::npos;
+        for (std::size_t i = begin; i < text.size() && !endsAuthority(text[i]); ++i) {
+            if (text[i] == '@') {
+                at = i; // the last '@' before the path ends the userinfo
+            }
+        }
+        if (at != std::string_view::npos && at > begin) {
+            return {begin, at};
+        }
+        from = begin;
+    }
+}
+
+/// A username that is really a token. Forges document cloning with the token
+/// as the whole userinfo, and their tokens have recognisable prefixes; past
+/// that, a long run of token characters is no one's name.
+bool looksLikeToken(std::string_view user) {
+    static constexpr std::string_view kPrefixes[] = {
+        "ghp_", "gho_", "ghu_", "ghs_", "ghr_", "github_pat_", "glpat-", "gldt-", "glptt-",
+        "ATBB", "ATCTT", "xoxb-", "xoxp-",
+    };
+    for (const std::string_view prefix : kPrefixes) {
+        if (user.substr(0, prefix.size()) == prefix) {
+            return true;
+        }
+    }
+    if (user.size() < 32) {
+        return false;
+    }
+    for (const char c : user) {
+        const auto byte = static_cast<unsigned char>(c);
+        if (std::isalnum(byte) == 0 && c != '_' && c != '-') {
+            return false;
+        }
+    }
+    return true;
+}
+
+constexpr std::string_view kMask = "***";
+
+} // namespace
+
+std::string maskUrlCredentials(std::string_view text) {
+    std::string out;
+    std::size_t copied = 0;
+    std::size_t from = 0;
+    while (true) {
+        const Userinfo info = findUserinfo(text, from);
+        if (info.begin == std::string_view::npos) {
+            break;
+        }
+        const std::string_view userinfo = text.substr(info.begin, info.end - info.begin);
+        const std::size_t colon = userinfo.find(':');
+        out += text.substr(copied, info.begin - copied);
+        if (colon != std::string_view::npos) {
+            out += userinfo.substr(0, colon);
+            out += ':';
+            out += kMask;
+        } else if (looksLikeToken(userinfo)) {
+            out += kMask;
+        } else {
+            out += userinfo;
+        }
+        copied = info.end;
+        from = info.end;
+    }
+    out += text.substr(copied);
+    return out;
+}
+
+std::string unmaskUrlCredentials(std::string_view edited, std::string_view original) {
+    const Userinfo was = findUserinfo(original, 0);
+    const Userinfo now = findUserinfo(edited, 0);
+    if (was.begin == std::string_view::npos || now.begin == std::string_view::npos) {
+        return std::string(edited);
+    }
+    const std::string_view oldInfo = original.substr(was.begin, was.end - was.begin);
+    const std::string_view newInfo = edited.substr(now.begin, now.end - now.begin);
+    const std::size_t oldColon = oldInfo.find(':');
+    const std::size_t newColon = newInfo.find(':');
+
+    std::string restored;
+    if (newInfo == kMask && oldColon == std::string_view::npos) {
+        restored = std::string(oldInfo); // the token that was the username
+    } else if (newColon != std::string_view::npos && newInfo.substr(newColon + 1) == kMask &&
+               oldColon != std::string_view::npos) {
+        restored = std::string(newInfo.substr(0, newColon + 1));
+        restored += oldInfo.substr(oldColon + 1);
+    } else {
+        return std::string(edited); // the person typed their own
+    }
+
+    std::string out(edited.substr(0, now.begin));
+    out += restored;
+    out += edited.substr(now.end);
+    return out;
+}
+
 } // namespace gity::git

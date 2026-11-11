@@ -1,5 +1,7 @@
 #include "GitProcess.h"
 
+#include "core/git/RemoteUrl.h"
+
 #include <QCoreApplication>
 #include <QFileInfo>
 #include <QDateTime>
@@ -85,6 +87,8 @@ QProcessEnvironment gitEnvironment() {
     return env;
 }
 
+QString redact(const QString& text);
+
 /// Drains stderr into `buffer` and hands each complete line to `onProgress`.
 /// git separates progress updates with \r, not \n, so waiting for newlines
 /// would deliver the whole transfer as one line after it had finished.
@@ -97,7 +101,7 @@ void drainProgress(QByteArray& buffer, const QByteArray& chunk,
         if (c != '\n' && c != '\r') {
             continue;
         }
-        const QString line = QString::fromUtf8(buffer.mid(start, i - start)).trimmed();
+        const QString line = redact(QString::fromUtf8(buffer.mid(start, i - start)).trimmed());
         if (!line.isEmpty()) {
             onProgress(line);
         }
@@ -220,7 +224,11 @@ GitResult executeUnlogged(const Request& request) {
     // killed process reports 0.
     result.exitCode = process.exitStatus() == QProcess::NormalExit ? process.exitCode() : -1;
     result.output = QString::fromUtf8(standardOutput);
-    result.errorOutput = QString::fromUtf8(standardError);
+    // stderr is only ever shown, never parsed for a URL, so it is masked
+    // here, once, for every place it might end up: an error dialog, the
+    // status bar, the command log. stdout is left alone — `remote -v` and
+    // `config` are read for the URLs themselves.
+    result.errorOutput = redact(QString::fromUtf8(standardError));
     return result;
 }
 
@@ -229,13 +237,14 @@ QMutex g_sinkMutex;
 GitProcess::LogSink g_sink;
 thread_local int t_internalDepth = 0;
 
-/// A password in a URL argument is replaced before the command is shown to
-/// anyone: `clone https://me:secret@host/...` must not reach the log.
-QString redact(const QString& argument) {
-    static const QRegularExpression userinfo(QStringLiteral("(://[^/:@\\s]+):[^@/\\s]+@"));
-    QString shown = argument;
-    shown.replace(userinfo, QStringLiteral("\\1:***@"));
-    return shown;
+/// A secret in a URL is replaced before the text is shown to anyone:
+/// `clone https://me:secret@host/...` and `clone https://ghp_…@host/...` must
+/// not reach the log, and neither may git's own error message repeating them.
+QString redact(const QString& text) {
+    if (!text.contains(QStringLiteral("://"))) {
+        return text; // the common case, without a round trip through UTF-8
+    }
+    return QString::fromStdString(gity::git::maskUrlCredentials(text.toStdString()));
 }
 
 GitResult execute(const Request& request) {
@@ -296,7 +305,7 @@ QString GitResult::firstProblemLine() const {
     for (const QString& line : source.split(QChar('\n'))) {
         const QString trimmed = line.trimmed();
         if (!trimmed.isEmpty()) {
-            return trimmed;
+            return redact(trimmed); // stdout is not masked at the source
         }
     }
     return {};

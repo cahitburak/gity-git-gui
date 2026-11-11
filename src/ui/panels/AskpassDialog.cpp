@@ -62,7 +62,12 @@ AskpassDialog::AskpassDialog(const QString& prompt, QWidget* parent)
     // git's own words, verbatim: it names the host being authenticated to, and
     // rewording that would mean deciding for the user which host they are
     // looking at.
+    //
+    // Plain text, always: the prompt quotes a URL, and a URL from a remote or a
+    // submodule's .gitmodules is someone else's text. Read as rich text it
+    // could restyle the dialog — or show a different host from the one asking.
     auto* promptLabel = new QLabel(prompt.trimmed(), this);
+    promptLabel->setTextFormat(Qt::PlainText);
     promptLabel->setWordWrap(true);
     promptLabel->setTextInteractionFlags(Qt::TextSelectableByMouse);
     layout->addWidget(promptLabel);

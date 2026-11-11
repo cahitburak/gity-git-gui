@@ -1,5 +1,7 @@
 #include "RemotesDialog.h"
 
+#include "core/git/RemoteUrl.h"
+
 #include "ui/panels/Confirm.h"
 
 #include "core/git/Remotes.h"
@@ -112,7 +114,8 @@ void RemotesDialog::setRemotes(session::RemoteListPtr remotes) {
     for (const auto& remote : *remotes_) {
         auto* item = new QTreeWidgetItem(tree_);
         item->setText(0, QString::fromStdString(remote.name));
-        item->setText(1, QString::fromStdString(remote.fetchUrl));
+        // Masked: a URL can carry a token, and this list is on screen.
+        item->setText(1, QString::fromStdString(git::maskUrlCredentials(remote.fetchUrl)));
         item->setFont(1, mono);
 
         if (remote.pushesElsewhere()) {
@@ -120,7 +123,7 @@ void RemotesDialog::setRemotes(session::RemoteListPtr remotes) {
             // worth noticing on this screen.
             auto* push = new QTreeWidgetItem(item);
             push->setText(0, tr("pushes to"));
-            push->setText(1, QString::fromStdString(remote.pushUrl));
+            push->setText(1, QString::fromStdString(git::maskUrlCredentials(remote.pushUrl)));
             push->setFont(1, mono);
             push->setForeground(0, tokens::semanticWarn);
             item->setExpanded(true);
@@ -212,20 +215,26 @@ void RemotesDialog::editUrlOfSelected() {
     if (name.isEmpty() || !remotes_) {
         return;
     }
-    QString current;
+    std::string current;
     for (const auto& remote : *remotes_) {
         if (QString::fromStdString(remote.name) == name) {
-            current = QString::fromStdString(remote.fetchUrl);
+            current = remote.fetchUrl;
             break;
         }
     }
+    // The field shows the URL masked, and a secret left as *** is put back
+    // afterwards — editing the path must not save "***" over the token.
+    const QString shown = QString::fromStdString(git::maskUrlCredentials(current));
     bool accepted = false;
-    const QString url = QInputDialog::getText(this, tr("Change URL"), tr("URL for %1").arg(name),
-                                              QLineEdit::Normal, current, &accepted)
-                            .trimmed();
-    if (!accepted || url.isEmpty() || url == current) {
+    const QString edited = QInputDialog::getText(this, tr("Change URL"),
+                                                 tr("URL for %1").arg(name), QLineEdit::Normal,
+                                                 shown, &accepted)
+                               .trimmed();
+    if (!accepted || edited.isEmpty() || edited == shown) {
         return;
     }
+    const QString url = QString::fromStdString(
+        git::unmaskUrlCredentials(edited.toStdString(), current));
     changed_ = true;
     session_.requestSetRemoteUrl(name, url);
 }

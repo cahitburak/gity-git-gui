@@ -125,6 +125,8 @@ CommitDetailPanel::CommitDetailPanel(QWidget* parent) : QWidget(parent) {
     layout->setSpacing(6);
 
     summary_ = new QLabel(this);
+    // A subject like "Escape <b> in titles" is text, not markup.
+    summary_->setTextFormat(Qt::PlainText);
     summary_->setWordWrap(true);
     summary_->setTextInteractionFlags(Qt::TextSelectableByMouse);
     QFont summaryFont = summary_->font();

@@ -1,5 +1,7 @@
 #include "CredentialsPanel.h"
 
+#include "core/git/RemoteUrl.h"
+
 #include "session/CredentialInventory.h"
 #include "session/CredentialManager.h"
 #include "core/git/RepoAccount.h"
@@ -24,14 +26,11 @@
 namespace gity::ui {
 namespace {
 
-/// The address with any password in it blanked, for showing. A URL can carry
-/// `user:secret@`, and this page must not print a secret it was not asked for.
+/// The address with any secret in it masked, for showing. A URL can carry
+/// `user:secret@` or a token as its username, and this page must not print a
+/// secret it was not asked for.
 QString displayUrl(const QString& url) {
-    const QUrl parsed(url);
-    if (parsed.isValid() && !parsed.password().isEmpty()) {
-        return parsed.toDisplayString(QUrl::RemovePassword);
-    }
-    return url;
+    return QString::fromStdString(git::maskUrlCredentials(url.toStdString()));
 }
 
 } // namespace
