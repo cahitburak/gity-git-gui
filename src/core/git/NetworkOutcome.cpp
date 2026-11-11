@@ -2,6 +2,8 @@
 
 #include <algorithm>
 #include <cctype>
+#include <charconv>
+#include <system_error>
 
 namespace gity::git {
 namespace {
@@ -54,8 +56,14 @@ bool parseProgress(std::string_view line, NetworkProgress* out) {
         while (start > colon + 1 && std::isdigit(static_cast<unsigned char>(line[start - 1]))) {
             --start;
         }
-        if (start < percentSign) {
-            out->percent = std::stoi(std::string(line.substr(start, percentSign - start)));
+        // from_chars, not stoi: this text comes from the server, and stoi
+        // throws on a run of digits too long for an int — an exception nothing
+        // above here catches.
+        int percent = -1;
+        const char* first = line.data() + start;
+        const char* last = line.data() + percentSign;
+        if (start < percentSign && std::from_chars(first, last, percent).ec == std::errc{}) {
+            out->percent = std::clamp(percent, 0, 100);
         }
     }
     return true;

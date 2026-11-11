@@ -164,6 +164,17 @@ TEST(ParseProgress, StripsTheRemotePrefixBecauseTheUserDoesNotCareWhoIsCounting)
     EXPECT_EQ(progress.percent, 100);
 }
 
+TEST(ParseProgress, AnAbsurdPercentageFromTheServerDoesNotThrow) {
+    // These lines are written by the server. A run of digits too long for an
+    // int made std::stoi throw, and nothing above caught it.
+    gity::git::NetworkProgress progress;
+    EXPECT_NO_THROW(static_cast<void>(gity::git::parseProgress(
+        "remote: Counting objects: 99999999999999999999% (1/1)", &progress)));
+    EXPECT_EQ(progress.percent, -1);
+    ASSERT_TRUE(gity::git::parseProgress("remote: Counting objects: 250% (1/1)", &progress));
+    EXPECT_EQ(progress.percent, 100);
+}
+
 TEST(ParseProgress, PhasesWithoutAPercentageStillReport) {
     gity::git::NetworkProgress progress;
     ASSERT_TRUE(gity::git::parseProgress("Enumerating objects: 7, done.", &progress));

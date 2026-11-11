@@ -35,6 +35,7 @@ add_executable(gity_tests
     test_refs_default.cpp
     test_pull_request.cpp
     test_english_plural.cpp
+    test_history_stream.cpp
 )
 
 target_link_libraries(gity_tests

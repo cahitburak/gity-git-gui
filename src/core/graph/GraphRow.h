@@ -43,13 +43,16 @@ struct GraphEdge {
     EdgeKind kind;
 };
 
+// Every field starts at zero. A row built by hand — the filtered view's single
+// lane — once left edgeCount and edgeOffset as whatever was on the stack, and
+// the painter walked that many edges out of an empty vector.
 struct GraphRow {
-    CommitIndex commitIndex;  ///< Row position, and index into the commit store.
-    std::uint32_t edgeOffset; ///< Into the owning Graph's edge vector.
-    std::uint16_t lane;
-    std::uint16_t laneCount;  ///< Columns this row's band occupies.
-    std::uint16_t edgeCount;
-    std::uint16_t flags;
+    CommitIndex commitIndex = 0;  ///< Row position, and index into the commit store.
+    std::uint32_t edgeOffset = 0; ///< Into the owning Graph's edge vector.
+    std::uint16_t lane = 0;
+    std::uint16_t laneCount = 0;  ///< Columns this row's band occupies.
+    std::uint16_t edgeCount = 0;
+    std::uint16_t flags = 0;
 };
 
 static_assert(sizeof(GraphRow) <= 24, "GraphRow exceeds the ADR-005 memory budget");

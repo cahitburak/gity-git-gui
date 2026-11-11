@@ -207,7 +207,10 @@ CredentialsPanel::CredentialsPanel(QWidget* parent) : QWidget(parent) {
         if (index < 0) {
             return;
         }
-        const session::StoredCredential& credential = storedList_.at(index);
+        // A copy: the dialog below runs an event loop, and an inventory
+        // refresh arriving during it clears the list a reference would point
+        // into.
+        const session::StoredCredential credential = storedList_.at(index);
         const bool gh = credential.source == session::StoredCredential::Source::GitHubCli;
         if (!confirmDestructive(
                 this, tr("Remove credential?"),
@@ -462,16 +465,25 @@ void CredentialsPanel::removeStored() {
     if (!found_) {
         return;
     }
+    // Taken before the dialog: a lookup finishing while it is open clears
+    // these, and removing with an empty username would match every
+    // credential stored for the host.
+    const QString url = currentUrl();
+    const QString username = storedUsername_;
+    const QString password = storedPassword_;
+    if (username.isEmpty()) {
+        return;
+    }
     if (!confirmDestructive(this, tr("Remove credential?"),
                             tr("Remove the credential for %1 from your credential helper?")
-                                .arg(storedUsername_),
+                                .arg(username),
                             tr("git will ask for it again next time it talks to this remote — "
                                "from a terminal as well as from Gity."),
                             tr("Remove"))) {
         return;
     }
     setBusy(true, tr("Removing…"));
-    manager_->remove(workdir_, currentUrl(), storedUsername_, storedPassword_);
+    manager_->remove(workdir_, url, username, password);
 }
 
 } // namespace gity::ui

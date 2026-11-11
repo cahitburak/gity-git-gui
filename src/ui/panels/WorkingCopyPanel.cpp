@@ -315,21 +315,27 @@ WorkingCopyPanel::WorkingCopyPanel(QWidget* parent) : QWidget(parent) {
         if (current == nullptr) {
             return;
         }
-        // Discard throws away work with no reflog to recover it from, so it
-        // asks first. Staging never does — it is reversible.
-        if (!confirmDestructive(
-                this, tr("Discard hunk?"),
-                tr("Discard this hunk from %1?").arg(QString::fromStdString(current->path)),
-                tr("This rewrites the file on disk and cannot be undone — there is no reflog "
-                   "for an uncommitted edit."),
-                tr("Discard Hunk"))) {
-            return;
-        }
+        // Everything the discard needs is taken from the diff *before* the
+        // dialog. The dialog runs an event loop, and a status refresh arriving
+        // meanwhile replaces the diff: the pointer would dangle, and the hunk
+        // index could name a different hunk.
         const std::string patch = git::buildPartialPatch(
             *current, git::linesOfHunk(*current, hunkIndex), true);
-        if (!patch.empty()) {
-            emit discardHunkRequested(QByteArray::fromStdString(patch));
+        const QString path = QString::fromStdString(current->path);
+        if (patch.empty()) {
+            return;
         }
+        // Discard rewrites the file on disk, so it asks first. Staging never
+        // does — it is reversible.
+        if (!confirmDestructive(this, tr("Discard hunk?"),
+                                tr("Discard this hunk from %1?").arg(path),
+                                tr("This rewrites the file on disk. Edit ▸ Undo puts it back."),
+                                tr("Discard Hunk"))) {
+            return;
+        }
+        // Built from what was on screen; if the file changed meanwhile, git
+        // refuses the stale patch rather than discarding the wrong lines.
+        emit discardHunkRequested(QByteArray::fromStdString(patch));
     });
 
     connect(message_, &QPlainTextEdit::textChanged, this,

@@ -170,7 +170,8 @@ StreamStats streamHistory(git_repository* repo, const StreamOptions& options,
             // One lane, no edges. The commits between two matches were skipped,
             // so any line drawn between them would join commits that are not
             // adjacent in the real history.
-            graph::GraphRow row;
+            graph::GraphRow row{};
+            row.commitIndex = static_cast<graph::CommitIndex>(chunk.graph.rows.size());
             row.lane = 0;
             row.laneCount = 1;
             chunk.graph.rows.push_back(row);
