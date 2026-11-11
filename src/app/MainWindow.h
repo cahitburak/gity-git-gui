@@ -129,6 +129,14 @@ private slots:
     void onExternalChange(int kinds);
 
 private:
+    /// Screens, in the order they are added to the stack. Named because the
+    /// indices were literals, and deleting a screen quietly repointed every
+    /// literal after it at the wrong one.
+    enum Screen : int { ScreenHistory = 0, ScreenChanges = 1, ScreenWelcome = 2 };
+
+    /// The Changes tab, under the graph.
+    static constexpr int kChangesTab = 1;
+
     /// Adds `path` to the recent repositories, when the session is saved.
     void rememberRepository(const QString& path);
     /// Asks the session for a preview; showPreview takes it from there.
@@ -150,9 +158,16 @@ private:
     void startComparison(const QString& fromName, const QString& fromOid, const QString& toName,
                          const QString& toOid);
     void endComparison();
+    /// The widgets, and the wiring among them that only layout needs.
+    void buildLayout();
     void buildMenus();
     void buildToolBar();
     void buildStatusBar();
+    void connectSession();
+    void connectHistory();
+    void connectSidebar();
+    void connectWorkingCopy();
+    void connectRepositoryTabs();
 
     /// Makes `path`'s session the one on screen, creating it on first use.
     void activateSession(const QString& path);
