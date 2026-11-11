@@ -20,9 +20,7 @@
 class QStackedWidget;
 class QTabWidget;
 class QToolButton;
-class QComboBox;
 class QSplitter;
-class QHBoxLayout;
 class QDockWidget;
 
 class QAction;
@@ -42,6 +40,7 @@ class DiffView;
 class WorkingCopyPanel;
 class CommitGraphView;
 class GraphHeader;
+class HistoryFilterBar;
 class RefsSidebar;
 } // namespace gity::ui
 
@@ -135,16 +134,10 @@ private:
     /// Asks the session for a preview; showPreview takes it from there.
     void askPreview(gity::session::Preview::Kind kind, const QString& target = {},
                     const QString& branch = {});
-    /// The history header's words for the filter in force.
+    /// The history header's and the graph's words for the filter in force.
     void showFilterState(const gity::git::CommitFilter& filter);
-    /// The filter the header's controls describe.
-    [[nodiscard]] gity::git::CommitFilter currentFilter() const;
-    /// Puts `filter` into the header's controls without walking.
-    void showFilterWidgets(const gity::git::CommitFilter& filter);
     /// Walks again with the header's filter, if it differs from the last walk.
     void applyCommitFilter();
-    void refreshDateFilterLabel();
-    void chooseDateRange();
     /// Fills the author list from the history just loaded.
     void refreshContributors();
     /// Empties the Commit and Changes tabs.
@@ -174,8 +167,10 @@ private:
     /// One session per open repository, and the relay the window is wired
     /// to (ADR-004).
     gity::session::SessionHub sessions_;
+
     /// The session requests go to: the one on screen, or the relay.
     [[nodiscard]] gity::session::RepoSession* session() const { return sessions_.current(); }
+
     QToolButton* cancelNetwork_ = nullptr;
     /// The Repository, Branch and Stash menus' entries, and the network ones
     /// among them, enabled with the toolbar's.
@@ -240,17 +235,9 @@ private:
     gity::ui::OperationBanner* operationBanner_ = nullptr;
     gity::ui::RepositoryTabs* repoTabs_ = nullptr;
     QLineEdit* refFilter_ = nullptr;
-    QLineEdit* commitFilter_ = nullptr;
-    QComboBox* authorFilter_ = nullptr;
-    QToolButton* dateFilter_ = nullptr;
-    qint64 filterSince_ = 0;
-    qint64 filterUntil_ = 0;
+    gity::ui::HistoryFilterBar* filterBar_ = nullptr;
     /// What the history on screen was walked with.
     gity::git::CommitFilter walkedFilter_;
-    QHBoxLayout* historyHeaderLayout_ = nullptr;
-    QLabel* historyTitle_ = nullptr;
-    QLabel* historyNote_ = nullptr;
-    QTimer* filterDebounce_ = nullptr;
     /// True while a tab switch is driving openRepository, so the tab bar is
     /// not asked to reset itself half way through.
     bool switchingRepository_ = false;

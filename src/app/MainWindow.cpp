@@ -8,6 +8,7 @@
 #include "ui/diffview/DiffView.h"
 #include "ui/graphview/CommitGraphView.h"
 #include "ui/graphview/GraphHeader.h"
+#include "ui/graphview/HistoryFilterBar.h"
 #include "ui/image/ImageDiffView.h"
 #include "ui/panels/CloneDialog.h"
 #include "ui/panels/CommandLogView.h"
@@ -34,8 +35,6 @@
 #include <QCheckBox>
 #include <QClipboard>
 #include <QComboBox>
-#include <QDateEdit>
-#include <QDateTime>
 #include <QDesktopServices>
 #include <QDialog>
 #include <QDialogButtonBox>
@@ -47,7 +46,6 @@
 #include <QInputDialog>
 #include <QLabel>
 #include <QLineEdit>
-#include <QLocale>
 #include <QMenu>
 #include <QMenuBar>
 #include <QMessageBox>
@@ -116,21 +114,11 @@ MainWindow::MainWindow(QWidget* parent) : QMainWindow(parent) {
     auto* graphLayout = new QVBoxLayout(graphPane);
     graphLayout->setContentsMargins(0, 0, 0, 0);
     graphLayout->setSpacing(0);
-    // The history's own header: what is listed, and the search over it. The
-    // filter used to sit in the application toolbar, where it stayed on screen
-    // over Local Changes, which it does not search (2026-09 UI review).
-    auto* historyHeader = new QWidget(graphPane);
-    historyHeader->setObjectName(QStringLiteral("historyHeader"));
-    historyHeader->setAttribute(Qt::WA_StyledBackground, true);
-    historyHeaderLayout_ = new QHBoxLayout(historyHeader);
-    historyHeaderLayout_->setContentsMargins(12, 5, 8, 5);
-    historyTitle_ = new QLabel(tr("All commits"), historyHeader);
-    historyTitle_->setObjectName(QStringLiteral("historyTitle"));
-    historyNote_ = new QLabel(historyHeader);
-    gity::ui::applyRole(historyNote_, QStringLiteral("note"));
-    historyHeaderLayout_->addWidget(historyTitle_);
-    historyHeaderLayout_->addWidget(historyNote_, 1);
-    graphLayout->addWidget(historyHeader);
+    // The history's own header: what is listed, and the filters over it.
+    filterBar_ = new gity::ui::HistoryFilterBar(graphPane);
+    connect(filterBar_, &gity::ui::HistoryFilterBar::filterChanged, this,
+            &MainWindow::applyCommitFilter);
+    graphLayout->addWidget(filterBar_);
     graphLayout->addWidget(graphHeader_);
     graphLayout->addWidget(graph_, 1);
 
@@ -218,7 +206,7 @@ MainWindow::MainWindow(QWidget* parent) : QMainWindow(parent) {
     // tabs. Content below is clipped rather than holding the divider back, and
     // the header left showing is how to bring it back — click it.
     rightSplit->setChildrenCollapsible(false);
-    graphPane->setMinimumHeight(historyHeader->sizeHint().height());
+    graphPane->setMinimumHeight(filterBar_->sizeHint().height());
     lowerPane->setMinimumHeight(summaryBar->sizeHint().height() +
                                 commitTabs_->tabBar()->sizeHint().height());
     historySplit_ = rightSplit;
@@ -242,7 +230,7 @@ MainWindow::MainWindow(QWidget* parent) : QMainWindow(parent) {
     };
     connect(commitTabs_->tabBar(), &QTabBar::tabBarClicked, this,
             [restoreIfMinimised, lowerPane](int) { restoreIfMinimised(lowerPane); });
-    historyHeader->installEventFilter(this);
+    filterBar_->installEventFilter(this);
     historyHeaderRestore_ = [restoreIfMinimised, graphPane] { restoreIfMinimised(graphPane); };
 
     // Two modes, not two windows: history is what you read, changes is what
@@ -337,9 +325,12 @@ MainWindow::MainWindow(QWidget* parent) : QMainWindow(parent) {
     syncNetworkState(); // nothing is open yet
 
     connect(sessions_.relay(), &gity::session::RepoSession::opened, this, &MainWindow::onOpened);
-    connect(sessions_.relay(), &gity::session::RepoSession::refsReady, this, &MainWindow::onRefsReady);
-    connect(sessions_.relay(), &gity::session::RepoSession::chunkReady, this, &MainWindow::onChunkReady);
-    connect(sessions_.relay(), &gity::session::RepoSession::detailReady, this, &MainWindow::onDetailReady);
+    connect(sessions_.relay(), &gity::session::RepoSession::refsReady, this,
+            &MainWindow::onRefsReady);
+    connect(sessions_.relay(), &gity::session::RepoSession::chunkReady, this,
+            &MainWindow::onChunkReady);
+    connect(sessions_.relay(), &gity::session::RepoSession::detailReady, this,
+            &MainWindow::onDetailReady);
     connect(sessions_.relay(), &gity::session::RepoSession::comparisonReady, this,
             [this](gity::session::ComparisonPtr comparison) {
                 if (compareTo_.isEmpty()) {
@@ -380,7 +371,8 @@ MainWindow::MainWindow(QWidget* parent) : QMainWindow(parent) {
         const QString toOid = compareFrom_;
         startComparison(fromName, fromOid, toName, toOid);
     });
-    connect(sessions_.relay(), &gity::session::RepoSession::finished, this, &MainWindow::onFinished);
+    connect(sessions_.relay(), &gity::session::RepoSession::finished, this,
+            &MainWindow::onFinished);
     connect(sessions_.relay(), &gity::session::RepoSession::failed, this, &MainWindow::onFailed);
     connect(sessions_.relay(), &gity::session::RepoSession::fileDiffReady, this,
             &MainWindow::onFileDiffReady);
@@ -398,7 +390,8 @@ MainWindow::MainWindow(QWidget* parent) : QMainWindow(parent) {
             &MainWindow::onFileActivated);
     connect(refs_, &gity::ui::RefsSidebar::screenRequested, this, &MainWindow::showScreen);
 
-    connect(sessions_.relay(), &gity::session::RepoSession::statusReady, this, &MainWindow::onStatusReady);
+    connect(sessions_.relay(), &gity::session::RepoSession::statusReady, this,
+            &MainWindow::onStatusReady);
     connect(sessions_.relay(), &gity::session::RepoSession::imageDiffReady, this,
             &MainWindow::onImageDiffReady);
     connect(sessions_.relay(), &gity::session::RepoSession::networkStarted, this,
@@ -487,7 +480,8 @@ MainWindow::MainWindow(QWidget* parent) : QMainWindow(parent) {
             &MainWindow::openNewBranchDialog);
     connect(refs_, &gity::ui::RefsSidebar::rebaseOntoRequested, this,
             [this](const QString& ref) { askPreview(gity::session::Preview::Kind::Rebase, ref); });
-    connect(sessions_.relay(), &gity::session::RepoSession::previewReady, this, &MainWindow::showPreview);
+    connect(sessions_.relay(), &gity::session::RepoSession::previewReady, this,
+            &MainWindow::showPreview);
     connect(sessions_.relay(), &gity::session::RepoSession::headAncestorsReady, this,
             &MainWindow::offerInteractiveRebase);
     connect(sessions_.relay(), &gity::session::RepoSession::externalChange, this,
@@ -495,12 +489,13 @@ MainWindow::MainWindow(QWidget* parent) : QMainWindow(parent) {
     // Where the working tree is not watched (macOS and Windows for now), or
     // a watch limit was reached, coming back to the window is when an edit
     // made elsewhere is most likely to be looked for.
-    connect(
-        qApp, &QGuiApplication::applicationStateChanged, this, [this](Qt::ApplicationState state) {
-            if (state == Qt::ApplicationActive && !currentWorkdir_.isEmpty() && !session()->busy()) {
-                session()->requestStatus();
-            }
-        });
+    connect(qApp, &QGuiApplication::applicationStateChanged, this,
+            [this](Qt::ApplicationState state) {
+                if (state == Qt::ApplicationActive && !currentWorkdir_.isEmpty() &&
+                    !session()->busy()) {
+                    session()->requestStatus();
+                }
+            });
     connect(refs_, &gity::ui::RefsSidebar::interactiveRebaseRequested, this,
             [this](const QString& oid, const QString& label) { startRebase(oid, label); });
     connect(repoTabs_, &gity::ui::RepositoryTabs::tabsChanged, this, [this] {
@@ -672,12 +667,13 @@ MainWindow::MainWindow(QWidget* parent) : QMainWindow(parent) {
     connect(
         sessions_.relay(), &gity::session::RepoSession::commitFailed, changes_,
         [this](const QString& message, const QString&) { changes_->showCommitFailed(message); });
-    connect(sessions_.relay(), &gity::session::RepoSession::committed, this, [this](const QString& summary) {
-        changes_->showCommitted(summary);
-        // A commit changes history and refs, so reopen rather than
-        // patching the model in place.
-        openRepository(currentWorkdir_);
-    });
+    connect(sessions_.relay(), &gity::session::RepoSession::committed, this,
+            [this](const QString& summary) {
+                changes_->showCommitted(summary);
+                // A commit changes history and refs, so reopen rather than
+                // patching the model in place.
+                openRepository(currentWorkdir_);
+            });
 }
 
 void MainWindow::showChangesTab() {
@@ -736,10 +732,10 @@ void MainWindow::buildMenus() {
     // Undo for what was done to the repository — a rebase, a reset, a deleted
     // branch — not for typing: a text field keeps Ctrl+Z for itself while it
     // has focus. Labelled with what it will undo, so it is never a guess.
-    undoAction_ =
-        edit->addAction(tr("&Undo"), QKeySequence::Undo, this, [this] { session()->requestUndo(); });
-    redoAction_ =
-        edit->addAction(tr("&Redo"), QKeySequence::Redo, this, [this] { session()->requestRedo(); });
+    undoAction_ = edit->addAction(tr("&Undo"), QKeySequence::Undo, this,
+                                  [this] { session()->requestUndo(); });
+    redoAction_ = edit->addAction(tr("&Redo"), QKeySequence::Redo, this,
+                                  [this] { session()->requestRedo(); });
     undoAction_->setEnabled(false);
     redoAction_->setEnabled(false);
     edit->addSeparator();
@@ -993,68 +989,6 @@ void MainWindow::buildToolBar() {
         tr("Settings — accounts, credentials, appearance (%1)")
             .arg(QKeySequence(QKeySequence::Preferences).toString(QKeySequence::NativeText)));
     connect(settings, &QAction::triggered, this, [this] { openSettings(SettingsPage::General); });
-
-    commitFilter_ = new QLineEdit(this);
-    commitFilter_->setPlaceholderText(tr("Filter commits…"));
-    commitFilter_->setFixedWidth(210);
-    commitFilter_->setClearButtonEnabled(true);
-    commitFilter_->setToolTip(
-        tr("Show only commits whose message, author or id matches.\n"
-           "A filtered view is a list of matches, not a graph — the commits between two "
-           "matches are missing, so no lines are drawn between them."));
-    // Debounced: each keystroke is a full history walk, and on a 13k-commit
-    // project walking on every character would spend the whole time cancelling
-    // itself.
-    filterDebounce_ = new QTimer(this);
-    filterDebounce_->setSingleShot(true);
-    filterDebounce_->setInterval(250);
-    connect(filterDebounce_, &QTimer::timeout, this, &MainWindow::applyCommitFilter);
-    connect(commitFilter_, &QLineEdit::textChanged, this, [this] { filterDebounce_->start(); });
-
-    // Who: every contributor the history has, most commits first, and free
-    // text for part of a name.
-    authorFilter_ = new QComboBox(this);
-    authorFilter_->setEditable(true);
-    authorFilter_->setInsertPolicy(QComboBox::NoInsert);
-    authorFilter_->setFixedWidth(170);
-    authorFilter_->lineEdit()->setPlaceholderText(tr("Any author"));
-    authorFilter_->lineEdit()->setClearButtonEnabled(true);
-    authorFilter_->setToolTip(tr("Show only commits by this contributor. Part of a name works "
-                                 "too."));
-    connect(authorFilter_, &QComboBox::currentTextChanged, this,
-            [this] { filterDebounce_->start(); });
-
-    // When: presets for the usual questions, and a range for the rest.
-    dateFilter_ = new QToolButton(this);
-    dateFilter_->setPopupMode(QToolButton::InstantPopup);
-    dateFilter_->setToolTip(tr("Show only commits made in this period."));
-    auto* dates = new QMenu(dateFilter_);
-    const auto preset = [this, dates](const QString& label, int days) {
-        dates->addAction(label, this, [this, days] {
-            if (days == 0) {
-                filterSince_ = 0;
-            } else {
-                filterSince_ =
-                    QDateTime(QDate::currentDate().addDays(-days), QTime(0, 0)).toSecsSinceEpoch();
-            }
-            filterUntil_ = 0;
-            refreshDateFilterLabel();
-            applyCommitFilter();
-        });
-    };
-    preset(tr("Any Time"), 0);
-    dates->addSeparator();
-    preset(tr("Last 7 Days"), 7);
-    preset(tr("Last 30 Days"), 30);
-    preset(tr("Last 12 Months"), 365);
-    dates->addSeparator();
-    dates->addAction(tr("Custom Range…"), this, &MainWindow::chooseDateRange);
-    dateFilter_->setMenu(dates);
-    refreshDateFilterLabel();
-
-    historyHeaderLayout_->addWidget(authorFilter_);
-    historyHeaderLayout_->addWidget(dateFilter_);
-    historyHeaderLayout_->addWidget(commitFilter_);
 }
 
 void MainWindow::buildStatusBar() {
@@ -1144,7 +1078,7 @@ bool MainWindow::eventFilter(QObject* watched, QEvent* event) {
     // The history header, left showing when the graph is dragged down to it,
     // brings the graph back when clicked.
     if (event->type() == QEvent::MouseButtonPress && historyHeaderRestore_ &&
-        watched->objectName() == QStringLiteral("historyHeader")) {
+        watched == filterBar_) {
         historyHeaderRestore_();
     }
     return QMainWindow::eventFilter(watched, event);
@@ -1259,7 +1193,7 @@ void MainWindow::openRepository(const QString& path) {
         if (!currentWorkdir_.isEmpty()) {
             ViewState leaving;
             leaving.selectedOid = currentOid_;
-            leaving.filter = currentFilter();
+            leaving.filter = filterBar_->filter();
             leaving.draft = changes_->draftMessage();
             leaving.amend = changes_->draftAmend();
             leaving.screen = tabs_->currentIndex() == ScreenChanges ? ScreenChanges : ScreenHistory;
@@ -1268,15 +1202,11 @@ void MainWindow::openRepository(const QString& path) {
         }
         arriving = viewStates_.value(gity::ui::RepositoryTabs::canonical(path));
         pendingSelectOid_ = arriving.selectedOid;
-        showFilterWidgets(arriving.filter);
+        filterBar_->setFilter(arriving.filter);
+        showFilterState(arriving.filter);
         // A different repository has different contributors; the list is
         // rebuilt when its history arrives.
-        {
-            const QSignalBlocker quiet(authorFilter_);
-            const QString typed = authorFilter_->currentText();
-            authorFilter_->clear();
-            authorFilter_->setCurrentText(typed);
-        }
+        filterBar_->setContributors({});
     }
 
     if (!refreshing) {
@@ -1399,42 +1329,15 @@ QStringList MainWindow::pinnedBranches(const QString& workdir) {
 }
 
 void MainWindow::showFilterState(const gity::git::CommitFilter& filter) {
-    // Said on screen, not only in a tooltip: a filtered list has no graph
-    // lines, and that is by design rather than a rendering fault.
-    const bool active = filter.active();
-    historyTitle_->setText(active ? tr("Matching commits") : tr("All commits"));
-    historyNote_->setText(active ? tr("The commits between matches are not shown, so no "
-                                      "graph lines join them.")
-                                 : QString());
-    graph_->setPlaceholder(active ? tr("No commit matches these filters") : QString());
-}
-
-gity::git::CommitFilter MainWindow::currentFilter() const {
-    gity::git::CommitFilter filter;
-    filter.text = commitFilter_->text().trimmed().toStdString();
-    filter.author = authorFilter_->currentText().trimmed().toStdString();
-    filter.since = filterSince_;
-    filter.until = filterUntil_;
-    return filter;
-}
-
-void MainWindow::showFilterWidgets(const gity::git::CommitFilter& filter) {
-    const QSignalBlocker quietText(commitFilter_);
-    const QSignalBlocker quietAuthor(authorFilter_);
-    commitFilter_->setText(QString::fromStdString(filter.text));
-    authorFilter_->setCurrentText(QString::fromStdString(filter.author));
-    filterSince_ = filter.since;
-    filterUntil_ = filter.until;
-    refreshDateFilterLabel();
-    showFilterState(filter);
+    filterBar_->showState(filter.active());
+    graph_->setPlaceholder(filter.active() ? tr("No commit matches these filters") : QString());
 }
 
 void MainWindow::applyCommitFilter() {
-    filterDebounce_->stop();
     if (currentWorkdir_.isEmpty()) {
         return;
     }
-    const gity::git::CommitFilter filter = currentFilter();
+    const gity::git::CommitFilter filter = filterBar_->filter();
     if (filter == walkedFilter_) {
         return;
     }
@@ -1448,83 +1351,6 @@ void MainWindow::applyCommitFilter() {
     currentOid_.clear();
     showFilterState(filter);
     session()->requestFilter(filter);
-}
-
-void MainWindow::refreshDateFilterLabel() {
-    const auto day = [](qint64 secs) {
-        return QLocale().toString(QDateTime::fromSecsSinceEpoch(secs).date(), QLocale::ShortFormat);
-    };
-    QString label;
-    if (filterSince_ == 0 && filterUntil_ == 0) {
-        label = tr("Any time");
-    } else if (filterUntil_ == 0) {
-        label = tr("Since %1").arg(day(filterSince_));
-    } else if (filterSince_ == 0) {
-        label = tr("Until %1").arg(day(filterUntil_));
-    } else {
-        label = tr("%1 – %2").arg(day(filterSince_), day(filterUntil_));
-    }
-    dateFilter_->setText(label);
-}
-
-void MainWindow::chooseDateRange() {
-    QDialog dialog(this);
-    dialog.setWindowTitle(tr("Commits Made Between"));
-    auto* layout = new QVBoxLayout(&dialog);
-    auto* form = new QFormLayout;
-    const QDate today = QDate::currentDate();
-    const auto dateEdit = [&dialog](const QDate& date) {
-        auto* edit = new QDateEdit(date, &dialog);
-        edit->setCalendarPopup(true);
-        edit->setDisplayFormat(QLocale().dateFormat(QLocale::ShortFormat));
-        return edit;
-    };
-    auto* fromOn = new QCheckBox(tr("From"), &dialog);
-    auto* from = dateEdit(filterSince_ != 0 ? QDateTime::fromSecsSinceEpoch(filterSince_).date()
-                                            : today.addMonths(-1));
-    auto* toOn = new QCheckBox(tr("To"), &dialog);
-    auto* to =
-        dateEdit(filterUntil_ != 0 ? QDateTime::fromSecsSinceEpoch(filterUntil_).date() : today);
-    fromOn->setChecked(filterSince_ != 0 || filterUntil_ == 0);
-    toOn->setChecked(filterUntil_ != 0);
-    form->addRow(fromOn, from);
-    form->addRow(toOn, to);
-    layout->addLayout(form);
-    auto* note = new QLabel(tr("Both days included. Leave one unticked for an open end."), &dialog);
-    note->setWordWrap(true);
-    gity::ui::applyRole(note, QStringLiteral("note"));
-    layout->addWidget(note);
-    auto* buttons = new QDialogButtonBox(QDialogButtonBox::Cancel, &dialog);
-    QPushButton* go = buttons->addButton(tr("Show"), QDialogButtonBox::AcceptRole);
-    go->setDefault(true);
-    gity::ui::applyRole(go, QStringLiteral("primary"));
-    layout->addWidget(buttons);
-    connect(buttons, &QDialogButtonBox::accepted, &dialog, &QDialog::accept);
-    connect(buttons, &QDialogButtonBox::rejected, &dialog, &QDialog::reject);
-    const auto sync = [=] {
-        from->setEnabled(fromOn->isChecked());
-        to->setEnabled(toOn->isChecked());
-        // A range that ends before it starts matches nothing, which reads
-        // as a broken filter rather than as the typo it is.
-        go->setEnabled(!(fromOn->isChecked() && toOn->isChecked() && to->date() < from->date()));
-    };
-    for (QCheckBox* box : {fromOn, toOn}) {
-        connect(box, &QCheckBox::toggled, &dialog, sync);
-    }
-    for (QDateEdit* edit : {from, to}) {
-        connect(edit, &QDateEdit::dateChanged, &dialog, sync);
-    }
-    sync();
-    if (dialog.exec() != QDialog::Accepted) {
-        return;
-    }
-    filterSince_ =
-        fromOn->isChecked() ? QDateTime(from->date(), QTime(0, 0)).toSecsSinceEpoch() : 0;
-    // The whole of the last day.
-    filterUntil_ =
-        toOn->isChecked() ? QDateTime(to->date(), QTime(23, 59, 59)).toSecsSinceEpoch() : 0;
-    refreshDateFilterLabel();
-    applyCommitFilter();
 }
 
 void MainWindow::refreshContributors() {
@@ -1543,15 +1369,7 @@ void MainWindow::refreshContributors() {
     std::sort(ordered.begin(), ordered.end(), [](const auto& a, const auto& b) {
         return a.second != b.second ? a.second > b.second : a.first < b.first;
     });
-    const QSignalBlocker quiet(authorFilter_);
-    const QString typed = authorFilter_->currentText();
-    authorFilter_->clear();
-    for (const auto& [name, count] : ordered) {
-        authorFilter_->addItem(name);
-        authorFilter_->setItemData(authorFilter_->count() - 1, tr("%n commit(s)", nullptr, count),
-                                   Qt::ToolTipRole);
-    }
-    authorFilter_->setCurrentText(typed);
+    filterBar_->setContributors(ordered);
 }
 
 void MainWindow::onOpened(const gity::session::RepoInfo& info) {
@@ -1988,8 +1806,8 @@ void MainWindow::confirmReset(const QString& oid, const QString& subject) {
         return;
     }
     session()->requestReset(oid, soft->isChecked()   ? QStringLiteral("soft")
-                                : hard->isChecked() ? QStringLiteral("hard")
-                                                    : QStringLiteral("mixed"));
+                                 : hard->isChecked() ? QStringLiteral("hard")
+                                                     : QStringLiteral("mixed"));
 }
 
 void MainWindow::startRebase(const QString& baseOid, const QString& baseSubject) {

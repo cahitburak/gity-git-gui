@@ -10,6 +10,8 @@ add_library(gity_ui STATIC
     graphview/GraphColumns.h
     graphview/GraphHeader.cpp
     graphview/GraphHeader.h
+    graphview/HistoryFilterBar.cpp
+    graphview/HistoryFilterBar.h
     graphview/CommitGraphView.cpp
     graphview/CommitGraphView.h
     panels/WorkingCopyDelegate.cpp
