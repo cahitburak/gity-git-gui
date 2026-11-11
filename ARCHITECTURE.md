@@ -429,8 +429,9 @@ GCC and Clang on Linux — CI runs both, because they disagree about enough to b
 - Warnings are errors in the `ci` preset, on every compiler.
 - `dev-asan` adds address and undefined-behaviour sanitizers — invaluable against a C library.
 - `.clang-format` is the formatting authority.
-- **`src/core` builds and tests without Qt** (the `ci-headless` preset). Test binaries link `core`
-  only; if a test needs Qt Widgets, the layering has been broken.
+- **`src/core` builds and tests without Qt** (the `ci-headless` preset). `gity_tests` links `core`
+  only; `gity_session_tests` adds the session layer and drives real repositories through the
+  `git` binary. If a test needs Qt Widgets, the layering has been broken.
 
 ---
 
@@ -608,8 +609,8 @@ src/
 │   │            rebase todo, undo planning, merge prediction, LFS locks, remote URLs, device flow
 │   ├── graph/   streaming lane assignment (ADR-005)
 │   └── model/   commit metadata arena, history chunks
-├── session/     QtCore: the per-repository worker (ADR-004), GitProcess (ADR-003), undo log,
-│                command log, credentials and accounts
+├── session/     no widgets: the per-repository worker (ADR-004), GitProcess (ADR-003), index
+│                writes, the watcher, undo log, command log, credentials and accounts
 ├── ui/          Qt Widgets
 │   ├── theme/   tokens, theme variants, gity.qss, painted icons
 │   ├── model/   the history model the graph paints from
@@ -618,7 +619,7 @@ src/
 │   └── panels/  sidebar, staging, commit detail, dialogs, repository tabs, settings
 ├── app/         main() and the main window
 └── askpass/     gity-askpass, the credential-prompt helper git runs
-tests/           link core only
+tests/           core alone; tests/session adds QtCore, never Widgets
 ```
 
 `GitProcess` lives in `session/` rather than `core/` because it needs `QProcess`; keeping `core`

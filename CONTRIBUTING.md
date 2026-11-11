@@ -30,8 +30,10 @@ below is enforced. `dev-asan` adds address and undefined-behaviour sanitizers.
 
 ## The rules the code keeps
 
-* **Layers.** `src/core` has no Qt and no display; `src/session` uses QtCore only; `src/ui` and
-  `src/app` are Qt Widgets. Tests link `core` only — if a test needs QtWidgets, the logic belongs
+* **Layers.** `src/core` has no Qt and no display; `src/session` has no widgets — QtCore, plus
+  QtGui for decoding images and QtNetwork for browser sign-in; `src/ui` and
+  `src/app` are Qt Widgets. `gity_tests` links `core` only; `gity_session_tests` (`tests/session/`) adds `session` and
+  QtCore, and drives real repositories through `GitProcess`. If a test needs QtWidgets, the logic belongs
   in `core`.
 * **Every write goes through `git`** via `GitProcess` (`src/session/GitProcess.h`), never libgit2,
   so hooks, filters, LFS and the user's config behave exactly as in a terminal.

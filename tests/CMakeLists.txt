@@ -9,8 +9,9 @@ endif()
 find_package(GTest REQUIRED)
 include(GoogleTest)
 
-# ADR-006 — test binaries link core only. If one ever needs QtWidgets, the
-# layering has been violated.
+# ADR-006 — this binary links core only, and builds without Qt (the
+# headless leg). The session tests below add QtCore and nothing more. If a
+# test ever needs QtWidgets, the layering has been violated.
 add_executable(gity_tests
     test_blob_reader.cpp
     test_staging.cpp
@@ -36,6 +37,7 @@ add_executable(gity_tests
     test_pull_request.cpp
     test_english_plural.cpp
     test_history_stream.cpp
+    test_commit_store.cpp
 )
 
 target_link_libraries(gity_tests
@@ -57,6 +59,7 @@ if(TARGET gity::session)
         session/test_git_process.cpp
         session/test_undo_log.cpp
         session/test_repo_watcher.cpp
+        session/test_repository_reads.cpp
     )
     target_include_directories(gity_session_tests PRIVATE ${PROJECT_SOURCE_DIR}/src)
     target_link_libraries(gity_session_tests
