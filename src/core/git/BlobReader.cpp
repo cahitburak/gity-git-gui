@@ -102,12 +102,22 @@ BlobContent readBlobAtHead(git_repository* repo, const std::string& path) {
     return readBlobAt(repo, head, path);
 }
 
-BlobContent readWorktreeFile(const std::string& workdir, const std::string& path) {
+BlobContent readWorktreeFile(const std::string& workdir, const std::string& path,
+                             std::size_t maxBytes) {
     BlobContent content;
     std::error_code ec;
     const std::filesystem::path full = std::filesystem::path(workdir) / path;
+
+    // Not followed out of the working copy: git stores a symlink as the path
+    // it names, and an image diff of "the file" must not read whatever that
+    // path points to elsewhere on the machine.
+    if (std::filesystem::is_symlink(std::filesystem::symlink_status(full, ec))) {
+        return content;
+    }
     const auto size = std::filesystem::file_size(full, ec);
-    if (ec) {
+    // Nor read whole when it is huge: this feeds an image decoder, and a
+    // multi-gigabyte file in the working copy would be held in memory twice.
+    if (ec || size > maxBytes) {
         return content;
     }
 

@@ -76,3 +76,29 @@ TEST(OperationCommand, BisectAndNoneOwnNoAbortFlag) {
     EXPECT_TRUE(gity::git::operationCommand(Operation::Bisect).empty());
     EXPECT_TRUE(gity::git::operationCommand(Operation::None).empty());
 }
+
+TEST(ClassifyOperation, GitAmIsNotARebase) {
+    // git am shares rebase-apply/ with the apply backend; offering
+    // `rebase --abort` for it fails.
+    gity::git::OperationMarkers am;
+    am.rebaseApplyDir = true;
+    am.rebaseApplyIsAm = true;
+    EXPECT_EQ(gity::git::classifyOperation(am), gity::git::Operation::Am);
+    EXPECT_EQ(gity::git::operationCommand(gity::git::Operation::Am), "am");
+
+    gity::git::OperationMarkers rebase;
+    rebase.rebaseApplyDir = true;
+    EXPECT_EQ(gity::git::classifyOperation(rebase), gity::git::Operation::RebaseApply);
+}
+
+TEST(ClassifyOperation, AnUnfinishedSequenceOfPicksIsStillACherryPick) {
+    // After the conflicted step of a multi-commit cherry-pick is committed,
+    // CHERRY_PICK_HEAD is gone but the sequencer still has steps to run.
+    gity::git::OperationMarkers picks;
+    picks.sequencerPicks = true;
+    EXPECT_EQ(gity::git::classifyOperation(picks), gity::git::Operation::CherryPick);
+
+    gity::git::OperationMarkers reverts;
+    reverts.sequencerReverts = true;
+    EXPECT_EQ(gity::git::classifyOperation(reverts), gity::git::Operation::Revert);
+}

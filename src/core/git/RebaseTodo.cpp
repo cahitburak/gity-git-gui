@@ -21,6 +21,15 @@ std::string_view actionKeyword(RebaseAction action) {
     return "pick";
 }
 
+std::string shellQuote(std::string_view text) {
+    std::string quoted = "'";
+    for (const char c : text) {
+        quoted += c == '\'' ? std::string("'\\''") : std::string(1, c);
+    }
+    quoted += "'";
+    return quoted;
+}
+
 std::string serializeTodo(const std::vector<RebaseStep>& steps) {
     std::string todo;
     // Reversed: the caller holds newest first because that is how history is
@@ -32,8 +41,12 @@ std::string serializeTodo(const std::vector<RebaseStep>& steps) {
         if (!step->subject.empty()) {
             // git writes the subject after the id and ignores it; keeping it
             // makes the file readable if anyone ever looks at it mid-rebase.
+            // One line only: a newline here would start a todo line of its own.
+            std::string subject = step->subject;
+            std::replace(subject.begin(), subject.end(), '\n', ' ');
+            std::replace(subject.begin(), subject.end(), '\r', ' ');
             todo += ' ';
-            todo += step->subject;
+            todo += subject;
         }
         todo += '\n';
         if (step->action == RebaseAction::Reword && !step->messageFile.empty()) {
@@ -41,13 +54,12 @@ std::string serializeTodo(const std::vector<RebaseStep>& steps) {
             // from the index), keeps the author, allows an empty commit to
             // stay empty. The path is single-quoted for the shell git runs
             // exec lines with.
-            std::string quoted = "'";
-            for (const char c : step->messageFile) {
-                quoted += c == '\'' ? std::string("'\\''") : std::string(1, c);
-            }
-            quoted += "'";
-            todo += "exec git commit --amend --only --allow-empty --cleanup=strip --file=" + quoted +
-                    "\n";
+            //
+            // --cleanup=whitespace, not strip: strip also deletes every line
+            // starting with '#', and in a reworded message that is the
+            // user's text — "#123 fixed", a Markdown heading.
+            todo += "exec git commit --amend --only --allow-empty --cleanup=whitespace --file=" +
+                    shellQuote(step->messageFile) + "\n";
         }
     }
     return todo;

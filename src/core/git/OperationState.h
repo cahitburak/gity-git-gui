@@ -24,9 +24,13 @@ enum class Operation {
     /// `git rebase -i`, and also any rebase that stopped — modern git uses the
     /// merge backend for both.
     RebaseInteractive,
-    /// The older `git am`-based backend, still produced by `git am` itself.
+    /// A rebase on the older apply backend (`git rebase --apply`).
     RebaseApply,
     Bisect,
+    /// `git am` applying a mailbox of patches. It shares rebase-apply/ with
+    /// the apply backend, but its continue and abort are `git am`'s: offering
+    /// `rebase --abort` here would fail.
+    Am,
 };
 
 /// The marker files present under .git. Separated from the filesystem so the
@@ -38,6 +42,12 @@ struct OperationMarkers {
     bool rebaseMergeDir = false;  ///< rebase-merge/
     bool rebaseApplyDir = false;  ///< rebase-apply/
     bool bisectLog = false;       ///< BISECT_LOG
+    bool rebaseApplyIsAm = false; ///< rebase-apply/applying: `git am`, not a rebase
+    /// .git/sequencer/todo with steps left. A cherry-pick or revert of several
+    /// commits keeps it after the conflicted step is committed, when
+    /// CHERRY_PICK_HEAD is already gone and the sequence is still unfinished.
+    bool sequencerPicks = false;
+    bool sequencerReverts = false;
 };
 
 [[nodiscard]] Operation classifyOperation(const OperationMarkers& markers);

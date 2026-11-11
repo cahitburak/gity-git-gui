@@ -19,6 +19,30 @@ std::string lower(std::string_view text) {
 
 } // namespace
 
+namespace {
+
+std::string percentDecoded(std::string_view text) {
+    const auto hex = [](char c) {
+        return (c >= '0' && c <= '9')   ? c - '0'
+               : (c >= 'a' && c <= 'f') ? c - 'a' + 10
+               : (c >= 'A' && c <= 'F') ? c - 'A' + 10
+                                        : -1;
+    };
+    std::string out;
+    for (std::size_t i = 0; i < text.size(); ++i) {
+        if (text[i] == '%' && i + 2 < text.size() &&
+            hex(text[i + 1]) >= 0 && hex(text[i + 2]) >= 0) {
+            out += static_cast<char>(hex(text[i + 1]) * 16 + hex(text[i + 2]));
+            i += 2;
+        } else {
+            out += text[i];
+        }
+    }
+    return out;
+}
+
+} // namespace
+
 bool credentialForUrl(std::string_view url, bool useHttpPath, Credential* out) {
     const auto scheme = url.find("://");
     if (scheme == std::string_view::npos) {
@@ -42,7 +66,10 @@ bool credentialForUrl(std::string_view url, bool useHttpPath, Credential* out) {
         // A password in the URL is not carried: git would use it without
         // asking the helper, and showing it here would be showing a secret
         // that lives in a config file rather than in the helper.
-        credential.username = std::string(userinfo.substr(0, userinfo.find(':')));
+        // Percent-decoded, as git decodes it: an email account is written
+        // me%40corp.com in a URL, and the credential git stores and asks for
+        // is keyed on me@corp.com.
+        credential.username = percentDecoded(userinfo.substr(0, userinfo.find(':')));
         authority = authority.substr(at + 1);
     }
     if (authority.empty()) {

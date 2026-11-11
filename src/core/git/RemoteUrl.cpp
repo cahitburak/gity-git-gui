@@ -13,7 +13,7 @@ std::string folderNameForRemote(std::string_view url) {
         url.remove_prefix(1);
     }
     while (!url.empty() && (std::isspace(static_cast<unsigned char>(url.back())) != 0 ||
-                            url.back() == '/')) {
+                            url.back() == '/' || url.back() == '\\')) {
         url.remove_suffix(1);
     }
     if (url.empty()) {
@@ -24,7 +24,9 @@ std::string folderNameForRemote(std::string_view url) {
     // segment starts after ':' as well as after '/'. Taking the later of the
     // two handles both, and handles a colon inside an https URL's port because
     // a path separator always follows it.
-    const std::size_t slash = url.find_last_of('/');
+    // A backslash separates too: a Windows path to a local repository,
+    // C:\src\proj.git, is a remote like any other.
+    const std::size_t slash = url.find_last_of("/\\");
     const std::size_t colon = url.find_last_of(':');
     std::size_t start = 0;
     if (slash != std::string_view::npos && colon != std::string_view::npos) {

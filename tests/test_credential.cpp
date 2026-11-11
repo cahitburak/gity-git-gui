@@ -69,3 +69,11 @@ TEST(Credential, ANewlineCannotBeWritten) {
     c.password = "fine";
     EXPECT_TRUE(isWritable(c));
 }
+
+TEST(Credential, AnEmailUsernameIsDecodedAsGitDecodesIt) {
+    // remoteUrlWithUser writes me%40corp.com; git stores and asks for the
+    // credential under me@corp.com.
+    Credential c;
+    ASSERT_TRUE(credentialForUrl("https://me%40corp.com@github.com/o/r.git", false, &c));
+    EXPECT_EQ(c.username, "me@corp.com");
+}

@@ -130,3 +130,27 @@ TEST(ParseDeviceCode, AnAbsurdIntervalIsClamped) {
                   .intervalSeconds,
               1);
 }
+
+TEST(ParseDeviceCode, FormValuesArePercentDecoded) {
+    // As a form reply really encodes it: the URL's colon and slashes escaped.
+    const DeviceCode code = parseDeviceCode(
+        "device_code=3584d835&user_code=WDJB-MJHT"
+        "&verification_uri=https%3A%2F%2Fgithub.com%2Flogin%2Fdevice&expires_in=900&interval=5");
+    EXPECT_EQ(code.verificationUrl, "https://github.com/login/device");
+}
+
+TEST(ParseDeviceCode, JsonEscapesAreDecoded) {
+    const DeviceCode code = parseDeviceCode(
+        R"({"device_code":"a","user_code":"b",)"
+        R"("verification_uri":"https:\/\/gitlab.example\/oauth\/device","expires_in":900})");
+    EXPECT_EQ(code.verificationUrl, "https://gitlab.example/oauth/device");
+}
+
+TEST(ParsePollResponse, ANullTokenIsNoToken) {
+    // Read naively, null is the four letters "null" — which would be stored
+    // as the token.
+    const PollResult result =
+        parsePollResponse(R"({"access_token":null,"error":"authorization_pending"})");
+    EXPECT_NE(result.state, PollState::Granted);
+    EXPECT_TRUE(result.accessToken.empty());
+}

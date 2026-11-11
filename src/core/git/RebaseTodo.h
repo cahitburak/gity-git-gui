@@ -54,6 +54,11 @@ struct RebaseStep {
 /// routing this through one function.
 [[nodiscard]] std::string serializeTodo(const std::vector<RebaseStep>& steps);
 
+/// `text` single-quoted for a POSIX shell, which is how git runs exec lines
+/// and $GIT_SEQUENCE_EDITOR. Every byte is literal inside the quotes; a quote
+/// itself is closed, escaped and reopened.
+[[nodiscard]] std::string shellQuote(std::string_view text);
+
 enum class TodoProblem {
     None,
     /// No steps at all.

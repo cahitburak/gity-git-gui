@@ -38,7 +38,10 @@ struct BlobContent {
 
 /// The file as it is on disk. Not a blob at all, but the other half of every
 /// working-copy comparison, and it keeps the callers symmetric.
-[[nodiscard]] BlobContent readWorktreeFile(const std::string& workdir, const std::string& path);
+/// Empty for a symlink, which is not followed, and for a file larger than
+/// `maxBytes`.
+[[nodiscard]] BlobContent readWorktreeFile(const std::string& workdir, const std::string& path,
+                                           std::size_t maxBytes = std::size_t{512} << 20);
 
 /// Parses an LFS pointer, filling `lfsOid` and `lfsSize`. Returns false when
 /// the bytes are not a pointer.

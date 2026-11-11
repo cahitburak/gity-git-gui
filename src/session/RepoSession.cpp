@@ -6,6 +6,7 @@
 #include "core/git/RepoAccount.h"
 #include "core/git/Submodules.h"
 #include "core/git/OperationState.h"
+#include "core/git/RebaseTodo.h"
 
 #include "core/git/HistoryStream.h"
 #include "core/git/Repository.h"
@@ -381,13 +382,17 @@ void RepoWorker::computePreview(int kindValue, const QString& target, const QStr
             }
             preview->target = QStringLiteral("%1/%2").arg(preview->remote, branch);
             const GitResult count = GitProcess::run(
+                // "--" last: a branch named like a top-level folder ("docs")
+                // is otherwise ambiguous, and git refuses — and the preview
+                // said nothing was going out.
                 workdir_, {QStringLiteral("rev-list"), QStringLiteral("--count"), branch,
-                           QStringLiteral("--not"), QStringLiteral("--remotes")});
+                           QStringLiteral("--not"), QStringLiteral("--remotes"),
+                           QStringLiteral("--")});
             preview->outgoing = trimmedOutput(count).toInt();
             const GitResult log = GitProcess::run(
                 workdir_, {QStringLiteral("log"), QStringLiteral("-10"),
                            QStringLiteral("--format=%h%x00%s"), branch, QStringLiteral("--not"),
-                           QStringLiteral("--remotes")});
+                           QStringLiteral("--remotes"), QStringLiteral("--")});
             for (const QString& line : log.output.split(QChar('\n'), Qt::SkipEmptyParts)) {
                 preview->outgoingCommits << line.section(QChar('\0'), 0, 0).leftJustified(8) +
                                                 QStringLiteral("  ") +
@@ -1666,8 +1671,12 @@ void RepoWorker::runInteractiveRebase(const QString& baseOid,
     todo.close();
 
     const QList<GitProcess::EnvOverride> overrides{
+        // Quoted properly: the temporary directory is under the user's
+        // TMPDIR, and a quote in that path broke the command — or ran
+        // whatever followed it.
         {QStringLiteral("GIT_SEQUENCE_EDITOR"),
-         QStringLiteral("cp '%1'").arg(todoPath)},
+         QStringLiteral("cp %1").arg(QString::fromStdString(
+             gity::git::shellQuote(todoPath.toStdString())))},
         // A squash asks for the combined message. `true` accepts git's default,
         // which is both messages concatenated — nothing is lost, and no editor
         // opens that the user cannot see.

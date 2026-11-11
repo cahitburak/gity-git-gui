@@ -6,6 +6,38 @@
 namespace gity::git {
 namespace {
 
+int hexValue(char c) {
+    if (c >= '0' && c <= '9') {
+        return c - '0';
+    }
+    if (c >= 'a' && c <= 'f') {
+        return c - 'a' + 10;
+    }
+    if (c >= 'A' && c <= 'F') {
+        return c - 'A' + 10;
+    }
+    return -1;
+}
+
+/// application/x-www-form-urlencoded: '+' is a space and %XX a byte. GitHub's
+/// form reply encodes the verification URL as https%3A%2F%2F…
+std::string formDecode(std::string_view text) {
+    std::string out;
+    out.reserve(text.size());
+    for (std::size_t i = 0; i < text.size(); ++i) {
+        if (text[i] == '+') {
+            out += ' ';
+        } else if (text[i] == '%' && i + 2 < text.size() &&
+                   hexValue(text[i + 1]) >= 0 && hexValue(text[i + 2]) >= 0) {
+            out += static_cast<char>(hexValue(text[i + 1]) * 16 + hexValue(text[i + 2]));
+            i += 2;
+        } else {
+            out += text[i];
+        }
+    }
+    return out;
+}
+
 /// A value from either JSON or form encoding.
 ///
 /// Both are needed: GitHub answers the device endpoint with
@@ -28,16 +60,45 @@ std::string valueOf(std::string_view body, std::string_view key) {
             ++at;
         }
         if (at < body.size() && body[at] == '"') {
-            const std::size_t end = body.find('"', at + 1);
-            if (end == std::string_view::npos) {
-                return {};
+            // A JSON string, escapes decoded: a provider may write the
+            // verification URL as "https:\/\/github.com\/login\/device".
+            std::string value;
+            for (std::size_t i = at + 1; i < body.size(); ++i) {
+                const char c = body[i];
+                if (c == '"') {
+                    return value;
+                }
+                if (c == '\\' && i + 1 < body.size()) {
+                    const char escaped = body[++i];
+                    switch (escaped) {
+                    case 'n':
+                        value += '\n';
+                        break;
+                    case 't':
+                        value += '\t';
+                        break;
+                    case 'r':
+                        value += '\r';
+                        break;
+                    default:
+                        value += escaped; // \" \\ \/ and anything else, literally
+                        break;
+                    }
+                    continue;
+                }
+                value += c;
             }
-            return std::string(body.substr(at + 1, end - at - 1));
+            return {}; // unterminated
         }
         const std::size_t end = body.find_first_of(",}", at);
         std::string number(body.substr(at, end == std::string_view::npos ? end : end - at));
         while (!number.empty() && std::isspace(static_cast<unsigned char>(number.back())) != 0) {
             number.pop_back();
+        }
+        // JSON's null is no value, not the four letters: an error reply with
+        // "access_token": null would otherwise be stored as the token "null".
+        if (number == "null") {
+            return {};
         }
         return number;
     }
@@ -49,9 +110,9 @@ std::string valueOf(std::string_view body, std::string_view key) {
         const std::size_t after = at + key.size();
         if (atStart && after < body.size() && body[after] == '=') {
             const std::size_t end = body.find('&', after + 1);
-            return std::string(body.substr(after + 1, end == std::string_view::npos
-                                                          ? end
-                                                          : end - after - 1));
+            return formDecode(body.substr(after + 1, end == std::string_view::npos
+                                                         ? end
+                                                         : end - after - 1));
         }
         search = at + 1;
     }

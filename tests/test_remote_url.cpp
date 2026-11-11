@@ -151,3 +151,8 @@ TEST(UnmaskUrlCredentials, AnythingTypedByHandWins) {
                                                "https://me:old@github.com/o/r"),
               "https://github.com/o/r");
 }
+
+TEST(FolderNameForRemote, AWindowsPath) {
+    EXPECT_EQ(folderNameForRemote("C:\\src\\proj.git"), "proj");
+    EXPECT_EQ(folderNameForRemote("C:\\src\\proj\\"), "proj");
+}
