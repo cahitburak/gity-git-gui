@@ -24,6 +24,8 @@ add_library(gity_ui STATIC
     panels/WelcomePanel.cpp
     panels/CommandLogView.cpp
     panels/PreviewDialog.cpp
+    panels/PreviewPrompt.cpp
+    panels/PreviewPrompt.h
     panels/RemotesDialog.cpp
     panels/OperationBanner.cpp
     panels/RebaseDialog.cpp

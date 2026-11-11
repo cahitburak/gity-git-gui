@@ -15,7 +15,7 @@
 #include "ui/panels/CommitDetailPanel.h"
 #include "ui/panels/Confirm.h"
 #include "ui/panels/OperationBanner.h"
-#include "ui/panels/PreviewDialog.h"
+#include "ui/panels/PreviewPrompt.h"
 #include "ui/panels/RebaseDialog.h"
 #include "ui/panels/RefsSidebar.h"
 #include "ui/panels/RemotesDialog.h"
@@ -2213,170 +2213,14 @@ void MainWindow::askPreview(gity::session::Preview::Kind kind, const QString& ta
 
 void MainWindow::showPreview(gity::session::PreviewPtr preview) {
     using Kind = gity::session::Preview::Kind;
+    using gity::ui::PreviewChoice;
     statusBar()->clearMessage();
     if (!preview) {
         return;
     }
     const auto& p = *preview;
-    const QString verb = p.kind == Kind::Pull     ? tr("Pull")
-                         : p.kind == Kind::Merge  ? tr("Merge")
-                         : p.kind == Kind::Rebase ? tr("Rebase")
-                                                  : tr("Push");
-    if (!p.problem.isEmpty()) {
-        QMessageBox::information(this, verb, p.problem);
-        return;
-    }
-
-    gity::ui::PreviewDialog dialog(verb, this);
-
-    enum Choice { Go = 1, MergeInstead, RebaseInstead, Force };
-
-    // Shared: the conflict prediction and what would stop git outright.
-    const auto addPrediction = [&dialog, &p] {
-        if (p.predicted) {
-            if (p.conflicts.isEmpty()) {
-                dialog.addText(tr("No conflicts expected."), QStringLiteral("note"));
-            } else {
-                dialog.addList(
-                    tr("%n file(s) would conflict:", nullptr, static_cast<int>(p.conflicts.size())),
-                    p.conflicts, -1, QStringLiteral("warn"));
-            }
-        }
-        if (!p.predictionNote.isEmpty()) {
-            dialog.addText(p.predictionNote, QStringLiteral("note"));
-        }
-        if (!p.blockedByLocal.isEmpty()) {
-            dialog.addList(
-                p.kind == Kind::Rebase
-                    ? tr("A rebase needs a clean working copy; commit or stash these first:")
-                    : tr("Uncommitted changes git would refuse to overwrite:"),
-                p.blockedByLocal, -1, QStringLiteral("warn"));
-        }
-    };
-
-    switch (p.kind) {
-    case Kind::Pull:
-        if (p.upToDate) {
-            dialog.setHeadline(tr("%1 is up to date with %2.").arg(p.branch, p.target));
-            if (p.outgoing > 0) {
-                dialog.addText(tr("You have %n commit(s) not pushed yet.", nullptr, p.outgoing));
-            }
-            break;
-        }
-        if (p.fastForward) {
-            dialog.setHeadline(
-                tr("Pull brings in %n commit(s) from %1.", nullptr, p.incoming).arg(p.target));
-            dialog.addText(
-                tr("A fast-forward: %1 simply moves ahead; no merge commit.").arg(p.branch),
-                QStringLiteral("note"));
-            dialog.addList(tr("Coming in:"), p.incomingCommits, p.incoming);
-            addPrediction();
-            dialog.setCommand(QStringLiteral("pull --ff-only"));
-            dialog.addChoice(tr("Pull"), Go, QStringLiteral("primary"));
-            break;
-        }
-        dialog.setHeadline(tr("%1 and %2 have both moved on.").arg(p.branch, p.target));
-        dialog.addText(tr("%1 has %n new commit(s)", nullptr, p.incoming).arg(p.target) +
-                       tr(" and %1 has %n of its own. Pull only fast-forwards, so choose how to "
-                          "combine them.",
-                          nullptr, p.outgoing)
-                           .arg(p.branch));
-        dialog.addList(tr("Coming in:"), p.incomingCommits, p.incoming);
-        addPrediction();
-        dialog.setCommand(QStringLiteral("merge %1  ·  rebase %1").arg(p.target));
-        dialog.addChoice(tr("Rebase onto %1").arg(p.target), RebaseInstead);
-        dialog.addChoice(tr("Merge %1").arg(p.target), MergeInstead, QStringLiteral("primary"));
-        break;
-
-    case Kind::Merge:
-        if (p.upToDate) {
-            dialog.setHeadline(tr("%1 already contains everything on %2.").arg(p.branch, p.target));
-            break;
-        }
-        dialog.setHeadline(
-            p.fastForward ? tr("Merging %1 moves %2 ahead by %n commit(s).", nullptr, p.incoming)
-                                .arg(p.target, p.branch)
-                          : tr("Merge brings %n commit(s) from %1 into %2, as a merge commit.",
-                               nullptr, p.incoming)
-                                .arg(p.target, p.branch));
-        if (p.fastForward) {
-            dialog.addText(tr("A fast-forward: no merge commit is made."), QStringLiteral("note"));
-        }
-        dialog.addList(tr("Coming in:"), p.incomingCommits, p.incoming);
-        addPrediction();
-        dialog.setCommand(QStringLiteral("merge --no-edit %1").arg(p.target));
-        dialog.addChoice(tr("Merge"), Go, QStringLiteral("primary"));
-        break;
-
-    case Kind::Rebase:
-        if (p.upToDate) {
-            dialog.setHeadline(tr("%1 is already on top of %2.").arg(p.branch, p.target));
-            break;
-        }
-        dialog.setHeadline(
-            p.outgoing == 0
-                ? tr("%1 has no commits of its own, so it simply moves to %2.")
-                      .arg(p.branch, p.target)
-                : tr("Rebase replays %n commit(s) of %1 on top of %2.", nullptr, p.outgoing)
-                      .arg(p.branch, p.target));
-        if (p.outgoing > 0) {
-            dialog.addText(tr("Each is replaced by a new commit. If any were pushed, everyone "
-                              "else keeps the originals and the histories diverge. Undo "
-                              "(Ctrl+Z) puts the branch back."),
-                           QStringLiteral("note"));
-        }
-        dialog.addList(tr("Replayed:"), p.outgoingCommits, p.outgoing);
-        addPrediction();
-        dialog.setCommand(QStringLiteral("rebase %1").arg(p.target));
-        dialog.addChoice(tr("Rebase"), Go, QStringLiteral("primary"));
-        break;
-
-    case Kind::Push:
-        if (p.newBranch) {
-            dialog.setHeadline(tr("Publishes %1 to %2 as a new branch.").arg(p.branch, p.remote));
-            dialog.addList(tr("Commits not on any remote yet:"), p.outgoingCommits, p.outgoing);
-            dialog.setCommand(QStringLiteral("push --set-upstream %1 %2").arg(p.remote, p.branch));
-            dialog.addChoice(tr("Push"), Go, QStringLiteral("primary"));
-            break;
-        }
-        if (p.upToDate) {
-            dialog.setHeadline(
-                tr("Nothing to push: %1 already has everything on %2.").arg(p.target, p.branch));
-            break;
-        }
-        if (p.incoming == 0) {
-            dialog.setHeadline(
-                tr("Push sends %n commit(s) to %1.", nullptr, p.outgoing).arg(p.target));
-            dialog.addList(tr("Going out:"), p.outgoingCommits, p.outgoing);
-            dialog.setCommand(QStringLiteral("push %1 %2").arg(p.remote, p.branch));
-            dialog.addChoice(tr("Push"), Go, QStringLiteral("primary"));
-            break;
-        }
-        // The remote has work this branch lacks — the usual case after a
-        // rebase. Pushing plainly is rejected; forcing removes that work.
-        dialog.setHeadline(tr("%1 has %n commit(s) that %2 does not.", nullptr, p.incoming)
-                               .arg(p.target, p.branch));
-        dialog.addText(tr("A normal push will be rejected. To keep that work, pull or rebase "
-                          "first. A force push replaces %1 with %2 and removes those commits "
-                          "from the remote — right after rebasing your own branch, and wrong "
-                          "if someone else pushed them.")
-                           .arg(p.target, p.branch));
-        dialog.addList(tr("Would be removed from %1:").arg(p.target), p.incomingCommits, p.incoming,
-                       QStringLiteral("warn"));
-        dialog.addList(tr("Going out:"), p.outgoingCommits, p.outgoing);
-        dialog.addText(tr("As of the last fetch. The push is leased: if %1 has moved since, it "
-                          "fails instead of overwriting.")
-                           .arg(p.target),
-                       QStringLiteral("note"));
-        dialog.setCommand(QStringLiteral("push --force-with-lease=refs/heads/%1:%2 %3 %4:%1")
-                              .arg(p.remoteBranch, p.leaseOid.left(8), p.remote, p.branch));
-        dialog.addChoice(tr("Force Push"), Force, QStringLiteral("destructive"));
-        break;
-    }
-
-    const int choice = dialog.choose();
-    switch (choice) {
-    case Go:
+    switch (gity::ui::choosePreviewAction(p, this)) {
+    case PreviewChoice::Go:
         if (p.kind == Kind::Pull) {
             session()->requestPull();
         } else if (p.kind == Kind::Merge) {
@@ -2401,28 +2245,16 @@ void MainWindow::showPreview(gity::session::PreviewPtr preview) {
             }
         }
         break;
-    case MergeInstead:
+    case PreviewChoice::MergeInstead:
         session()->requestMerge(p.target);
         break;
-    case RebaseInstead:
+    case PreviewChoice::RebaseInstead:
         session()->requestRebaseOnto(p.target);
         break;
-    case Force:
-        // A shared branch is asked about twice: it is where a force push
-        // costs other people their work.
-        if (p.shared &&
-            !gity::ui::confirmDestructive(
-                this, tr("Force push to %1?").arg(p.target),
-                tr("%1 is a branch other people build on.").arg(p.remoteBranch),
-                tr("Force pushing it removes %n commit(s) from the remote, and anyone who has "
-                   "them will find their history no longer matches.",
-                   nullptr, p.incoming),
-                tr("Force Push"))) {
-            break;
-        }
+    case PreviewChoice::Force:
         session()->requestForcePush(p.branch, p.remote, p.remoteBranch, p.leaseOid);
         break;
-    default:
+    case PreviewChoice::Cancel:
         break;
     }
 }
