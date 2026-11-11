@@ -23,6 +23,8 @@ add_library(gity_session STATIC
     RepoWatcher.h
     RepoWorker.cpp
     RepoWorker.h
+    SessionHub.cpp
+    SessionHub.h
     SessionTypes.h
     WorkerAccounts.cpp
     WorkerBranches.cpp

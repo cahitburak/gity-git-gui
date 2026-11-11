@@ -1,20 +1,18 @@
 #pragma once
 
 #include "session/RepoSession.h"
+#include "session/SessionHub.h"
 #include "ui/model/HistoryModel.h"
 #include "ui/panels/RefsSidebar.h"
 
 #include <QElapsedTimer>
 
 #include <QHash>
-#include <QSet>
 #include <functional>
 
 #include <QMainWindow>
 #include <QSettings>
-#include <map>
 #include <memory>
-#include <vector>
 
 #include "core/git/HistoryStream.h"
 #include "core/git/Provider.h"
@@ -163,10 +161,9 @@ private:
     void buildToolBar();
     void buildStatusBar();
 
-    /// Makes `path`'s session the one on screen, creating it on first use:
-    /// its signals are forwarded through relay_, and requests go to it.
+    /// Makes `path`'s session the one on screen, creating it on first use.
     void activateSession(const QString& path);
-    /// Drops `path`'s session once it is idle.
+    /// Closes `path`'s session and forgets what its tab was showing.
     void retireSession(const QString& path);
     /// The network actions and Cancel button, for the session on screen.
     void syncNetworkState();
@@ -174,21 +171,11 @@ private:
     void reportBackgroundNetwork(const QString& path, const QString& verb, bool ok,
                                  const QString& summary);
 
-    /// Everything the window shows is wired to this once, at construction.
-    /// The session on screen forwards its signals here, so a result from a
-    /// repository in another tab never reaches the window. With no repository
-    /// open, it is also the session requests go to.
-    gity::session::RepoSession relay_;
-    /// One worker per open repository (ADR-004), by canonical path: a long
-    /// fetch in one does not hold up opening another.
-    std::map<QString, std::unique_ptr<gity::session::RepoSession>> sessions_;
-    /// Closed while still busy; destroyed once they are idle.
-    std::vector<std::unique_ptr<gity::session::RepoSession>> retiring_;
-    /// The session on screen.
-    gity::session::RepoSession* session_ = &relay_;
-    /// Sessions that have opened their repository at least once.
-    QSet<const gity::session::RepoSession*> openedSessions_;
-    QList<QMetaObject::Connection> forwarding_;
+    /// One session per open repository, and the relay the window is wired
+    /// to (ADR-004).
+    gity::session::SessionHub sessions_;
+    /// The session requests go to: the one on screen, or the relay.
+    [[nodiscard]] gity::session::RepoSession* session() const { return sessions_.current(); }
     QToolButton* cancelNetwork_ = nullptr;
     /// The Repository, Branch and Stash menus' entries, and the network ones
     /// among them, enabled with the toolbar's.
