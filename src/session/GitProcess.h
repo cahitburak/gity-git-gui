@@ -107,15 +107,15 @@ public:
                                                       const QList<EnvOverride>& overrides,
                                                       int timeoutMs = 120000);
 
-    /// Makes every invocation on the calling thread stop early once `flag`
-    /// is set. A session worker registers its shutdown flag here, so closing
-    /// a repository does not block the window until a ten-minute fetch or an
-    /// hour-long clone finishes on its own. Null removes it.
+    /// Makes network invocations on the calling thread — runStreaming and
+    /// runInParent — stop early once `flag` is set. A session worker
+    /// registers its flag here, so Cancel, or closing a repository, does not
+    /// wait for a ten-minute fetch or an hour-long clone. Local commands are
+    /// never stopped half way. Null removes it.
     static void setThreadAbortFlag(const std::atomic<bool>* flag);
 
-    /// The calling thread's abort flag is set: its session is closing, and
-    /// every git it starts will be stopped. Bookkeeping that would record the
-    /// outcome — the undo log — must not trust what it reads now.
+    /// The calling thread's abort flag is set: network commands it starts
+    /// now will be stopped.
     [[nodiscard]] static bool aborting() noexcept;
 
     /// One finished git invocation, for the command log. Never carries stdin

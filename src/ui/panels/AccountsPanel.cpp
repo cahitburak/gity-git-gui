@@ -1,5 +1,7 @@
 #include "AccountsPanel.h"
 
+#include "session/Background.h"
+
 #include "ui/panels/Confirm.h"
 
 #include "core/git/Provider.h"
@@ -115,9 +117,14 @@ AccountsPanel::AccountsPanel(QWidget* parent) : QWidget(parent) {
 
 void AccountsPanel::setRepository(const QString& workdir, const QString& originUrl) {
     originUrl_ = originUrl;
-    storageNote_->setText(
-        tr("Gity stores no passwords or tokens. %1")
-            .arg(credentialHelperDescription(workdir)));
+    storageNote_->setText(tr("Gity stores no passwords or tokens."));
+    // Asked off the UI thread: git reading its config can be slow on a
+    // network home directory, and Settings must open at once regardless.
+    session::runInBackground<QString>(
+        this, [workdir] { return credentialHelperDescription(workdir); },
+        [this](QString description) {
+            storageNote_->setText(tr("Gity stores no passwords or tokens. %1").arg(description));
+        });
     updateButtons();
 }
 

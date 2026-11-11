@@ -374,10 +374,10 @@ void UndoLog::keepAlive(const UndoEntry& entry) const {
 
 void UndoLog::record(const QString& verb, RepoState before, bool worktreeChanged,
                      bool operationInProgress) {
-    // The session is closing and has stopped git part way: neither the state
-    // read before nor the one readable now can be trusted, and an entry built
-    // from them would undo to nonsense. Better no entry than a wrong one.
-    if (GitProcess::aborting() || !before.valid) {
+    // A capture git did not finish — timed out, or could not start — is not
+    // a state anything can be restored to, and an entry built from it would
+    // undo to nonsense. Better no entry than a wrong one.
+    if (!before.valid) {
         return;
     }
     const RepoState after = capture(false, true);
@@ -450,7 +450,7 @@ void UndoLog::closePending(const RepoState& now) {
 }
 
 void UndoLog::settle(bool operationInProgress) {
-    if (operationInProgress || GitProcess::aborting()) {
+    if (operationInProgress) {
         return;
     }
     const LogLock lock(gitDir_);

@@ -98,6 +98,7 @@ public:
 
 public slots:
     void open(const QString& path);
+
     void rewalk(const gity::git::CommitFilter& filter);
     void setFilter(const gity::git::CommitFilter& filter);
     void loadDetail(const QString& oidHex, quint64 generation);
@@ -256,6 +257,18 @@ public:
     /// Queues an open. A second call supersedes the first: the in-flight walk
     /// is cancelled rather than awaited (ADR-004, backpressure).
     void open(const QString& path);
+    /// A change to the repository is queued or running. Closing now would
+    /// have to wait for it — or, for a network command, stop it.
+    [[nodiscard]] bool busy() const noexcept {
+        return writesInFlight_.load(std::memory_order_relaxed) > 0;
+    }
+    /// A fetch, pull, push or clone is running.
+    [[nodiscard]] bool networkBusy() const noexcept {
+        return networkBusy_.load(std::memory_order_relaxed);
+    }
+    /// Stops the network command running now, and any queued behind it.
+    /// Local commands are never interrupted.
+    void cancelNetwork();
     /// As open, walking with `filter` — a different repository brings its own
     /// filter rather than inheriting the one being left.
     void open(const QString& path, const gity::git::CommitFilter& filter);
@@ -511,16 +524,50 @@ signals:
     void locksReady(gity::session::LockListPtr locks, bool supported);
 
 private:
+    /// Queues `fn` on the worker. A write — anything that changes the
+    /// repository — is counted while queued or running, so the window can
+    /// tell whether closing now would interrupt one.
+    /// Lowers cancel_ for a walk about to start, and says whether it is still
+    /// the newest one asked for.
+    [[nodiscard]] bool startWalk(quint64 generation);
+
+    template <typename Fn>
+    void post(Fn&& fn, Qt::ConnectionType = Qt::QueuedConnection) {
+        writesInFlight_.fetch_add(1, std::memory_order_relaxed);
+        QMetaObject::invokeMethod(
+            worker_,
+            [this, fn = std::forward<Fn>(fn)]() mutable {
+                fn();
+                writesInFlight_.fetch_sub(1, std::memory_order_relaxed);
+            },
+            Qt::QueuedConnection);
+    }
+    /// Queues a read: nothing is lost if it never runs.
+    template <typename Fn>
+    void postRead(Fn&& fn, Qt::ConnectionType = Qt::QueuedConnection) {
+        QMetaObject::invokeMethod(worker_, std::forward<Fn>(fn), Qt::QueuedConnection);
+    }
+
     QThread thread_;
     RepoWorker* worker_ = nullptr;
     std::atomic<bool> cancel_{false};
-    /// Set once, when the session is destroyed. Kept apart from cancel_,
-    /// which every reopen raises: a reopen must not kill a fetch in flight.
-    std::atomic<bool> shutdown_{false};
-    quint64 detailGeneration_ = 0;
-    quint64 diffGeneration_ = 0;
-    quint64 workingDiffGeneration_ = 0;
-    quint64 imageGeneration_ = 0;
+    /// Raised to stop the network command running now — by Cancel, or when
+    /// the session is destroyed. Only network commands heed it: stopping a
+    /// commit, a rebase or a checkout half way would leave the repository in
+    /// a state nobody chose. Kept apart from cancel_, which every reopen
+    /// raises: a reopen must not kill a fetch in flight.
+    std::atomic<bool> stopNetwork_{false};
+    std::atomic<bool> networkBusy_{false};
+    std::atomic<int> writesInFlight_{0};
+    /// Bumped by every open and filter. A walk queued behind a newer one is
+    /// skipped outright rather than run to the end.
+    std::atomic<quint64> walkGeneration_{0};
+    // Atomic because the worker reads them too: a request already superseded
+    // by the time the worker reaches it is skipped, not computed and dropped.
+    std::atomic<quint64> detailGeneration_{0};
+    std::atomic<quint64> diffGeneration_{0};
+    std::atomic<quint64> workingDiffGeneration_{0};
+    std::atomic<quint64> imageGeneration_{0};
 };
 
 } // namespace gity::session

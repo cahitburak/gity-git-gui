@@ -2,6 +2,7 @@
 
 #include "core/git/Credential.h"
 #include "core/git/CredentialSources.h"
+#include "session/Background.h"
 #include "session/GitProcess.h"
 
 #include <QDir>
@@ -28,12 +29,6 @@ namespace {
 using Source = StoredCredential::Source;
 using StringMap = QMap<QString, QString>;
 
-void runAsync(QObject* context, std::function<void()> work, std::function<void()> done) {
-    QThread* thread = QThread::create(std::move(work));
-    QObject::connect(thread, &QThread::finished, thread, &QObject::deleteLater);
-    QObject::connect(thread, &QThread::finished, context, std::move(done));
-    thread->start();
-}
 
 QStringList storeFiles() {
     // Where `git credential-store` looks when given no --file.
@@ -253,7 +248,7 @@ QList<StoredCredential> CredentialInventory::gather(QStringList* notes) {
 void CredentialInventory::list() {
     auto credentials = std::make_shared<QList<StoredCredential>>();
     auto notes = std::make_shared<QStringList>();
-    runAsync(
+    runInBackground(
         this, [credentials, notes] { *credentials = gather(notes.get()); },
         [this, credentials, notes] { emit listed(*credentials, *notes); });
 }
@@ -261,7 +256,7 @@ void CredentialInventory::list() {
 void CredentialInventory::reveal(const StoredCredential& credential) {
     auto secret = std::make_shared<QString>();
     auto problem = std::make_shared<QString>();
-    runAsync(
+    runInBackground(
         this,
         [credential, secret, problem] {
             if (credential.source == Source::GitHubCli) {
@@ -299,7 +294,7 @@ void CredentialInventory::reveal(const StoredCredential& credential) {
 void CredentialInventory::remove(const StoredCredential& credential) {
     auto ok = std::make_shared<bool>(false);
     auto problem = std::make_shared<QString>();
-    runAsync(
+    runInBackground(
         this,
         [credential, ok, problem] {
             switch (credential.source) {
@@ -336,7 +331,7 @@ void CredentialInventory::remove(const StoredCredential& credential) {
 
 void CredentialInventory::makeActive(const StoredCredential& credential) {
     auto result = std::make_shared<ProcessResult>();
-    runAsync(
+    runInBackground(
         this,
         [credential, result] {
             *result = runTool(QStringLiteral("gh"),

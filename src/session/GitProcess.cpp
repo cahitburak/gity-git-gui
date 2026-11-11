@@ -201,9 +201,14 @@ GitResult executeUnlogged(const Request& request) {
             drainProgress(pending, chunk, *request.onProgress);
         }
 
-        if (t_abort != nullptr && t_abort->load(std::memory_order_relaxed)) {
+        // Only network commands are stopped: they can be retried, and a fetch
+        // or push left half way changes nothing that matters. A commit, a
+        // rebase or a checkout stopped half way leaves the repository in a
+        // state nobody chose, so those always run to the end.
+        if (request.onProgress != nullptr && t_abort != nullptr &&
+            t_abort->load(std::memory_order_relaxed)) {
             stop(process);
-            result.errorOutput = QStringLiteral("git was stopped because the repository closed");
+            result.errorOutput = QStringLiteral("git was stopped before it finished");
             result.timedOut = true;
             return result;
         }

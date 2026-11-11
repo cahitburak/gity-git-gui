@@ -1,5 +1,7 @@
 #include "CredentialsPanel.h"
 
+#include "session/Background.h"
+
 #include "core/git/RemoteUrl.h"
 
 #include "session/CredentialInventory.h"
@@ -276,26 +278,33 @@ void CredentialsPanel::setRepository(const QString& workdir,
                                      const QList<QPair<QString, QString>>& remotes) {
     workdir_ = workdir;
 
-    const QStringList helpers = session::CredentialManager::configuredHelpers(workdir);
-    if (helpers.isEmpty()) {
-        helpers_->setText(tr("No credential helper is configured, so git asks for a password "
-                             "every time and nothing can be stored or shown here."));
-        applyRole(helpers_, QStringLiteral("warn"));
-    } else {
-        // Gity's own per-repository helper is a shell one-liner; said in words.
-        QStringList shown;
-        for (const QString& line : helpers) {
-            const QString account =
-                QString::fromStdString(git::accountOfGhHelper(line.toStdString()));
-            shown << (account.isEmpty()
-                          ? line
-                          : tr("%1  \u2192 GitHub CLI token for %2, this repository only")
-                                .arg(line.section(QChar(' '), 0, 1).section(QChar('\t'), 0, 1),
-                                     account));
+    // Read off the UI thread: git reading its config can take seconds on a
+    // network home directory, and the page must not freeze meanwhile.
+    helpers_->setText(tr("Reading git's credential configuration…"));
+    applyRole(helpers_, QStringLiteral("muted"));
+    session::runInBackground<QStringList>(
+        this, [workdir] { return session::CredentialManager::configuredHelpers(workdir); },
+        [this](QStringList helpers) {
+        if (helpers.isEmpty()) {
+            helpers_->setText(tr("No credential helper is configured, so git asks for a password "
+                                 "every time and nothing can be stored or shown here."));
+            applyRole(helpers_, QStringLiteral("warn"));
+        } else {
+            // Gity's own per-repository helper is a shell one-liner; said in words.
+            QStringList shown;
+            for (const QString& line : helpers) {
+                const QString account =
+                    QString::fromStdString(git::accountOfGhHelper(line.toStdString()));
+                shown << (account.isEmpty()
+                              ? line
+                              : tr("%1  \u2192 GitHub CLI token for %2, this repository only")
+                                    .arg(line.section(QChar(' '), 0, 1).section(QChar('\t'), 0, 1),
+                                         account));
+            }
+            helpers_->setText(tr("Helpers:\n%1").arg(shown.join(QChar('\n'))));
+            applyRole(helpers_, QStringLiteral("muted"));
         }
-        helpers_->setText(tr("Helpers:\n%1").arg(shown.join(QChar('\n'))));
-        applyRole(helpers_, QStringLiteral("muted"));
-    }
+        });
 
     const QSignalBlocker quiet(remote_);
     remote_->clear();

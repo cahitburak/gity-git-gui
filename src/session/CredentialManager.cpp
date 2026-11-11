@@ -2,8 +2,10 @@
 
 #include "core/git/Credential.h"
 #include "session/CredentialInventory.h"
+#include "session/Background.h"
 #include "session/GitProcess.h"
 
+#include <QDir>
 #include <QThread>
 
 #include <functional>
@@ -43,12 +45,6 @@ bool requestFor(const QString& url, const QString& username, const QString& pass
 
 /// Runs `work` on its own thread and `done` back on `context`'s thread. The
 /// thread cleans itself up; if `context` is gone by then, `done` is dropped.
-void runAsync(QObject* context, std::function<void()> work, std::function<void()> done) {
-    QThread* thread = QThread::create(std::move(work));
-    QObject::connect(thread, &QThread::finished, thread, &QObject::deleteLater);
-    QObject::connect(thread, &QThread::finished, context, std::move(done));
-    thread->start();
-}
 
 } // namespace
 
@@ -62,7 +58,9 @@ QStringList CredentialManager::configuredHelpers(const QString& workdir) {
     // Every credential.*helper key, so URL-scoped helpers show as well as the
     // global one. Read from the repository, so its own config is included.
     const GitResult result = GitProcess::run(
-        workdir.isEmpty() ? QStringLiteral(".") : workdir,
+        // With no repository, the home directory: "." is wherever Gity was
+        // started from, which may be some other repository.
+        workdir.isEmpty() ? QDir::homePath() : workdir,
         {QStringLiteral("config"), QStringLiteral("--show-scope"), QStringLiteral("--get-regexp"),
          QStringLiteral("^credential\\..*helper$")},
         15000);
@@ -83,7 +81,7 @@ void CredentialManager::lookup(const QString& workdir, const QString& url) {
     auto result = std::make_shared<GitResult>();
     auto hint = std::make_shared<QString>();
     const QByteArray input = QByteArray::fromStdString(git::serializeCredential(request));
-    runAsync(
+    runInBackground(
         this,
         [result, hint, workdir, input, url] {
             *result = GitProcess::runWithInputAndEnv(
@@ -139,7 +137,7 @@ void CredentialManager::store(const QString& workdir, const QString& url,
     auto result = std::make_shared<GitResult>();
     const QByteArray approve = QByteArray::fromStdString(git::serializeCredential(record));
     const QByteArray reject = QByteArray::fromStdString(git::serializeCredential(previous));
-    runAsync(
+    runInBackground(
         this,
         [result, workdir, approve, reject, renamed] {
             if (renamed) {
@@ -168,7 +166,7 @@ void CredentialManager::remove(const QString& workdir, const QString& url,
     }
     auto result = std::make_shared<GitResult>();
     const QByteArray input = QByteArray::fromStdString(git::serializeCredential(record));
-    runAsync(
+    runInBackground(
         this,
         [result, workdir, input] {
             *result = GitProcess::runWithInputAndEnv(

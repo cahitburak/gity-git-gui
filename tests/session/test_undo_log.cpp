@@ -125,7 +125,9 @@ TEST(UndoLog, AStalePendingEntryIsSettledSoUndoStillWorks) {
     EXPECT_EQ(repo.head(), beforeMergeHead);
 }
 
-TEST(UndoLog, NothingIsRecordedWhileTheSessionIsClosing) {
+TEST(UndoLog, AnIncompleteCaptureIsNeverRecorded) {
+    // A capture git did not finish has no refs to restore; an entry built
+    // from one once moved HEAD and left the branch where it was.
     TempRepo repo;
     repo.write("a.txt", "one\n");
     repo.commitAll();
@@ -133,15 +135,26 @@ TEST(UndoLog, NothingIsRecordedWhileTheSessionIsClosing) {
     UndoLog log;
     log.load(repo.dir(), gitDir(repo));
     RepoState before = begin(log);
+    before.valid = false;
     repo.write("a.txt", "two\n");
     repo.commitAll("second");
-
-    std::atomic<bool> closing{true};
-    GitProcess::setThreadAbortFlag(&closing);
     log.record(QStringLiteral("Commit"), std::move(before), false, false);
-    GitProcess::setThreadAbortFlag(nullptr);
 
     EXPECT_TRUE(log.undoLabel().isEmpty());
+}
+
+TEST(UndoLog, ClosingTheSessionDoesNotStopALocalCommand) {
+    // Only network commands heed the abort flag. A commit interrupted by
+    // closing the window used to be killed half way.
+    TempRepo repo;
+    repo.write("a.txt", "one\n");
+    repo.commitAll();
+    std::atomic<bool> closing{true};
+    GitProcess::setThreadAbortFlag(&closing);
+    repo.write("a.txt", "two\n");
+    const auto result = GitProcess::run(repo.dir(), {"commit", "-qam", "during close"});
+    GitProcess::setThreadAbortFlag(nullptr);
+    EXPECT_TRUE(result.ok()) << result.errorOutput.toStdString();
 }
 
 TEST(UndoLog, TwoLogsOnOneRepositoryKeepEachOthersEntries) {

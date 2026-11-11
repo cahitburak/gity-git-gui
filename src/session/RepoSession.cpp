@@ -12,6 +12,7 @@
 #include "core/git/WorkingCopy.h"
 #include "GitProcess.h"
 #include "IndexWrites.h"
+#include "Background.h"
 #include "CredentialInventory.h"
 
 #include <QDir>
@@ -573,21 +574,6 @@ void RepoWorker::loadAccountChoice() {
                    QStringLiteral("credential.helper"), url});
     const bool viaGh = helper.contains(QStringLiteral("gh auth"));
 
-    QStringList accounts;
-    QString defaultAccount;
-    for (const StoredCredential& credential : CredentialInventory::gather()) {
-        if (credential.host.compare(host, Qt::CaseInsensitive) != 0 ||
-            (viaGh != (credential.source == StoredCredential::Source::GitHubCli))) {
-            continue;
-        }
-        if (!credential.username.isEmpty() && !accounts.contains(credential.username)) {
-            accounts << credential.username;
-        }
-        if (credential.active) {
-            defaultAccount = credential.username;
-        }
-    }
-
     // What this repository has chosen, in its own config.
     QString chosen;
     if (viaGh) {
@@ -606,7 +592,30 @@ void RepoWorker::loadAccountChoice() {
                                         QStringLiteral("--get"),
                                         QStringLiteral("credential.%1.username").arg(url)});
     }
-    emit accountChoiceReady(host, viaGh, accounts, defaultAccount, chosen);
+
+    // The accounts known for the host come from the keyring and GitHub CLI,
+    // which can take tens of seconds — a locked keyring waits on a person.
+    // Gathered on a thread of their own, so this repository's worker is not
+    // held up meanwhile; the answer is sent from here when it arrives.
+    runInBackground<QList<StoredCredential>>(
+        this, [] { return CredentialInventory::gather(); },
+        [this, host, viaGh, chosen](QList<StoredCredential> stored) {
+            QStringList accounts;
+            QString defaultAccount;
+            for (const StoredCredential& credential : stored) {
+                if (credential.host.compare(host, Qt::CaseInsensitive) != 0 ||
+                    (viaGh != (credential.source == StoredCredential::Source::GitHubCli))) {
+                    continue;
+                }
+                if (!credential.username.isEmpty() && !accounts.contains(credential.username)) {
+                    accounts << credential.username;
+                }
+                if (credential.active) {
+                    defaultAccount = credential.username;
+                }
+            }
+            emit accountChoiceReady(host, viaGh, accounts, defaultAccount, chosen);
+        });
 }
 
 void RepoWorker::setAccountChoice(const QString& account) {
@@ -2086,9 +2095,15 @@ RepoSession::RepoSession(QObject* parent) : QObject(parent) {
                 }
             });
     connect(worker_, &RepoWorker::statusReady, this, &RepoSession::statusReady);
-    connect(worker_, &RepoWorker::networkStarted, this, &RepoSession::networkStarted);
+    connect(worker_, &RepoWorker::networkStarted, this, [this](const QString& verb) {
+        networkBusy_.store(true, std::memory_order_relaxed);
+        emit networkStarted(verb);
+    });
     connect(worker_, &RepoWorker::networkProgress, this, &RepoSession::networkProgress);
-    connect(worker_, &RepoWorker::cloneFinished, this, &RepoSession::cloneFinished);
+    connect(worker_, &RepoWorker::cloneFinished, this, [this](const QString& path) {
+        networkBusy_.store(false, std::memory_order_relaxed);
+        emit cloneFinished(path);
+    });
     connect(worker_, &RepoWorker::remotesReady, this, &RepoSession::remotesReady);
     connect(worker_, &RepoWorker::remoteCommandFailed, this,
             &RepoSession::remoteCommandFailed);
@@ -2104,7 +2119,11 @@ RepoSession::RepoSession(QObject* parent) : QObject(parent) {
     connect(worker_, &RepoWorker::undoStateChanged, this, &RepoSession::undoStateChanged);
     connect(worker_, &RepoWorker::previewReady, this, &RepoSession::previewReady);
     connect(worker_, &RepoWorker::accountChoiceReady, this, &RepoSession::accountChoiceReady);
-    connect(worker_, &RepoWorker::networkFinished, this, &RepoSession::networkFinished);
+    connect(worker_, &RepoWorker::networkFinished, this,
+            [this](const QString& verb, bool ok, const QString& summary, const QString& detail) {
+                networkBusy_.store(false, std::memory_order_relaxed);
+                emit networkFinished(verb, ok, summary, detail);
+            });
     connect(worker_, &RepoWorker::imageDiffReady, this,
             [this](ImageDiffPtr diff, quint64 generation) {
                 if (generation == imageGeneration_) {
@@ -2125,71 +2144,98 @@ RepoSession::RepoSession(QObject* parent) : QObject(parent) {
     thread_.start();
     // Registered on the worker thread itself, since the flag is per thread.
     QMetaObject::invokeMethod(
-        worker_, [this] { GitProcess::setThreadAbortFlag(&shutdown_); }, Qt::QueuedConnection);
+        worker_, [this] { GitProcess::setThreadAbortFlag(&stopNetwork_); },
+        Qt::QueuedConnection);
 }
 
 RepoSession::~RepoSession() {
-    // Both flags: cancel_ stops a history walk, shutdown_ stops a git process.
-    // Without the second, closing a tab mid-fetch froze the window until the
-    // fetch finished or hit its ten-minute timeout.
-    shutdown_.store(true, std::memory_order_relaxed);
+    // Both flags: cancel_ stops a history walk, stopNetwork_ stops a network
+    // command. Without the second, closing a tab mid-fetch froze the window
+    // until the fetch finished or hit its ten-minute timeout. A local command
+    // — a commit, a rebase step, a checkout — is left to finish: killing one
+    // half way leaves the repository in a state nobody chose. The window asks
+    // before closing while one is running.
+    stopNetwork_.store(true, std::memory_order_relaxed);
     cancel_.store(true, std::memory_order_relaxed);
     thread_.quit();
     thread_.wait();
 }
 
-void RepoSession::open(const QString& path) {
-    // Supersede rather than queue behind: cancel the in-flight walk, then let
-    // the new request run once the worker returns to the event loop.
-    cancel_.store(true, std::memory_order_relaxed);
+void RepoSession::cancelNetwork() {
+    if (!networkBusy()) {
+        return;
+    }
+    stopNetwork_.store(true, std::memory_order_relaxed);
+    // Lowered again once everything already queued has run, so the next
+    // fetch the user asks for is not cancelled too.
     QMetaObject::invokeMethod(
-        worker_,
-        [this, path] {
-            cancel_.store(false, std::memory_order_relaxed);
-            worker_->open(path);
-        },
+        worker_, [this] { stopNetwork_.store(false, std::memory_order_relaxed); },
         Qt::QueuedConnection);
 }
 
-void RepoSession::open(const QString& path, const gity::git::CommitFilter& filter) {
+void RepoSession::open(const QString& path) {
+    // Supersede rather than queue behind: cancel the in-flight walk, then let
+    // the new request run once the worker returns to the event loop. A walk
+    // queued behind a newer one is skipped (see startWalk).
+    const quint64 generation = ++walkGeneration_;
     cancel_.store(true, std::memory_order_relaxed);
-    QMetaObject::invokeMethod(
-        worker_,
-        [this, path, filter] {
-            cancel_.store(false, std::memory_order_relaxed);
+    postRead([this, path, generation] {
+        if (startWalk(generation)) {
+            worker_->open(path);
+        }
+    });
+}
+
+bool RepoSession::startWalk(quint64 generation) {
+    // Lowered before the check, not after: a newer request raising cancel_
+    // between the two would otherwise be undone here, and the older walk
+    // would run to the end.
+    cancel_.store(false, std::memory_order_relaxed);
+    return generation == walkGeneration_.load(std::memory_order_relaxed);
+}
+
+void RepoSession::open(const QString& path, const gity::git::CommitFilter& filter) {
+    const quint64 generation = ++walkGeneration_;
+    cancel_.store(true, std::memory_order_relaxed);
+    postRead([this, path, filter, generation] {
+        if (startWalk(generation)) {
             worker_->setFilter(filter);
             worker_->open(path);
-        },
-        Qt::QueuedConnection);
+        }
+    });
 }
 
 void RepoSession::requestDetail(const QString& oidHex) {
     const quint64 generation = ++detailGeneration_;
-    QMetaObject::invokeMethod(
-        worker_, [this, oidHex, generation] { worker_->loadDetail(oidHex, generation); },
+    postRead([this, oidHex, generation] {
+        if (generation == detailGeneration_) { // already superseded: skip it
+            worker_->loadDetail(oidHex, generation);
+        }
+    },
         Qt::QueuedConnection);
 }
 
 void RepoSession::requestCommitPeek(const QString& oidHex, const QString& path) {
-    QMetaObject::invokeMethod(
-        worker_, [this, oidHex, path] { worker_->loadCommitPeek(oidHex, path); },
+    postRead([this, oidHex, path] { worker_->loadCommitPeek(oidHex, path); },
         Qt::QueuedConnection);
 }
 
 void RepoSession::requestFileDiff(const QString& oidHex, const QString& path) {
     const quint64 generation = ++diffGeneration_;
-    QMetaObject::invokeMethod(
-        worker_,
-        [this, oidHex, path, generation] { worker_->loadFileDiff(oidHex, path, generation); },
+    postRead([this, oidHex, path, generation] {
+        if (generation == diffGeneration_) {
+            worker_->loadFileDiff(oidHex, path, generation);
+        }
+    },
         Qt::QueuedConnection);
 }
 
 void RepoSession::requestComparison(const QString& fromHex, const QString& toHex) {
     const quint64 generation = ++detailGeneration_;
-    QMetaObject::invokeMethod(
-        worker_,
-        [this, fromHex, toHex, generation] {
-            worker_->loadComparison(fromHex, toHex, generation);
+    postRead([this, fromHex, toHex, generation] {
+            if (generation == detailGeneration_) {
+                worker_->loadComparison(fromHex, toHex, generation);
+            }
         },
         Qt::QueuedConnection);
 }
@@ -2197,35 +2243,32 @@ void RepoSession::requestComparison(const QString& fromHex, const QString& toHex
 void RepoSession::requestFileDiffBetween(const QString& fromHex, const QString& toHex,
                                          const QString& path) {
     const quint64 generation = ++diffGeneration_;
-    QMetaObject::invokeMethod(
-        worker_,
-        [this, fromHex, toHex, path, generation] {
-            worker_->loadFileDiffBetween(fromHex, toHex, path, generation);
+    postRead([this, fromHex, toHex, path, generation] {
+            if (generation == diffGeneration_) {
+                worker_->loadFileDiffBetween(fromHex, toHex, path, generation);
+            }
         },
         Qt::QueuedConnection);
 }
 
 void RepoSession::requestStatus() {
-    QMetaObject::invokeMethod(
-        worker_, [this] { worker_->refreshStatus(); }, Qt::QueuedConnection);
+    postRead([this] { worker_->refreshStatus(); }, Qt::QueuedConnection);
 }
 
 void RepoSession::requestStage(const QStringList& paths) {
-    QMetaObject::invokeMethod(
-        worker_, [this, paths] { worker_->stage(paths); }, Qt::QueuedConnection);
+    post([this, paths] { worker_->stage(paths); }, Qt::QueuedConnection);
 }
 
 void RepoSession::requestUnstage(const QStringList& paths) {
-    QMetaObject::invokeMethod(
-        worker_, [this, paths] { worker_->unstage(paths); }, Qt::QueuedConnection);
+    post([this, paths] { worker_->unstage(paths); }, Qt::QueuedConnection);
 }
 
 void RepoSession::requestWorkingDiff(const QString& path, bool staged) {
     const quint64 generation = ++workingDiffGeneration_;
-    QMetaObject::invokeMethod(
-        worker_,
-        [this, path, staged, generation] {
-            worker_->loadWorkingFileDiff(path, staged, generation);
+    postRead([this, path, staged, generation] {
+            if (generation == workingDiffGeneration_) {
+                worker_->loadWorkingFileDiff(path, staged, generation);
+            }
         },
         Qt::QueuedConnection);
 }
@@ -2233,27 +2276,23 @@ void RepoSession::requestWorkingDiff(const QString& path, bool staged) {
 void RepoSession::requestImageDiff(const QString& path, const QString& commitOid,
                                    const QString& baseOid) {
     const quint64 generation = ++imageGeneration_;
-    QMetaObject::invokeMethod(
-        worker_,
-        [this, path, commitOid, baseOid, generation] {
-            worker_->loadImageDiff(path, commitOid, baseOid, generation);
+    postRead([this, path, commitOid, baseOid, generation] {
+            if (generation == imageGeneration_) {
+                worker_->loadImageDiff(path, commitOid, baseOid, generation);
+            }
         },
         Qt::QueuedConnection);
 }
 
 void RepoSession::requestFetch(bool withSubmodules) {
-    QMetaObject::invokeMethod(
-        worker_,
-        [this, withSubmodules] {
+    post([this, withSubmodules] {
             worker_->runFetch(withSubmodules);
         },
         Qt::QueuedConnection);
 }
 
 void RepoSession::requestPull() {
-    QMetaObject::invokeMethod(
-        worker_,
-        [this] {
+    post([this] {
             // --ff-only rather than a merge: a client that silently creates
             // merge commits on pull is how a history fills with merges nobody
             // intended.
@@ -2265,31 +2304,25 @@ void RepoSession::requestPull() {
 }
 
 void RepoSession::requestPush() {
-    QMetaObject::invokeMethod(
-        worker_, [this] { worker_->runPush(); }, Qt::QueuedConnection);
+    post([this] { worker_->runPush(); }, Qt::QueuedConnection);
 }
 
 void RepoSession::requestPushRef(const QString& branch) {
-    QMetaObject::invokeMethod(
-        worker_, [this, branch] { worker_->runPushBranch(branch); }, Qt::QueuedConnection);
+    post([this, branch] { worker_->runPushBranch(branch); }, Qt::QueuedConnection);
 }
 
 void RepoSession::requestClone(const QString& url, const QString& parentDir,
                                const QString& folder) {
-    QMetaObject::invokeMethod(
-        worker_, [this, url, parentDir, folder] { worker_->runClone(url, parentDir, folder); },
+    post([this, url, parentDir, folder] { worker_->runClone(url, parentDir, folder); },
         Qt::QueuedConnection);
 }
 
 void RepoSession::requestRemotes() {
-    QMetaObject::invokeMethod(
-        worker_, [this] { worker_->loadRemotes(); }, Qt::QueuedConnection);
+    postRead([this] { worker_->loadRemotes(); }, Qt::QueuedConnection);
 }
 
 void RepoSession::requestAddRemote(const QString& name, const QString& url) {
-    QMetaObject::invokeMethod(
-        worker_,
-        [this, name, url] {
+    post([this, name, url] {
             worker_->runRemoteCommand(
                 {QStringLiteral("remote"), QStringLiteral("add"), QStringLiteral("--"), name, url});
         },
@@ -2297,9 +2330,7 @@ void RepoSession::requestAddRemote(const QString& name, const QString& url) {
 }
 
 void RepoSession::requestRemoveRemote(const QString& name) {
-    QMetaObject::invokeMethod(
-        worker_,
-        [this, name] {
+    post([this, name] {
             worker_->runRemoteCommand(
                 {QStringLiteral("remote"), QStringLiteral("remove"), name});
         },
@@ -2307,9 +2338,7 @@ void RepoSession::requestRemoveRemote(const QString& name) {
 }
 
 void RepoSession::requestRenameRemote(const QString& from, const QString& to) {
-    QMetaObject::invokeMethod(
-        worker_,
-        [this, from, to] {
+    post([this, from, to] {
             worker_->runRemoteCommand(
                 {QStringLiteral("remote"), QStringLiteral("rename"), from, to});
         },
@@ -2317,9 +2346,7 @@ void RepoSession::requestRenameRemote(const QString& from, const QString& to) {
 }
 
 void RepoSession::requestSetRemoteUrl(const QString& name, const QString& url) {
-    QMetaObject::invokeMethod(
-        worker_,
-        [this, name, url] {
+    post([this, name, url] {
             worker_->runRemoteCommand(
                 {QStringLiteral("remote"), QStringLiteral("set-url"), QStringLiteral("--"), name,
                  url});
@@ -2328,9 +2355,7 @@ void RepoSession::requestSetRemoteUrl(const QString& name, const QString& url) {
 }
 
 void RepoSession::requestMerge(const QString& ref) {
-    QMetaObject::invokeMethod(
-        worker_,
-        [this, ref] {
+    post([this, ref] {
             // --no-ff is not forced: a fast-forward is what the user expects
             // when nothing has diverged. --no-edit keeps git from opening an
             // editor no one would see.
@@ -2341,9 +2366,7 @@ void RepoSession::requestMerge(const QString& ref) {
 }
 
 void RepoSession::requestRebaseOnto(const QString& ref) {
-    QMetaObject::invokeMethod(
-        worker_,
-        [this, ref] {
+    post([this, ref] {
             worker_->runHistoryEdit(QStringLiteral("Rebase"),
                                     {QStringLiteral("rebase"), ref});
         },
@@ -2351,9 +2374,7 @@ void RepoSession::requestRebaseOnto(const QString& ref) {
 }
 
 void RepoSession::requestCherryPick(const QString& oidHex) {
-    QMetaObject::invokeMethod(
-        worker_,
-        [this, oidHex] {
+    post([this, oidHex] {
             worker_->runHistoryEdit(
                 QStringLiteral("Cherry-pick"),
                 {QStringLiteral("cherry-pick"), QStringLiteral("--no-edit"), oidHex});
@@ -2362,9 +2383,7 @@ void RepoSession::requestCherryPick(const QString& oidHex) {
 }
 
 void RepoSession::requestRevert(const QString& oidHex) {
-    QMetaObject::invokeMethod(
-        worker_,
-        [this, oidHex] {
+    post([this, oidHex] {
             worker_->runHistoryEdit(
                 QStringLiteral("Revert"),
                 {QStringLiteral("revert"), QStringLiteral("--no-edit"), oidHex});
@@ -2373,14 +2392,11 @@ void RepoSession::requestRevert(const QString& oidHex) {
 }
 
 void RepoSession::requestContinueOperation(const QString& message) {
-    QMetaObject::invokeMethod(
-        worker_, [this, message] { worker_->continueOperation(message); }, Qt::QueuedConnection);
+    post([this, message] { worker_->continueOperation(message); }, Qt::QueuedConnection);
 }
 
 void RepoSession::requestAbortOperation() {
-    QMetaObject::invokeMethod(
-        worker_,
-        [this] {
+    post([this] {
             // The verb comes from what is actually on disk. Assuming "merge"
             // here is how a stopped rebase gets abandoned with the wrong
             // command.
@@ -2403,37 +2419,31 @@ void RepoSession::requestAbortOperation() {
 void RepoSession::requestFilter(const gity::git::CommitFilter& filter) {
     // Cancels whatever walk is in flight: a filter typed while the previous
     // one is still streaming must not interleave two sets of rows.
+    const quint64 generation = ++walkGeneration_;
     cancel_.store(true, std::memory_order_relaxed);
-    QMetaObject::invokeMethod(
-        worker_,
-        [this, filter] {
-            cancel_.store(false, std::memory_order_relaxed);
+    postRead([this, filter, generation] {
+        if (startWalk(generation)) {
             worker_->rewalk(filter);
-        },
-        Qt::QueuedConnection);
+        }
+    });
 }
 
 void RepoSession::requestOperationState() {
-    QMetaObject::invokeMethod(
-        worker_, [this] { worker_->reportOperation(); }, Qt::QueuedConnection);
+    postRead([this] { worker_->reportOperation(); }, Qt::QueuedConnection);
 }
 
 void RepoSession::requestInteractiveRebase(const QString& baseOid,
                                            const std::vector<git::RebaseStep>& steps) {
-    QMetaObject::invokeMethod(
-        worker_, [this, baseOid, steps] { worker_->runInteractiveRebase(baseOid, steps); },
+    post([this, baseOid, steps] { worker_->runInteractiveRebase(baseOid, steps); },
         Qt::QueuedConnection);
 }
 
 void RepoSession::requestCommitsSince(const QString& baseOid) {
-    QMetaObject::invokeMethod(
-        worker_, [this, baseOid] { worker_->loadCommitsSince(baseOid); }, Qt::QueuedConnection);
+    postRead([this, baseOid] { worker_->loadCommitsSince(baseOid); }, Qt::QueuedConnection);
 }
 
 void RepoSession::requestCheckout(const QString& ref) {
-    QMetaObject::invokeMethod(
-        worker_,
-        [this, ref] {
+    post([this, ref] {
             // `switch` rather than `checkout`: it refuses to silently create a
             // detached HEAD or clobber local changes, which `checkout` will do
             // in some of its many modes.
@@ -2445,9 +2455,7 @@ void RepoSession::requestCheckout(const QString& ref) {
 
 void RepoSession::requestCheckout(const QString& ref, RefKind kind, LocalChanges changes,
                                   bool updateSubmodules) {
-    QMetaObject::invokeMethod(
-        worker_,
-        [this, ref, kind, changes, updateSubmodules] {
+    post([this, ref, kind, changes, updateSubmodules] {
             worker_->runCheckout(ref, static_cast<int>(kind), static_cast<int>(changes),
                                  updateSubmodules);
         },
@@ -2457,9 +2465,7 @@ void RepoSession::requestCheckout(const QString& ref, RefKind kind, LocalChanges
 void RepoSession::requestCreateBranch(const QString& name, const QString& startPoint,
                                       RefKind kind, bool checkout, LocalChanges changes,
                                       bool updateSubmodules) {
-    QMetaObject::invokeMethod(
-        worker_,
-        [this, name, startPoint, kind, checkout, changes, updateSubmodules] {
+    post([this, name, startPoint, kind, checkout, changes, updateSubmodules] {
             worker_->runCreateBranch(name, startPoint, static_cast<int>(kind), checkout,
                                      static_cast<int>(changes), updateSubmodules);
         },
@@ -2467,9 +2473,7 @@ void RepoSession::requestCreateBranch(const QString& name, const QString& startP
 }
 
 void RepoSession::requestDeleteBranch(const QString& name, bool force) {
-    QMetaObject::invokeMethod(
-        worker_,
-        [this, name, force] {
+    post([this, name, force] {
             worker_->runBranchCommand(
                 QObject::tr("Delete branch"),
                 {QStringLiteral("branch"), force ? QStringLiteral("-D") : QStringLiteral("-d"),
@@ -2480,9 +2484,7 @@ void RepoSession::requestDeleteBranch(const QString& name, bool force) {
 
 void RepoSession::requestCreateTag(const QString& name, const QString& target,
                                    const QString& message) {
-    QMetaObject::invokeMethod(
-        worker_,
-        [this, name, target, message] {
+    post([this, name, target, message] {
             QStringList args{QStringLiteral("tag")};
             if (!message.isEmpty()) {
                 // Annotated: an object of its own with an author and a date.
@@ -2498,9 +2500,7 @@ void RepoSession::requestCreateTag(const QString& name, const QString& target,
 }
 
 void RepoSession::requestDeleteTag(const QString& name) {
-    QMetaObject::invokeMethod(
-        worker_,
-        [this, name] {
+    post([this, name] {
             worker_->runBranchCommand(
                 QObject::tr("Delete tag"),
                 {QStringLiteral("tag"), QStringLiteral("--delete"), name});
@@ -2509,14 +2509,11 @@ void RepoSession::requestDeleteTag(const QString& name) {
 }
 
 void RepoSession::requestPushTag(const QString& name) {
-    QMetaObject::invokeMethod(
-        worker_, [this, name] { worker_->runPushTag(name); }, Qt::QueuedConnection);
+    post([this, name] { worker_->runPushTag(name); }, Qt::QueuedConnection);
 }
 
 void RepoSession::requestReset(const QString& target, const QString& mode) {
-    QMetaObject::invokeMethod(
-        worker_,
-        [this, target, mode] {
+    post([this, target, mode] {
             worker_->runBranchCommand(
                 QObject::tr("Reset"),
                 {QStringLiteral("reset"), QStringLiteral("--%1").arg(mode), target});
@@ -2526,9 +2523,7 @@ void RepoSession::requestReset(const QString& target, const QString& mode) {
 
 void RepoSession::requestStashSave(const QString& message, bool includeUntracked,
                                    const QStringList& paths) {
-    QMetaObject::invokeMethod(
-        worker_,
-        [this, message, includeUntracked, paths] {
+    post([this, message, includeUntracked, paths] {
             // --literal-pathspecs: file names, not patterns — "[id].tsx" is a
             // file, not a character class.
             QStringList args{QStringLiteral("--literal-pathspecs"), QStringLiteral("stash"),
@@ -2548,9 +2543,7 @@ void RepoSession::requestStashSave(const QString& message, bool includeUntracked
 }
 
 void RepoSession::requestStashApply(const QString& ref, bool pop) {
-    QMetaObject::invokeMethod(
-        worker_,
-        [this, ref, pop] {
+    post([this, ref, pop] {
             worker_->runBranchCommand(
                 pop ? QObject::tr("Pop stash") : QObject::tr("Apply stash"),
                 {QStringLiteral("stash"), pop ? QStringLiteral("pop") : QStringLiteral("apply"),
@@ -2560,9 +2553,7 @@ void RepoSession::requestStashApply(const QString& ref, bool pop) {
 }
 
 void RepoSession::requestStashDrop(const QString& ref) {
-    QMetaObject::invokeMethod(
-        worker_,
-        [this, ref] {
+    post([this, ref] {
             worker_->runBranchCommand(QObject::tr("Drop stash"),
                                       {QStringLiteral("stash"), QStringLiteral("drop"), ref});
         },
@@ -2570,19 +2561,15 @@ void RepoSession::requestStashDrop(const QString& ref) {
 }
 
 void RepoSession::requestDiscardPaths(const QStringList& paths) {
-    QMetaObject::invokeMethod(
-        worker_, [this, paths] { worker_->discardPaths(paths); }, Qt::QueuedConnection);
+    post([this, paths] { worker_->discardPaths(paths); }, Qt::QueuedConnection);
 }
 
 void RepoSession::requestLocks() {
-    QMetaObject::invokeMethod(
-        worker_, [this] { worker_->loadLocks(); }, Qt::QueuedConnection);
+    postRead([this] { worker_->loadLocks(); }, Qt::QueuedConnection);
 }
 
 void RepoSession::requestLock(const QString& path) {
-    QMetaObject::invokeMethod(
-        worker_,
-        [this, path] {
+    post([this, path] {
             worker_->runLockCommand(
                 QObject::tr("Lock"),
                 {QStringLiteral("lfs"), QStringLiteral("lock"), QStringLiteral("--"), path});
@@ -2591,9 +2578,7 @@ void RepoSession::requestLock(const QString& path) {
 }
 
 void RepoSession::requestUnlock(const QString& path, bool force) {
-    QMetaObject::invokeMethod(
-        worker_,
-        [this, path, force] {
+    post([this, path, force] {
             QStringList args{QStringLiteral("lfs"), QStringLiteral("unlock")};
             if (force) {
                 args << QStringLiteral("--force");
@@ -2605,36 +2590,29 @@ void RepoSession::requestUnlock(const QString& path, bool force) {
 }
 
 void RepoSession::requestDiscardPatch(const QByteArray& patch) {
-    QMetaObject::invokeMethod(
-        worker_, [this, patch] { worker_->discardPatch(patch); }, Qt::QueuedConnection);
+    post([this, patch] { worker_->discardPatch(patch); }, Qt::QueuedConnection);
 }
 
 void RepoSession::requestApplyPatch(const QByteArray& patch) {
-    QMetaObject::invokeMethod(
-        worker_, [this, patch] { worker_->applyPatch(patch); }, Qt::QueuedConnection);
+    post([this, patch] { worker_->applyPatch(patch); }, Qt::QueuedConnection);
 }
 
 void RepoSession::requestCommit(const QString& message, bool amend) {
-    QMetaObject::invokeMethod(
-        worker_, [this, message, amend] { worker_->commit(message, amend); },
+    post([this, message, amend] { worker_->commit(message, amend); },
         Qt::QueuedConnection);
 }
 
 void RepoSession::requestUndo() {
-    QMetaObject::invokeMethod(
-        worker_, [this] { worker_->undo(); }, Qt::QueuedConnection);
+    post([this] { worker_->undo(); }, Qt::QueuedConnection);
 }
 
 void RepoSession::requestRedo() {
-    QMetaObject::invokeMethod(
-        worker_, [this] { worker_->redo(); }, Qt::QueuedConnection);
+    post([this] { worker_->redo(); }, Qt::QueuedConnection);
 }
 
 void RepoSession::requestPreview(Preview::Kind kind, const QString& target,
                                  const QString& branch) {
-    QMetaObject::invokeMethod(
-        worker_,
-        [this, kind, target, branch] {
+    postRead([this, kind, target, branch] {
             worker_->computePreview(static_cast<int>(kind), target, branch);
         },
         Qt::QueuedConnection);
@@ -2642,22 +2620,18 @@ void RepoSession::requestPreview(Preview::Kind kind, const QString& target,
 
 void RepoSession::requestForcePush(const QString& branch, const QString& remote,
                                    const QString& remoteBranch, const QString& leaseOid) {
-    QMetaObject::invokeMethod(
-        worker_,
-        [this, branch, remote, remoteBranch, leaseOid] {
+    post([this, branch, remote, remoteBranch, leaseOid] {
             worker_->runForcePush(branch, remote, remoteBranch, leaseOid);
         },
         Qt::QueuedConnection);
 }
 
 void RepoSession::requestAccountChoice() {
-    QMetaObject::invokeMethod(
-        worker_, [this] { worker_->loadAccountChoice(); }, Qt::QueuedConnection);
+    postRead([this] { worker_->loadAccountChoice(); }, Qt::QueuedConnection);
 }
 
 void RepoSession::requestSetAccount(const QString& account) {
-    QMetaObject::invokeMethod(
-        worker_, [this, account] { worker_->setAccountChoice(account); }, Qt::QueuedConnection);
+    post([this, account] { worker_->setAccountChoice(account); }, Qt::QueuedConnection);
 }
 
 void RepoSession::cancel() {

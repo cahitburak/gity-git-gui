@@ -45,17 +45,7 @@ RepositoryTabs::RepositoryTabs(QWidget* parent) : QWidget(parent) {
         if (bar_->count() <= 1 || index < 0 || index >= bar_->count()) {
             return;
         }
-        const bool wasCurrent = index == bar_->currentIndex();
-        // Removing the current tab moves the current index, and that change
-        // is announced below once — not twice, with a path in between.
-        suppress_ = true;
-        bar_->removeTab(index);
-        suppress_ = false;
-        updateClosable();
-        emit tabsChanged();
-        if (wasCurrent) {
-            emit repositoryActivated(pathAt(bar_->currentIndex()));
-        }
+        removeAt(index);
     });
 
     setVisible(false);
@@ -123,6 +113,30 @@ void RepositoryTabs::updateClosable() {
         if (QWidget* button = bar_->tabButton(i, QTabBar::RightSide); button != nullptr) {
             button->setVisible(closable);
         }
+    }
+}
+
+void RepositoryTabs::removeAt(int index) {
+    const bool wasCurrent = index == bar_->currentIndex();
+    const QString closed = pathAt(index);
+    // Removing the current tab moves the current index, and that change is
+    // announced below once — not twice, with a path in between.
+    suppress_ = true;
+    bar_->removeTab(index);
+    suppress_ = false;
+    updateClosable();
+    setVisible(bar_->count() > 0);
+    emit tabsChanged();
+    emit repositoryClosed(closed);
+    if (wasCurrent && bar_->count() > 0) {
+        emit repositoryActivated(pathAt(bar_->currentIndex()));
+    }
+}
+
+void RepositoryTabs::close(const QString& path) {
+    const int index = indexOf(path);
+    if (index >= 0) {
+        removeAt(index);
     }
 }
 

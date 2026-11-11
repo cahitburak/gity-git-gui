@@ -6,6 +6,7 @@ find_package(Qt6 6.8 REQUIRED COMPONENTS Core Gui Network)
 
 add_library(gity_session STATIC
     ImageDiff.h
+    Background.h
     Accounts.cpp
     BrowserSignIn.cpp
     CredentialManager.cpp

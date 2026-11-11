@@ -30,6 +30,10 @@ public:
     /// which is how the caller knows it is a repository not yet open.
     [[nodiscard]] bool activate(const QString& path);
 
+    /// Removes `path`'s tab — a repository that failed to open. Unlike the
+    /// close button this may remove the last tab, leaving none.
+    void close(const QString& path);
+
     [[nodiscard]] QString currentPath() const;
     /// The repository the current tab is a submodule of, by name. Empty for a
     /// repository opened on its own.
@@ -53,10 +57,13 @@ signals:
     void repositoryActivated(const QString& path);
     /// The set, its order or the current tab changed — worth saving.
     void tabsChanged();
+    /// A tab was closed; whatever was kept for its repository can go.
+    void repositoryClosed(const QString& path);
 
 private:
     [[nodiscard]] int indexOf(const QString& path) const;
     [[nodiscard]] QString pathAt(int index) const;
+    void removeAt(int index);
     /// The last tab cannot be closed: the window would be left showing a
     /// repository with no tab to say which.
     void updateClosable();
