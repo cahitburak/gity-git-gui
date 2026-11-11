@@ -298,8 +298,9 @@ repository handle and runs requests in order. The UI thread never touches libgit
   history walk is cancelled mid-flight when superseded.
 - **One per repository, not per window.** Each tab's repository has its own session; the window
   is wired once, to a relay that the session on screen forwards to, so a result from a repository
-  in another tab never reaches it. `SessionHub` keeps the sessions and the relay. (Corrected in November 2026: the first version shared one
-  session across every tab, and a preview asked for in one repository could run in another.)
+  in another tab never reaches it. `SessionHub` keeps the sessions and the relay. (Corrected in
+  November 2026: the first version shared one session across every tab, and a preview asked for
+  in one repository could run in another.)
 - **Two halves.** `RepoSession` is the UI thread's side: it numbers requests and queues them.
   `RepoWorker` is the thread's side: it owns the handle and runs them. The values crossing between
   them are declared in `SessionTypes.h`, which is all a panel that only shows results includes.
@@ -615,15 +616,18 @@ src/
 │   │            rebase todo, undo planning, merge prediction, LFS locks, remote URLs, device flow
 │   ├── graph/   streaming lane assignment (ADR-005)
 │   └── model/   commit metadata arena, history chunks
-├── session/     no widgets: the per-repository worker (ADR-004), GitProcess (ADR-003), index
-│                writes, the watcher, undo log, command log, credentials and accounts
+├── session/     no widgets: the per-repository session and its worker (ADR-004), the sessions
+│                of a window (SessionHub), GitProcess (ADR-003), index writes, the watcher, undo
+│                log, command log, credentials and accounts
 ├── ui/          Qt Widgets
 │   ├── theme/   tokens, theme variants, gity.qss, painted icons
 │   ├── model/   the history model the graph paints from
-│   ├── graphview/ and diffview/   the two painted QAbstractScrollArea views
+│   ├── graphview/ and diffview/   the two painted QAbstractScrollArea views, and the history's
+│   │            filter bar
 │   ├── image/   image comparison
 │   └── panels/  sidebar, staging, commit detail, dialogs, repository tabs, settings
-├── app/         main() and the main window
+├── app/         main() and the main window — its layout and wiring, menus, repository handling
+│                and commands each in a file of their own — and what it saves between runs
 └── askpass/     gity-askpass, the credential-prompt helper git runs
 tests/           core alone; tests/session adds QtCore, never Widgets
 ```

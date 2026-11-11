@@ -32,6 +32,10 @@ ones.
       log, and a test target for `src/session` (QtCore only).
 - [x] **CI that guards the rules**: a sanitizer job, a clang-format check, appstream and desktop-file
       validation.
+- [x] **No class too big to review.** `MainWindow.cpp` (3,100 lines) and `RepoSession.cpp`
+      (2,700) are split: the worker has its own header and its code is split by area; the window's
+      sessions, history filters, switch dialogs, preview wording and saved state are classes of
+      their own, the ones that need no widgets tested in `tests/session`.
 
 ## Testing
 
