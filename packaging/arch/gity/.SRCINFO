@@ -1,7 +1,7 @@
 pkgbase = gity
 	pkgdesc = Git client with undo, previews before pull, merge, rebase and push, and every command shown
 	pkgver = 0.1.0
-	pkgrel = 1
+	pkgrel = 2
 	url = https://github.com/cahitburak/gity-git-gui
 	arch = x86_64
 	arch = aarch64

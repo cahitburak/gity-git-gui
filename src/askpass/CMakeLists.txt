@@ -25,4 +25,19 @@ target_link_libraries(gity_askpass
 # Beside gity, never elsewhere: GitProcess locates the helper relative to the
 # running executable and never from PATH. Splitting them across directories
 # silently turns credential prompting off.
-install(TARGETS gity_askpass RUNTIME DESTINATION ${CMAKE_INSTALL_BINDIR})
+if(APPLE AND TARGET gity_app)
+    # On macOS gity is a bundle, and "beside it" means inside it, in
+    # Contents/MacOS. Copied there at build time so a build-tree run prompts
+    # too, and installed there so macdeployqt and signing see it as part of
+    # the app.
+    add_dependencies(gity_askpass gity_app)
+    add_custom_command(TARGET gity_askpass POST_BUILD
+        COMMAND ${CMAKE_COMMAND} -E copy_if_different
+                $<TARGET_FILE:gity_askpass>
+                $<TARGET_BUNDLE_CONTENT_DIR:gity_app>/MacOS/
+        COMMENT "Placing gity-askpass inside gity.app"
+        VERBATIM)
+    install(TARGETS gity_askpass RUNTIME DESTINATION gity.app/Contents/MacOS)
+else()
+    install(TARGETS gity_askpass RUNTIME DESTINATION ${CMAKE_INSTALL_BINDIR})
+endif()

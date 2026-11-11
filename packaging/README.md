@@ -36,7 +36,8 @@ published to the AUR, kept here so they change with the code. They are left out 
 **Making a release**
 
 1. Set the version in `CMakeLists.txt` and `vcpkg.json`, add a CHANGELOG entry and a `<release>` to
-   the metainfo file, and commit.
+   the metainfo file, and commit. `tools/check-version.sh` says whether they agree; CI runs it, and
+   on a tag checks them against the tag.
 2. Tag the commit `v<version>` — signed, if you can (`git tag -s`) — and push the tag.
 3. Build the source archive. It is reproducible: the same tag always gives the same bytes.
 
@@ -60,14 +61,21 @@ builds.
 The CPack archive depends on the system Qt, which is right for a distribution package and wrong for
 something a person downloads from a release page.
 
-A self-contained **AppImage** needs `linuxdeploy` and `linuxdeploy-plugin-qt`, which are fetched as
-binaries from their GitHub releases and run locally. That is a deliberate omission rather than an
-oversight: pulling an executable off the internet to run during a build is a decision for whoever
-owns the release process, not something to add quietly. When you want it, the two plugins go in a
-CI job that runs on a tag, alongside the macOS and Windows legs.
+Self-contained packages are built by CI on a `v*` tag (`.github/workflows/ci.yml`) and attached,
+with the source archive and `SHA256SUMS`, to a **draft** GitHub release for a person to review and
+publish:
 
-**macOS DMG** and the **Windows installer** additionally need signing identities — see
-[ROADMAP.md](../ROADMAP.md).
+* **AppImage**, built in an Ubuntu 20.04 container so it runs on glibc 2.31 and newer, with
+  `linuxdeploy` and `linuxdeploy-plugin-qt`. Both are fetched as binaries from their GitHub
+  releases' `continuous` tag and run during the build — a decision taken in November 2026; pin
+  them to a release if that tag ever moves under you.
+* **macOS disk image**, through `macdeployqt`. Signed and notarized only when the Developer ID
+  secrets are set (`MACOS_CERTIFICATE`, `MACOS_CERTIFICATE_PASSWORD`, `MACOS_SIGNING_IDENTITY`,
+  `APPLE_ID`, `APPLE_TEAM_ID`, `APPLE_APP_PASSWORD`); unsigned otherwise, and Gatekeeper warns.
+* **Windows zip**, through `windeployqt`. An installer and signing are still to come — see
+  [ROADMAP.md](../ROADMAP.md).
+
+None of these has been run yet: the first tag is where they are tried.
 
 ## Licences in a binary package
 
@@ -85,7 +93,8 @@ A package that bundles Qt or libgit2 must carry their licences.
 
 ## The askpass helper
 
-`gity-askpass` installs next to `gity` and must stay there: the application locates it relative to
+`gity-askpass` installs next to `gity` — inside `gity.app/Contents/MacOS` on macOS — and must stay
+there: the application locates it relative to
 its own executable and never from `PATH`, because a credential prompt is the last place to run
 whatever happens to carry that name. Any packaging that separates them silently disables credential
 prompting.

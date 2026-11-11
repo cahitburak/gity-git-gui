@@ -3,16 +3,24 @@ name: CI
 # ADR-006 — all three legs green from the first commit, even when they only
 # build a stub. Linux-only development hides Windows and macOS breakage, and
 # the longer that goes unnoticed the more expensive it gets.
+#
+# On a v* tag the same workflow also packages: an AppImage, a macOS disk image
+# and a Windows zip, attached with the source archive and checksums to a
+# *draft* release, which a person reviews and publishes (ADR-007).
 
 on:
   push:
     branches: [main]
+    tags: ['v*']
   pull_request:
   workflow_dispatch:
 
 concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
   cancel-in-progress: true
+
+permissions:
+  contents: read
 
 jobs:
   linux:
@@ -61,7 +69,42 @@ jobs:
         run: cmake --build --preset ci
 
       - name: Test
-        run: ctest --preset ci
+        # The session tests run real git; the runner's has no identity, and
+        # the tests shut out global config anyway.
+        run: ctest --preset ci --output-on-failure
+
+  sanitizers:
+    # Address and undefined-behaviour sanitizers over every test, session
+    # tests included — they drive libgit2 and real git on real repositories,
+    # which is where a C library's misuse shows.
+    name: Linux (sanitizers)
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v5
+
+      - name: Install dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends \
+            ninja-build libgit2-dev libgtest-dev googletest \
+            libgl1-mesa-dev libglx-dev libegl1-mesa-dev libxkbcommon-dev
+
+      - name: Install Qt
+        uses: jurplel/install-qt-action@v4
+        with:
+          version: '6.8.*'
+          cache: true
+
+      - name: Configure
+        run: cmake --preset dev-asan
+
+      - name: Build
+        run: cmake --build --preset dev-asan
+
+      - name: Test
+        env:
+          UBSAN_OPTIONS: print_stacktrace=1:halt_on_error=1
+        run: ctest --preset dev-asan --output-on-failure
 
   headless-core:
     # The layering rule from ADR-006, enforced rather than documented: core and
@@ -86,10 +129,155 @@ jobs:
       - name: Test
         run: ctest --preset ci-headless
 
+  checks:
+    # The rules that are not compiled: one version everywhere, valid desktop
+    # metadata, and formatting on the lines a pull request changes.
+    name: Versions, metadata and formatting
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          fetch-depth: 0
+
+      - name: Install tools
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends \
+            appstream desktop-file-utils clang-format
+
+      - name: One version everywhere
+        run: |
+          if [[ "$GITHUB_REF" == refs/tags/v* ]]; then
+            tools/check-version.sh "${GITHUB_REF#refs/tags/v}"
+          else
+            tools/check-version.sh
+          fi
+
+      - name: Desktop entry
+        run: desktop-file-validate packaging/io.github.cahitburak.gity_git_gui.desktop
+
+      - name: AppStream metadata
+        # --no-net: screenshot URLs point at a tag that may not exist yet.
+        run: appstreamcli validate --no-net --pedantic packaging/io.github.cahitburak.gity_git_gui.metainfo.xml
+
+      - name: Formatting of the lines this pull request changes
+        # Changed lines only. The whole tree was formatted once (see
+        # .git-blame-ignore-revs) with a newer clang-format than this runner
+        # has, and the two can disagree on lines nobody touched.
+        if: github.event_name == 'pull_request'
+        run: |
+          output=$(git clang-format --binary clang-format --diff \
+            "origin/${{ github.base_ref }}" -- 'src/*.cpp' 'src/*.h' 'tests/*.cpp' 'tests/*.h' \
+            ':!src/ui/theme/Tokens.h' || true)
+          if [ -n "$output" ] && ! echo "$output" | grep -q '^no modified files\|^clang-format did not modify'; then
+            echo "$output"
+            echo "::error::Run git clang-format on the lines you changed."
+            exit 1
+          fi
+
+  appimage:
+    # ADR-007 — the main Linux channel. Built on Ubuntu 20.04 (glibc 2.31), the
+    # oldest system the AppImage promises to run on: an AppImage runs on
+    # systems as new as or newer than the one it was built on, never older.
+    name: AppImage
+    if: github.event_name == 'workflow_dispatch' || startsWith(github.ref, 'refs/tags/v')
+    runs-on: ubuntu-24.04
+    container: ubuntu:20.04
+    env:
+      DEBIAN_FRONTEND: noninteractive
+      LIBGIT2_VERSION: '1.9.1'
+    steps:
+      - name: Install the build toolchain
+        # 20.04's own GCC 9 lacks too much of C++20, and its libgit2 (0.28)
+        # is far below the 1.7 floor, so both come from elsewhere.
+        run: |
+          apt-get update
+          apt-get install -y --no-install-recommends software-properties-common gpg-agent \
+            ca-certificates curl git file python3-pip ninja-build pkg-config \
+            libssl-dev zlib1g-dev libpcre2-dev libssh2-1-dev \
+            libgl1-mesa-dev libegl1-mesa-dev libxkbcommon-dev libxkbcommon-x11-0 \
+            libfontconfig1 libfreetype6 libdbus-1-3 libxcb-cursor0 libxcb-icccm4 \
+            libxcb-image0 libxcb-keysyms1 libxcb-randr0 libxcb-render-util0 \
+            libxcb-shape0 libxcb-xinerama0 libxcb-xkb1 libwayland-client0 \
+            libwayland-cursor0 libwayland-egl1 fuse libfuse2
+          add-apt-repository -y ppa:ubuntu-toolchain-r/test
+          apt-get update
+          apt-get install -y --no-install-recommends gcc-13 g++-13 libgtest-dev
+          python3 -m pip install --upgrade 'cmake>=3.24,<4' aqtinstall
+          echo "CC=gcc-13" >> "$GITHUB_ENV"
+          echo "CXX=g++-13" >> "$GITHUB_ENV"
+
+      - uses: actions/checkout@v5
+
+      - name: Build libgit2
+        run: |
+          curl -fsSL "https://github.com/libgit2/libgit2/archive/refs/tags/v${LIBGIT2_VERSION}.tar.gz" | tar xz
+          cmake -S "libgit2-${LIBGIT2_VERSION}" -B libgit2-build -G Ninja \
+            -DCMAKE_BUILD_TYPE=Release -DBUILD_TESTS=OFF -DBUILD_CLI=OFF \
+            -DUSE_SSH=OFF -DREGEX_BACKEND=pcre2 -DCMAKE_INSTALL_PREFIX=/usr/local
+          cmake --build libgit2-build
+          cmake --install libgit2-build
+          ldconfig
+
+      - name: Install Qt
+        run: |
+          python3 -m aqt install-qt linux desktop 6.8.3 linux_gcc_64 -O /opt/qt \
+            -m qtwaylandcompositor qtimageformats
+          echo "Qt6_DIR=/opt/qt/6.8.3/gcc_64/lib/cmake/Qt6" >> "$GITHUB_ENV"
+          echo "QMAKE=/opt/qt/6.8.3/gcc_64/bin/qmake" >> "$GITHUB_ENV"
+          echo "LD_LIBRARY_PATH=/opt/qt/6.8.3/gcc_64/lib:/usr/local/lib" >> "$GITHUB_ENV"
+
+      - name: Build
+        run: |
+          cmake --preset release -DCMAKE_PREFIX_PATH=/opt/qt/6.8.3/gcc_64 \
+            -DCMAKE_INSTALL_PREFIX=/usr -DGITY_BUILD_BENCH=OFF -DGITY_BUILD_TESTS=OFF
+          cmake --build --preset release
+          DESTDIR="$PWD/AppDir" cmake --install build/release
+
+      - name: Licences of what is bundled
+        # THIRD_PARTY_NOTICES.md: a package that bundles Qt and libgit2 ships
+        # their licence texts. LICENSE and the notices are installed already.
+        run: |
+          doc=AppDir/usr/share/doc/Gity
+          mkdir -p "$doc"
+          cp "libgit2-${LIBGIT2_VERSION}/COPYING" "$doc/libgit2-COPYING"
+          curl -fsSL https://www.gnu.org/licenses/lgpl-3.0.txt -o "$doc/Qt-LGPL-3.0.txt"
+          curl -fsSL https://www.gnu.org/licenses/gpl-3.0.txt -o "$doc/Qt-GPL-3.0.txt"
+          echo "Qt 6.8.3, under the LGPL-3.0: https://download.qt.io/archive/qt/6.8/6.8.3/" \
+            > "$doc/Qt-SOURCE.txt"
+
+      - name: Package
+        env:
+          # The Wayland platform plugin, beside xcb, and the SVG image format
+          # the window icon is drawn from.
+          EXTRA_PLATFORM_PLUGINS: libqwayland-egl.so;libqwayland-generic.so
+          EXTRA_QT_MODULES: svg
+          APPIMAGE_EXTRACT_AND_RUN: '1'
+        run: |
+          version="${GITHUB_REF_NAME#v}"
+          curl -fsSLO https://github.com/linuxdeploy/linuxdeploy/releases/download/continuous/linuxdeploy-x86_64.AppImage
+          curl -fsSLO https://github.com/linuxdeploy/linuxdeploy-plugin-qt/releases/download/continuous/linuxdeploy-plugin-qt-x86_64.AppImage
+          chmod +x linuxdeploy-*.AppImage
+          # gity-askpass goes beside gity in usr/bin, where GitProcess looks
+          # for it; listed so its libraries are bundled too.
+          VERSION="$version" ./linuxdeploy-x86_64.AppImage --appdir AppDir \
+            --executable AppDir/usr/bin/gity-askpass \
+            --desktop-file AppDir/usr/share/applications/io.github.cahitburak.gity_git_gui.desktop \
+            --icon-file AppDir/usr/share/icons/hicolor/scalable/apps/io.github.cahitburak.gity_git_gui.svg \
+            --plugin qt --output appimage
+          mkdir -p dist
+          mv ./*.AppImage dist/
+          rm -f dist/linuxdeploy*.AppImage
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: appimage
+          path: dist/*.AppImage
+
   macos:
     name: macOS
     # Billed at 10x. Off by default while a single platform is the target;
-    # run it from the Actions tab, or on a release tag, before shipping.
+    # run it from the Actions tab, and it runs on every release tag.
     if: github.event_name == 'workflow_dispatch' || startsWith(github.ref, 'refs/tags/')
     runs-on: macos-14
     steps:
@@ -114,20 +302,70 @@ jobs:
         run: cmake --build --preset ci
 
       - name: Test
-        run: ctest --preset ci
+        run: ctest --preset ci --output-on-failure
 
-      # ADR-007 — get an empty app through signing and notarization at M0,
-      # while it is a five-minute problem rather than a launch blocker.
-      # Enable once the Developer ID certificate is in repository secrets.
-      - name: Sign, notarize and staple
-        if: ${{ env.MACOS_CERTIFICATE != '' }}
+      - name: Package
+        if: startsWith(github.ref, 'refs/tags/v')
+        run: |
+          version="${GITHUB_REF_NAME#v}"
+          app=build/ci/src/app/gity.app
+          test -x "$app/Contents/MacOS/gity-askpass"
+          "$(brew --prefix qt@6)/bin/macdeployqt" "$app" \
+            -executable="$app/Contents/MacOS/gity-askpass"
+          mkdir -p dist
+          cp -R "$app" dist/Gity.app
+          # Licences of what macdeployqt bundled (THIRD_PARTY_NOTICES.md).
+          res=dist/Gity.app/Contents/Resources
+          cp LICENSE THIRD_PARTY_NOTICES.md "$res/"
+          curl -fsSL "https://raw.githubusercontent.com/libgit2/libgit2/v$(brew list --versions libgit2 | awk '{print $2}')/COPYING" \
+            -o "$res/libgit2-COPYING"
+          curl -fsSL https://www.gnu.org/licenses/lgpl-3.0.txt -o "$res/Qt-LGPL-3.0.txt"
+          curl -fsSL https://www.gnu.org/licenses/gpl-3.0.txt -o "$res/Qt-GPL-3.0.txt"
+
+      # ADR-007 — signing and notarization, once the Developer ID certificate
+      # and an App Store Connect password are in repository secrets. Without
+      # them the disk image is unsigned and Gatekeeper warns on first open.
+      - name: Sign and notarize
+        if: startsWith(github.ref, 'refs/tags/v') && env.MACOS_CERTIFICATE != ''
         env:
           MACOS_CERTIFICATE: ${{ secrets.MACOS_CERTIFICATE }}
+          MACOS_CERTIFICATE_PASSWORD: ${{ secrets.MACOS_CERTIFICATE_PASSWORD }}
+          MACOS_SIGNING_IDENTITY: ${{ secrets.MACOS_SIGNING_IDENTITY }}
+          APPLE_ID: ${{ secrets.APPLE_ID }}
+          APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
+          APPLE_APP_PASSWORD: ${{ secrets.APPLE_APP_PASSWORD }}
         run: |
-          echo "TODO(M0): import cert, macdeployqt, codesign --options runtime,"
-          echo "          xcrun notarytool submit --wait, xcrun stapler staple."
-          echo "Blocked on the Apple Developer account — see Q4/Q5."
-          exit 1
+          keychain="$RUNNER_TEMP/signing.keychain-db"
+          security create-keychain -p "" "$keychain"
+          security set-keychain-settings "$keychain"
+          security unlock-keychain -p "" "$keychain"
+          echo "$MACOS_CERTIFICATE" | base64 --decode > "$RUNNER_TEMP/cert.p12"
+          security import "$RUNNER_TEMP/cert.p12" -k "$keychain" \
+            -P "$MACOS_CERTIFICATE_PASSWORD" -T /usr/bin/codesign
+          security set-key-partition-list -S apple-tool:,apple: -s -k "" "$keychain"
+          security list-keychains -d user -s "$keychain"
+          # The helper first, then the app around it.
+          codesign --force --options runtime --timestamp --sign "$MACOS_SIGNING_IDENTITY" \
+            dist/Gity.app/Contents/MacOS/gity-askpass
+          codesign --force --deep --options runtime --timestamp \
+            --sign "$MACOS_SIGNING_IDENTITY" dist/Gity.app
+          ditto -c -k --keepParent dist/Gity.app "$RUNNER_TEMP/Gity.zip"
+          xcrun notarytool submit "$RUNNER_TEMP/Gity.zip" --wait \
+            --apple-id "$APPLE_ID" --team-id "$APPLE_TEAM_ID" --password "$APPLE_APP_PASSWORD"
+          xcrun stapler staple dist/Gity.app
+
+      - name: Disk image
+        if: startsWith(github.ref, 'refs/tags/v')
+        run: |
+          version="${GITHUB_REF_NAME#v}"
+          hdiutil create -volname "Gity ${version}" -srcfolder dist/Gity.app -ov -format UDZO \
+            "dist/Gity-${version}-macOS-$(uname -m).dmg"
+
+      - uses: actions/upload-artifact@v4
+        if: startsWith(github.ref, 'refs/tags/v')
+        with:
+          name: macos
+          path: dist/*.dmg
 
   windows:
     name: Windows
@@ -136,10 +374,12 @@ jobs:
     if: github.event_name == 'workflow_dispatch' || startsWith(github.ref, 'refs/tags/')
     runs-on: windows-2022
     env:
-      # Without a binary cache vcpkg rebuilds libgit2 and OpenSSL from source
-      # on every run — 25+ minutes. x-gha stores the built packages in the
-      # Actions cache, so only the first run pays that.
-      VCPKG_BINARY_SOURCES: 'clear;x-gha,readwrite'
+      # Pinned: an unpinned clone picks up whatever vcpkg's ports are that
+      # day, and a build that passed yesterday can fail today.
+      VCPKG_TAG: '2025.08.27'
+      # vcpkg's own GitHub Actions cache backend (x-gha) was removed in 2025.
+      # Its file backend, saved and restored by actions/cache, replaces it.
+      VCPKG_BINARY_SOURCES: 'clear;files,${{ github.workspace }}/.vcpkg-cache,readwrite'
     steps:
       - uses: actions/checkout@v5
 
@@ -151,12 +391,12 @@ jobs:
       - name: Set up Ninja
         uses: seanmiddleditch/gha-setup-ninja@v5
 
-      - name: Expose the Actions cache to vcpkg
-        uses: actions/github-script@v7
+      - name: Cache vcpkg's built packages
+        uses: actions/cache@v4
         with:
-          script: |
-            core.exportVariable('ACTIONS_CACHE_URL', process.env.ACTIONS_CACHE_URL || '');
-            core.exportVariable('ACTIONS_RUNTIME_TOKEN', process.env.ACTIONS_RUNTIME_TOKEN || '');
+          path: .vcpkg-cache
+          key: vcpkg-${{ env.VCPKG_TAG }}-${{ hashFiles('vcpkg.json') }}
+          restore-keys: vcpkg-${{ env.VCPKG_TAG }}-
 
       - name: Install Qt
         uses: jurplel/install-qt-action@v4
@@ -168,7 +408,8 @@ jobs:
         # ADR-006 — vcpkg carries libgit2 and gtest here; Qt comes from the
         # step above, never from vcpkg.
         run: |
-          git clone --depth 1 https://github.com/microsoft/vcpkg.git "$env:RUNNER_TEMP\vcpkg"
+          New-Item -ItemType Directory -Force -Path .vcpkg-cache | Out-Null
+          git clone --depth 1 --branch "$env:VCPKG_TAG" https://github.com/microsoft/vcpkg.git "$env:RUNNER_TEMP\vcpkg"
           & "$env:RUNNER_TEMP\vcpkg\bootstrap-vcpkg.bat"
           echo "VCPKG_ROOT=$env:RUNNER_TEMP\vcpkg" >> $env:GITHUB_ENV
 
@@ -181,4 +422,71 @@ jobs:
         run: cmake --build --preset ci
 
       - name: Test
-        run: ctest --preset ci
+        run: ctest --preset ci --output-on-failure
+
+      - name: Package
+        # A portable zip for now; an installer and signing (SignPath, or a
+        # certificate) are on the roadmap. Unsigned, SmartScreen warns.
+        if: startsWith(github.ref, 'refs/tags/v')
+        run: |
+          $version = "$env:GITHUB_REF_NAME".TrimStart('v')
+          $stage = "dist\Gity-$version"
+          New-Item -ItemType Directory -Force -Path $stage | Out-Null
+          Copy-Item build\ci\src\app\gity.exe $stage
+          Copy-Item build\ci\src\askpass\gity-askpass.exe $stage
+          Copy-Item build\ci\vcpkg_installed\x64-windows\bin\*.dll $stage
+          Copy-Item LICENSE, THIRD_PARTY_NOTICES.md, README.md $stage
+          # Each bundled vcpkg library's licence, as vcpkg installs it, and Qt's.
+          $licences = New-Item -ItemType Directory -Force -Path "$stage\licences"
+          Get-ChildItem build\ci\vcpkg_installed\x64-windows\share\*\copyright | ForEach-Object {
+            Copy-Item $_.FullName "$licences\$($_.Directory.Name)-copyright.txt"
+          }
+          Invoke-WebRequest https://www.gnu.org/licenses/lgpl-3.0.txt -OutFile "$licences\Qt-LGPL-3.0.txt"
+          Invoke-WebRequest https://www.gnu.org/licenses/gpl-3.0.txt -OutFile "$licences\Qt-GPL-3.0.txt"
+          windeployqt --release --no-translations "$stage\gity.exe" "$stage\gity-askpass.exe"
+          Compress-Archive -Path $stage -DestinationPath "dist\Gity-$version-windows-x64.zip"
+
+      - uses: actions/upload-artifact@v4
+        if: startsWith(github.ref, 'refs/tags/v')
+        with:
+          name: windows
+          path: dist/*.zip
+
+  release:
+    # Everything above, gathered into a draft release. A draft, not a
+    # release: a person reads the notes and presses Publish.
+    name: Draft release
+    if: startsWith(github.ref, 'refs/tags/v')
+    needs: [linux, headless-core, checks, appimage, macos, windows]
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          fetch-depth: 0
+
+      - uses: actions/download-artifact@v4
+        with:
+          path: dist
+          merge-multiple: true
+
+      - name: Source archive and checksums
+        run: |
+          version="${GITHUB_REF_NAME#v}"
+          tools/make-release-archive.sh "$version" dist
+          cd dist
+          sha256sum * > SHA256SUMS
+
+      - name: Release notes
+        # The CHANGELOG entry for this version, verbatim.
+        run: |
+          version="${GITHUB_REF_NAME#v}"
+          awk -v v="$version" '$0 ~ "^## " v " " {on=1; next} /^## / && on {exit} on' \
+            CHANGELOG.md > notes.md
+
+      - uses: softprops/action-gh-release@v2
+        with:
+          draft: true
+          body_path: notes.md
+          files: dist/*

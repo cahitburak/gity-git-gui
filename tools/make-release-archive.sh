@@ -12,7 +12,12 @@ set -euo pipefail
 version="${1:?usage: $0 <version> [output-dir]}"
 out="${2:-.}"
 ref="v${version}"
-git rev-parse --verify --quiet "${ref}^{commit}" >/dev/null || ref=HEAD
+# The tag, or nothing: an archive of whatever happens to be checked out,
+# named as the release, would carry a checksum nobody can reproduce.
+if ! git rev-parse --verify --quiet "${ref}^{commit}" >/dev/null; then
+    echo "error: there is no tag ${ref}; tag the release first" >&2
+    exit 1
+fi
 date=$(git log -1 --format=%cd --date=format:'%Y-%m-%d 00:00:00 +0000' "$ref")
 file="${out}/gity-${version}.tar.gz"
 git archive --format=tar --prefix="gity-${version}/" --mtime="$date" "${ref}^{tree}" | gzip -9n > "$file"

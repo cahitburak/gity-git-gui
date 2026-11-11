@@ -34,8 +34,10 @@ QString askpassHelperPath() {
     const QString name = QStringLiteral("gity-askpass");
 #endif
 
-    // Beside the binary in a build tree and in a Linux install; inside the
-    // bundle on macOS, where the app itself sits in Contents/MacOS.
+    // Beside the binary: in a build tree, a Linux install and an AppImage
+    // (usr/bin), on Windows, and inside the bundle on macOS, where the app
+    // itself sits in Contents/MacOS and the build copies the helper beside
+    // it. The second spelling is for a bundle laid out by hand.
     const QStringList candidates{directory + QChar('/') + name,
                                  directory + QStringLiteral("/../askpass/") + name};
     for (const QString& candidate : candidates) {
