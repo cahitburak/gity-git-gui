@@ -1,5 +1,7 @@
 #include "RefsSidebar.h"
 
+#include <QKeyEvent>
+
 #include "ui/panels/Confirm.h"
 #include "ui/panels/RefsSidebarDelegate.h"
 #include "ui/theme/Theme.h"
@@ -834,6 +836,20 @@ void RefsSidebar::clearRefs() {
     changedFiles_ = 0;
     clear();
     addWorkspaceGroup();
+}
+
+void RefsSidebar::keyPressEvent(QKeyEvent* event) {
+    QTreeWidgetItem* item = currentItem();
+    if (item != nullptr && (event->key() == Qt::Key_Return || event->key() == Qt::Key_Enter)) {
+        if ((event->modifiers() & Qt::ShiftModifier) != 0) {
+            emit itemDoubleClicked(item, 0);
+        } else {
+            emit itemClicked(item, 0);
+        }
+        event->accept();
+        return;
+    }
+    QTreeWidget::keyPressEvent(event);
 }
 
 } // namespace gity::ui

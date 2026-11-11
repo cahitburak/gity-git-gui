@@ -409,6 +409,21 @@ bool CommitGraphView::eventFilter(QObject* watched, QEvent* event) {
     return QAbstractScrollArea::eventFilter(watched, event);
 }
 
+bool CommitGraphView::event(QEvent* event) {
+    if (event->type() == QEvent::ContextMenu &&
+        static_cast<QContextMenuEvent*>(event)->reason() == QContextMenuEvent::Keyboard) {
+        if (selectedRow_ >= 0) {
+            scrollToRow(selectedRow_);
+            const int top = static_cast<int>(selectedRow_ * rowHeight()) -
+                            verticalScrollBar()->value();
+            const QPoint anchor(laneX(0) + 24, top + rowHeight() / 2);
+            emit rowContextMenuRequested(selectedRow_, viewport()->mapToGlobal(anchor));
+        }
+        return true;
+    }
+    return QAbstractScrollArea::event(event);
+}
+
 void CommitGraphView::mousePressEvent(QMouseEvent* event) {
     const qsizetype row = rowAt(static_cast<int>(event->position().y()));
     if (row >= 0) {

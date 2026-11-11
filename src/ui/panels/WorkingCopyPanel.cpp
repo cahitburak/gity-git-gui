@@ -38,6 +38,30 @@ QChar letterFor(const git::StatusEntry& entry, bool staged) {
     return QChar(git::stateLetter(staged ? entry.staged : entry.unstaged));
 }
 
+/// The state as a word, for a screen reader: the painted row shows a letter
+/// and a coloured chip, which say nothing read aloud.
+QString stateWord(git::FileState state) {
+    switch (state) {
+    case git::FileState::Added:
+        return WorkingCopyPanel::tr("added");
+    case git::FileState::Modified:
+        return WorkingCopyPanel::tr("modified");
+    case git::FileState::Deleted:
+        return WorkingCopyPanel::tr("deleted");
+    case git::FileState::Renamed:
+        return WorkingCopyPanel::tr("renamed");
+    case git::FileState::TypeChanged:
+        return WorkingCopyPanel::tr("type changed");
+    case git::FileState::Untracked:
+        return WorkingCopyPanel::tr("new, untracked");
+    case git::FileState::Ignored:
+        return WorkingCopyPanel::tr("ignored");
+    case git::FileState::Unchanged:
+        break;
+    }
+    return {};
+}
+
 } // namespace
 
 WorkingCopyPanel::WorkingCopyPanel(QWidget* parent) : QWidget(parent) {
@@ -462,6 +486,14 @@ void WorkingCopyPanel::fillList(QTreeWidget* list, bool staged) {
         if (!notes.isEmpty()) {
             item->setData(0, SubtitleRole, notes.join(QStringLiteral(" · ")));
         }
+        // Everything the painted row shows, in words, for assistive
+        // technology: the delegate paints from custom roles only.
+        QStringList spoken{path};
+        spoken << (primary->conflicted ? tr("conflicted")
+                                       : stateWord(staged ? primary->staged : primary->unstaged));
+        spoken += notes;
+        item->setData(0, Qt::AccessibleTextRole, spoken.join(QStringLiteral(", ")));
+        item->setData(0, Qt::ToolTipRole, spoken.join(QStringLiteral(", ")));
     }
 
     QLabel* header = staged ? stagedHeader_ : unstagedHeader_;

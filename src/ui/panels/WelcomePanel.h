@@ -25,6 +25,10 @@ signals:
     void cloneRequested();
     void recentActivated(const QString& path);
 
+protected:
+    /// Enter on a recent repository opens it, as a click does.
+    bool eventFilter(QObject* watched, QEvent* event) override;
+
 private:
     QListWidget* recent_ = nullptr;
     QLabel* recentHeading_ = nullptr;

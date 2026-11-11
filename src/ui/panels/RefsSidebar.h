@@ -101,6 +101,10 @@ signals:
 
 protected:
     void contextMenuEvent(QContextMenuEvent* event) override;
+    /// Enter does what a click does, and Shift+Enter what a double click
+    /// does: the sidebar was mouse-only, so a keyboard could move through it
+    /// but not open anything.
+    void keyPressEvent(QKeyEvent* event) override;
 
 private:
     [[nodiscard]] bool matches(const std::string& name) const;
