@@ -437,10 +437,56 @@ void DiffView::paintRow(QPainter& painter, const Row& row, int y, int gutter) co
     if (row.isHunkHeader) {
         const git::DiffHunk& hunk = diff_->hunks[row.index];
         painter.fillRect(0, y, width, h, theme.hunkHeaderBg);
+
+        // The buttons are laid out first, so the header text can stop short
+        // of them: drawn over it, they let the text show through and neither
+        // could be read.
+        struct Button {
+            QRect box;
+            QString label;
+            QColor colour;
+        };
+
+        std::vector<Button> buttons;
+        if (staging_) {
+            const QFontMetrics buttonMetrics(font());
+            int right = width - 8;
+            const auto place = [&](const QString& label, const QColor& colour) {
+                const int buttonWidth = buttonMetrics.horizontalAdvance(label) + 16;
+                const QRect box(right - buttonWidth, y + (h - buttonMetrics.height() - 4) / 2,
+                                buttonWidth, buttonMetrics.height() + 4);
+                right = box.left() - 6;
+                buttons.push_back({box, label, colour});
+                return box;
+            };
+            if (hunkButtons_.size() <= row.index) {
+                hunkButtons_.resize(row.index + 1);
+            }
+            if (showingStaged_) {
+                hunkButtons_[row.index] = {place(tr("Unstage hunk"), tokens::semanticWarn),
+                                           QRect()};
+            } else {
+                const QRect discard = place(tr("Discard"), tokens::semanticRemove);
+                const QRect stage = place(tr("Stage hunk"), tokens::semanticAdd);
+                hunkButtons_[row.index] = {stage, discard};
+            }
+        }
+        const int textRight = buttons.empty() ? width : buttons.back().box.left() - 8;
+
+        // What does not fit is elided rather than run under the buttons; the
+        // line numbers come first in the header, so they are what stays.
+        int x = digit;
+        const auto drawFitted = [&](const QString& text) {
+            const int room = textRight - x;
+            if (room <= 0) {
+                return;
+            }
+            const QString shown = fm.elidedText(text, Qt::ElideRight, room);
+            painter.drawText(QRect(x, y, room, h), Qt::AlignVCenter | Qt::AlignLeft, shown);
+            x += fm.horizontalAdvance(shown);
+        };
         painter.setPen(theme.hunkHeaderText);
-        const QString headerText = QString::fromStdString(hunk.header);
-        painter.drawText(QRect(digit, y, width - digit, h), Qt::AlignVCenter | Qt::AlignLeft,
-                         headerText);
+        drawFitted(QString::fromStdString(hunk.header));
 
         // SPEC.md §2: "@@ -12,6 +12,9 @@  ·  2 of 4 lines staged". Shown only
         // when the region really is split across the index — "0 of 4" on a
@@ -448,41 +494,21 @@ void DiffView::paintRow(QPainter& painter, const Row& row, int y, int gutter) co
         if (hunkStaging_ != nullptr && row.index < hunkStaging_->size() &&
             hunkStaging_->at(row.index).partial()) {
             const git::HunkStaging& counts = hunkStaging_->at(row.index);
-            const QString note =
-                tr("  ·  %1 of %2 lines staged").arg(counts.staged).arg(counts.total);
             painter.setPen(tokens::textLabelDim);
-            painter.drawText(QRect(digit + fm.horizontalAdvance(headerText), y, width - digit, h),
-                             Qt::AlignVCenter | Qt::AlignLeft, note);
+            drawFitted(tr("  ·  %1 of %2 lines staged").arg(counts.staged).arg(counts.total));
         }
 
-        if (staging_) {
-            // Painted, not real buttons: child widgets inside a scrolling view
-            // are the usual cause of jank here (QT_MAPPING).
-            if (hunkButtons_.size() <= row.index) {
-                hunkButtons_.resize(row.index + 1);
+        // Painted, not real buttons: child widgets inside a scrolling view
+        // are the usual cause of jank here (QT_MAPPING).
+        if (!buttons.empty()) {
+            painter.setFont(font());
+            for (const Button& button : buttons) {
+                painter.setPen(QPen(button.colour, 1));
+                painter.setBrush(theme.hunkHeaderBg);
+                painter.drawRoundedRect(button.box, tokens::radiusChip, tokens::radiusChip);
+                painter.drawText(button.box, Qt::AlignCenter, button.label);
             }
-            const QFontMetrics buttonMetrics(font());
-            const auto paintButton = [&](int right, const QString& label, const QColor& colour) {
-                const int buttonWidth = buttonMetrics.horizontalAdvance(label) + 16;
-                const QRect box(right - buttonWidth, y + (h - buttonMetrics.height() - 4) / 2,
-                                buttonWidth, buttonMetrics.height() + 4);
-                painter.setFont(font());
-                painter.setPen(QPen(colour, 1));
-                painter.setBrush(Qt::NoBrush);
-                painter.drawRoundedRect(box, tokens::radiusChip, tokens::radiusChip);
-                painter.drawText(box, Qt::AlignCenter, label);
-                return box;
-            };
-            if (showingStaged_) {
-                const QRect unstage =
-                    paintButton(width - 8, tr("Unstage hunk"), tokens::semanticWarn);
-                hunkButtons_[row.index] = {unstage, QRect()};
-            } else {
-                const QRect discard = paintButton(width - 8, tr("Discard"), tokens::semanticRemove);
-                const QRect stage =
-                    paintButton(discard.left() - 6, tr("Stage hunk"), tokens::semanticAdd);
-                hunkButtons_[row.index] = {stage, discard};
-            }
+            painter.setBrush(Qt::NoBrush);
             painter.setFont(monoFont());
         }
         return;
