@@ -28,14 +28,15 @@ A review of the whole codebase, and what it found fixed. Details are in the comm
   start with `#`, and more.
 * CI packages releases (AppImage, macOS disk image, Windows zip) into a draft release on a tag, and
   checks sanitizers, versions, desktop metadata and formatting. Tests now include real
-  repositories driven through `git`: 279 in all, up from 187.
+  repositories driven through `git`: 282 in all, up from 187.
 * The two largest files are split up — the main window and the repository session — with no change
   in behaviour.
 * **History of a file or folder, and blame.** Right-click a file in a commit, a comparison or the
   working copy — or use the Repository menu — to list only the commits that changed it, or to see
   who last changed each line. Blame opens in a third tab under the graph; a click on a line selects
   its commit, and the version before any change is a right-click away. Blaming the working copy
-  marks lines not committed yet.
+  marks lines not committed yet. A file's history follows it through renames, and the rows from
+  before one say what it was called then.
 
 ## 0.1.0 — 2026-09-29
 

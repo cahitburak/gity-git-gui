@@ -82,5 +82,5 @@ above is done, it needs:
       question 1).
 - [ ] A conflict-resolution editor.
 - [x] **Blame, and history for a single file or folder** — from the file lists' menus and the
-      Repository menu. Renames are not followed yet.
+      Repository menu. A file's history follows it through renames.
 - [ ] A denser mode beyond the history rows, and further layout options.

@@ -413,10 +413,14 @@ exist. Matches are shown on a single lane, and the view says it is showing match
 
 The **history of a file or folder** is a filter of the same kind. A commit is kept unless what the
 path names — a blob, or a folder's tree — has the same id in it as in one of its parents, which is
-how `git log -- path` decides; comparing two tree entries is far cheaper than a diff. Two
-differences from git remain: renames are not followed, and the walk does not prune the side of a
-merge whose version of the path the merge discarded, so a change thrown away by a merge can be
-listed.
+how `git log -- path` decides; comparing two tree entries is far cheaper than a diff. A file is
+followed through renames, as `git log --follow` does: only where the file is new in a commit is
+that commit diffed against its parent, with rename detection, to find the name it had before.
+Unlike git, which follows one name for the whole walk, each commit is told its name by the first
+child to reach it — the walk is topological, so every child comes first — and a rename on one side
+of a merge is followed down that side only. Only the walk's frontier holds a name. Folders are not
+followed. One difference from git remains: the walk does not prune the side of a merge whose
+version of the path the merge discarded, so a change thrown away by a merge can be listed.
 
 ---
 
