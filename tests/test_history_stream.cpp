@@ -179,15 +179,33 @@ public:
     }
 
     /// Summaries of the commits that changed `path`, newest first.
-    std::vector<std::string> history(const std::string& path) {
+    std::vector<std::string> history(const std::string& path, bool follow = true) {
+        std::vector<std::string> found;
+        for (auto& [summary, name] : historyWithNames(path, follow)) {
+            found.push_back(std::move(summary));
+        }
+        return found;
+    }
+
+    /// The same, each with the name the file had in that commit.
+    std::vector<std::pair<std::string, std::string>> historyWithNames(const std::string& path,
+                                                                      bool follow = true) {
         gity::git::StreamOptions options;
         options.filter.path = path;
-        std::vector<std::string> found;
+        options.filter.followRenames = follow;
+        options.batchSize = 2; // so names are looked up across chunks too
+        std::vector<std::pair<std::string, std::string>> found;
         static_cast<void>(
             gity::git::streamHistory(repo_, options, [&](gity::model::HistoryChunk&& chunk) {
                 for (std::size_t i = 0; i < chunk.rowCount(); ++i) {
-                    found.emplace_back(
-                        chunk.commits.summary(static_cast<gity::model::CommitIndex>(i)));
+                    const auto local = static_cast<gity::model::CommitIndex>(i);
+                    std::string name = path;
+                    for (const auto& [row, renamed] : chunk.renamedPaths) {
+                        if (row == local) {
+                            name = renamed;
+                        }
+                    }
+                    found.emplace_back(chunk.commits.summary(local), name);
                 }
                 return true;
             }));
@@ -270,4 +288,64 @@ TEST(HistoryStream, PathSkipsAMergeThatTookOneSideUnchanged) {
     const Names found = repo.history("a.txt");
     ASSERT_FALSE(found.empty());
     EXPECT_EQ(found.front(), "resolved");
+}
+
+namespace {
+
+/// A file long enough that an edit leaves it recognisably the same file.
+std::string lines(int changed) {
+    std::string text;
+    for (int i = 0; i < 20; ++i) {
+        text += "line " + std::to_string(i == 0 ? changed : i) + "\n";
+    }
+    return text;
+}
+
+} // namespace
+
+TEST(HistoryStream, PathFollowsAFileThroughRenames) {
+    FileRepo repo;
+    repo.commit("add", {{"old.txt", lines(1)}, {"other.txt", "x"}}, {});
+    repo.commit("edit", {{"old.txt", lines(2)}, {"other.txt", "x"}}, {"add"});
+    repo.commit("unrelated", {{"old.txt", lines(2)}, {"other.txt", "y"}}, {"edit"});
+    // A pure rename, then a rename with an edit, into a folder.
+    repo.commit("rename", {{"mid.txt", lines(2)}, {"other.txt", "y"}}, {"unrelated"});
+    repo.commit("move and edit", {{"src/new.txt", lines(3)}, {"other.txt", "y"}}, {"rename"});
+    repo.commit("edit new", {{"src/new.txt", lines(4)}, {"other.txt", "y"}}, {"move and edit"});
+
+    using Named = std::vector<std::pair<std::string, std::string>>;
+    EXPECT_EQ(repo.historyWithNames("src/new.txt"), (Named{{"edit new", "src/new.txt"},
+                                                           {"move and edit", "src/new.txt"},
+                                                           {"rename", "mid.txt"},
+                                                           {"edit", "old.txt"},
+                                                           {"add", "old.txt"}}));
+    // Not following stops where the file arrived under this name.
+    EXPECT_EQ(repo.history("src/new.txt", false), (Names{"edit new", "move and edit"}));
+    // The old name's own history ends where it went away.
+    EXPECT_EQ(repo.history("old.txt"), (Names{"rename", "edit", "add"}));
+}
+
+TEST(HistoryStream, PathDoesNotFollowAFolderOrANewFile) {
+    FileRepo repo;
+    repo.commit("add", {{"a/one.txt", lines(1)}, {"a/two.txt", lines(5)}}, {});
+    repo.commit("move folder", {{"b/one.txt", lines(1)}, {"b/two.txt", lines(5)}}, {"add"});
+    EXPECT_EQ(repo.history("b"), (Names{"move folder"}));
+
+    // A file that is new, while an unlike file goes away, is not a rename.
+    repo.commit("swap", {{"b/one.txt", lines(1)}, {"c.txt", "nothing alike"}}, {"move folder"});
+    EXPECT_EQ(repo.history("c.txt"), (Names{"swap"}));
+}
+
+TEST(HistoryStream, PathFollowsARenameOnOneSideOfAMerge) {
+    FileRepo repo;
+    repo.commit("base", {{"old.txt", lines(1)}, {"b.txt", "1"}}, {});
+    repo.commit("side renames", {{"new.txt", lines(1)}, {"b.txt", "1"}}, {"base"});
+    repo.commit("main edits b", {{"old.txt", lines(1)}, {"b.txt", "2"}}, {"base"});
+    repo.commit("merge", {{"new.txt", lines(1)}, {"b.txt", "2"}}, {"main edits b", "side renames"});
+    repo.commit("edit new", {{"new.txt", lines(2)}, {"b.txt", "2"}}, {"merge"});
+
+    // The merge took the side's new.txt unchanged, so it is not listed; the
+    // side's rename is, and the walk carries on to base under the old name.
+    const Names found = repo.history("new.txt");
+    EXPECT_EQ(found, (Names{"edit new", "side renames", "base"}));
 }

@@ -4,8 +4,8 @@
 
 #include <algorithm>
 #include <cctype>
-
 #include <chrono>
+#include <unordered_map>
 
 namespace gity::git {
 
@@ -47,48 +47,145 @@ bool CommitFilter::matches(std::string_view summary, std::string_view authorName
 
 namespace {
 
-/// The id of what `path` names in `tree` — a blob, a folder's tree, a
-/// submodule's commit — or zero when there is nothing there.
-git_oid entryAt(git_tree* tree, const std::string& path) {
+/// What `path` names in a tree: its id — a blob, a folder's tree, a
+/// submodule's commit — or zero when there is nothing there, and its kind.
+struct Entry {
     git_oid id{};
+    git_object_t type = GIT_OBJECT_INVALID;
+
+    [[nodiscard]] bool present() const noexcept { return git_oid_is_zero(&id) == 0; }
+};
+
+Entry entryAt(git_tree* tree, const std::string& path) {
+    Entry found;
     git_tree_entry* entry = nullptr;
     const int rc = git_tree_entry_bypath(&entry, tree, path.c_str());
     if (rc == 0) {
-        git_oid_cpy(&id, git_tree_entry_id(entry));
+        git_oid_cpy(&found.id, git_tree_entry_id(entry));
+        found.type = git_tree_entry_type(entry);
         git_tree_entry_free(entry);
     } else if (rc != GIT_ENOTFOUND) {
         throwLastError(rc, "look up a path in a commit");
     }
-    return id;
+    return found;
 }
 
-git_oid entryAt(git_commit* commit, const std::string& path) {
+TreeHandle treeOf(git_commit* commit) {
     TreeHandle tree;
     check(git_commit_tree(tree.receive(), commit), "read a commit's tree");
-    return entryAt(tree.get(), path);
+    return tree;
+}
+
+/// The name `path` had in `parentTree`, when the change from it to `tree`
+/// renamed a file to `path`; empty when nothing was renamed to it. The whole
+/// change is looked at, since the file's old name could be anywhere; trees
+/// the change leaves alone are skipped without being read.
+std::string renamedTo(git_repository* repo, git_tree* parentTree, git_tree* tree,
+                      const std::string& path) {
+    DiffHandle diff;
+    check(git_diff_tree_to_tree(diff.receive(), repo, parentTree, tree, nullptr),
+          "compare a commit with its parent");
+    git_diff_find_options find = GIT_DIFF_FIND_OPTIONS_INIT;
+    find.flags = GIT_DIFF_FIND_RENAMES;
+    check(git_diff_find_similar(diff.get(), &find), "find renamed files");
+    const std::size_t count = git_diff_num_deltas(diff.get());
+    for (std::size_t i = 0; i < count; ++i) {
+        const git_diff_delta* delta = git_diff_get_delta(diff.get(), i);
+        if (delta->status == GIT_DELTA_RENAMED && delta->new_file.path != nullptr &&
+            delta->old_file.path != nullptr && path == delta->new_file.path) {
+            return delta->old_file.path;
+        }
+    }
+    return {};
 }
 
 } // namespace
 
-bool commitTouchesPath(git_repository* repo, git_commit* commit, const std::string& path) {
-    const git_oid mine = entryAt(commit, path);
+PathChange pathChange(git_repository* repo, git_commit* commit, const std::string& path,
+                      bool followRenames) {
+    PathChange change;
+    const TreeHandle tree = treeOf(commit);
+    const Entry mine = entryAt(tree.get(), path);
     const unsigned int parents = git_commit_parentcount(commit);
     if (parents == 0) {
-        return !git_oid_is_zero(&mine);
+        change.touched = mine.present();
+        return change;
     }
+    // Only a file is followed; a folder that moved is a different folder.
+    const bool follow = followRenames && mine.type == GIT_OBJECT_BLOB;
+    if (follow) {
+        change.renamedFrom.resize(parents);
+    }
+    change.touched = true;
     for (unsigned int p = 0; p < parents; ++p) {
         CommitHandle parent;
         check(git_commit_lookup(parent.receive(), repo, git_commit_parent_id(commit, p)),
               "look up a parent commit");
-        const git_oid theirs = entryAt(parent.get(), path);
-        if (git_oid_equal(&mine, &theirs) != 0) {
-            return false;
+        const TreeHandle parentTree = treeOf(parent.get());
+        const Entry theirs = entryAt(parentTree.get(), path);
+        if (git_oid_equal(&mine.id, &theirs.id) != 0) {
+            // The same as one parent: this commit did not change it. The
+            // other parents are still asked what the file was called there,
+            // since the walk goes down every side.
+            change.touched = false;
+            if (!follow) {
+                return change;
+            }
+            continue;
+        }
+        if (follow && !theirs.present()) {
+            change.renamedFrom[p] = renamedTo(repo, parentTree.get(), tree.get(), path);
         }
     }
-    return true;
+    return change;
+}
+
+bool commitTouchesPath(git_repository* repo, git_commit* commit, const std::string& path) {
+    return pathChange(repo, commit, path, false).touched;
 }
 
 namespace {
+
+/// The name a followed file has in each commit the walk has yet to reach.
+/// The walk is topological, so every child of a commit is visited before it:
+/// a commit is told its name by the first child that reaches it, and forgets
+/// it once visited, so only the walk's frontier is held. Names are kept once
+/// and referred to by index, since nearly every commit shares one.
+class FollowedNames {
+public:
+    explicit FollowedNames(std::string path) { names_.push_back(std::move(path)); }
+
+    /// The name in `id`, which is being visited now. Tips have the name asked
+    /// for.
+    std::uint32_t take(const git_oid& id) {
+        const auto found = at_.find(keyFromOid(id));
+        if (found == at_.end()) {
+            return 0;
+        }
+        const std::uint32_t name = found->second;
+        at_.erase(found);
+        return name;
+    }
+
+    void expect(const git_oid& parent, std::uint32_t name) {
+        at_.try_emplace(keyFromOid(parent), name);
+    }
+
+    std::uint32_t intern(std::string name) {
+        const auto known = std::find(names_.begin(), names_.end(), name);
+        if (known != names_.end()) {
+            return static_cast<std::uint32_t>(known - names_.begin());
+        }
+        names_.push_back(std::move(name));
+        return static_cast<std::uint32_t>(names_.size() - 1);
+    }
+
+    [[nodiscard]] const std::string& name(std::uint32_t index) const { return names_[index]; }
+
+private:
+    std::vector<std::string> names_;
+    std::unordered_map<graph::CommitKey, std::uint32_t> at_;
+};
 
 using Clock = std::chrono::steady_clock;
 
@@ -176,6 +273,8 @@ StreamStats streamHistory(git_repository* repo, const StreamOptions& options,
     };
 
     const bool filtering = options.filter.active();
+    const bool byPath = !options.filter.path.empty();
+    FollowedNames followed(options.filter.path);
     char oidHex[GIT_OID_SHA1_HEXSIZE + 1] = {};
 
     git_oid oid;
@@ -193,9 +292,21 @@ StreamStats streamHistory(git_repository* repo, const StreamOptions& options,
 
         const auto summary = summaryOf(commit.get());
         const auto author = authorOf(commit.get());
-        if (!options.filter.path.empty() &&
-            !commitTouchesPath(repo, commit.get(), options.filter.path)) {
-            continue;
+        std::uint32_t name = 0;
+        if (byPath) {
+            name = followed.take(oid);
+            const PathChange change =
+                pathChange(repo, commit.get(), followed.name(name), options.filter.followRenames);
+            const unsigned int parents = git_commit_parentcount(commit.get());
+            for (unsigned int p = 0; p < parents; ++p) {
+                const bool renamed =
+                    p < change.renamedFrom.size() && !change.renamedFrom[p].empty();
+                followed.expect(*git_commit_parent_id(commit.get(), p),
+                                renamed ? followed.intern(change.renamedFrom[p]) : name);
+            }
+            if (!change.touched) {
+                continue;
+            }
         }
         if (filtering) {
             git_oid_tostr(oidHex, sizeof(oidHex), &oid);
@@ -223,8 +334,11 @@ StreamStats streamHistory(git_repository* repo, const StreamOptions& options,
         } else {
             assigner.append(keyFromOid(oid), parentKeys, chunk.graph);
         }
-        chunk.commits.append(oid, summary, author,
-                             static_cast<std::int64_t>(git_commit_time(commit.get())));
+        const model::CommitIndex local = chunk.commits.append(
+            oid, summary, author, static_cast<std::int64_t>(git_commit_time(commit.get())));
+        if (name != 0) {
+            chunk.renamedPaths.emplace_back(local, followed.name(name));
+        }
 
         ++globalRow;
         ++stats.commits;

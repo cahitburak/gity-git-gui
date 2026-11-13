@@ -9,6 +9,9 @@
 #include "CommitStore.h"
 
 #include <cstddef>
+#include <string>
+#include <utility>
+#include <vector>
 
 namespace gity::model {
 
@@ -22,6 +25,11 @@ struct HistoryChunk {
 
     /// Metadata for this chunk's rows, in the same order.
     CommitStore commits;
+
+    /// For the history of one file that was renamed: the rows where the file
+    /// had another name, by local row, with that name. Rows not listed had
+    /// the name asked for. In row order.
+    std::vector<std::pair<CommitIndex, std::string>> renamedPaths;
 
     [[nodiscard]] std::size_t rowCount() const noexcept { return graph.rows.size(); }
 

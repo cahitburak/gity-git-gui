@@ -14,6 +14,8 @@
 #include <cstdint>
 #include <cstring>
 #include <functional>
+#include <string>
+#include <vector>
 
 namespace gity::git {
 
@@ -41,6 +43,9 @@ struct CommitFilter {
     /// between parts: only commits that changed it. Checked by the walk, not
     /// by matches(), since it needs the commit's trees.
     std::string path;
+    /// For a file: carry on past a rename under the file's older name, as
+    /// `git log --follow` does. Ignored for a folder.
+    bool followRenames = true;
 
     [[nodiscard]] bool active() const noexcept {
         return !text.empty() || !author.empty() || since != 0 || until != 0 || !path.empty();
@@ -72,12 +77,29 @@ struct StreamOptions {
     const std::atomic<bool>* cancel = nullptr;
 };
 
-/// Whether `commit` changed `path` — a file or a folder — as `git log -- path`
-/// decides it: a commit is kept unless what `path` names is the same in it as
-/// in one of its parents. A merge that took one side's version unchanged is
-/// therefore left out, as git leaves it out. Unlike git, the sides of a merge
-/// that did not reach its result are still walked, so a change a merge
-/// threw away can be listed; renames are not followed.
+/// What one commit did to a file or folder, and what it was called before.
+struct PathChange {
+    /// Whether the commit changed it, as `git log -- path` decides: a commit
+    /// is kept unless what `path` names is the same in it as in one of its
+    /// parents. A merge that took one side's version unchanged is therefore
+    /// left out, as git leaves it out. A rename is a change.
+    bool touched = false;
+    /// Per parent, the name the file had there when this commit renamed it to
+    /// `path`; empty where the name did not change. Only filled when
+    /// following renames, and only for a file — git follows no folder either.
+    std::vector<std::string> renamedFrom;
+};
+
+/// How `commit` changed `path`. With `followRenames`, a file that is new in
+/// the commit is looked for among the files the commit deleted, as `git log
+/// --follow` does, so the walk can carry on under its older name.
+///
+/// Unlike git, the sides of a merge that did not reach its result are still
+/// walked, so a change a merge threw away can be listed.
+[[nodiscard]] PathChange pathChange(git_repository* repo, git_commit* commit,
+                                    const std::string& path, bool followRenames);
+
+/// Whether `commit` changed `path`, not following renames.
 [[nodiscard]] bool commitTouchesPath(git_repository* repo, git_commit* commit,
                                      const std::string& path);
 
