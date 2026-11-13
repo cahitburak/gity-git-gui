@@ -96,6 +96,22 @@ RowView HistoryModel::at(std::size_t globalRow) const {
     return RowView{chunks_[index].get(), globalRow - firstRow_[index]};
 }
 
+QString HistoryModel::renamedPath(std::size_t globalRow) const {
+    const RowView view = at(globalRow);
+    if (!view.valid() || view.chunk->renamedPaths.empty()) {
+        return {};
+    }
+    const auto& renamed = view.chunk->renamedPaths;
+    const auto local = static_cast<model::CommitIndex>(view.localRow);
+    const auto found = std::lower_bound(
+        renamed.begin(), renamed.end(), local,
+        [](const auto& entry, model::CommitIndex row) { return entry.first < row; });
+    if (found == renamed.end() || found->first != local) {
+        return {};
+    }
+    return QString::fromStdString(found->second);
+}
+
 QString HistoryModel::summary(std::size_t globalRow) const {
     const RowView view = at(globalRow);
     if (!view.valid()) {

@@ -271,6 +271,17 @@ void CommitGraphView::paintRow(QPainter& painter, qsizetype row, int y) const {
         painter.setFont(font());
     }
 
+    // In a renamed file's history, the rows from before the rename say what
+    // it was called then.
+    if (const QString renamed = model_->renamedPath(index); !renamed.isEmpty()) {
+        const QString note = tr("as %1").arg(renamed);
+        const int room = columns.messageWidth * 2 / 5;
+        const QString shown = fm.elidedText(note, Qt::ElideMiddle, room);
+        painter.setPen(secondary);
+        painter.drawText(QRect(textX, y, room, h), Qt::AlignVCenter | Qt::AlignLeft, shown);
+        textX += fm.horizontalAdvance(shown) + 10;
+    }
+
     painter.setPen(primary);
     painter.drawText(
         QRect(textX, y, std::max(0, messageEnd - textX), h), Qt::AlignVCenter | Qt::AlignLeft,

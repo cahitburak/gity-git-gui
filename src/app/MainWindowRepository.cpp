@@ -175,6 +175,7 @@ void MainWindow::openRepository(const QString& path) {
     clearCommitView();
     changes_->clearAll(refreshing);
     currentOid_.clear();
+    currentRenamedPath_.clear();
     firstChunkSeen_ = false;
     sinceOpen_.restart();
 
@@ -214,6 +215,7 @@ void MainWindow::applyCommitFilter() {
     graph_->setModel(&model_);
     clearCommitView();
     currentOid_.clear();
+    currentRenamedPath_.clear();
     showFilterState(filter);
     session()->requestFilter(filter);
 }

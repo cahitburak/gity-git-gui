@@ -56,6 +56,9 @@ public:
     [[nodiscard]] QString shortId(std::size_t globalRow) const;
     [[nodiscard]] QString fullId(std::size_t globalRow) const;
     [[nodiscard]] QString when(std::size_t globalRow) const;
+    /// In the history of a file that was renamed: the name it had at this
+    /// row, or empty when it had the name the history is of.
+    [[nodiscard]] QString renamedPath(std::size_t globalRow) const;
 
     /// The row holding `oidHex`, or -1. Compares raw oid bytes rather than
     /// formatting each row's id, so selecting a branch does not allocate a

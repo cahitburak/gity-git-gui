@@ -233,6 +233,9 @@ private:
 
     /// The commit whose files the diff pane is showing.
     QString currentOid_;
+    /// In a renamed file's history: what the file was called in the commit
+    /// shown, when that is not the name the history is of.
+    QString currentRenamedPath_;
     /// Set while two refs are being compared; `currentOid_` is empty then.
     QString compareFrom_;
     QString compareTo_;

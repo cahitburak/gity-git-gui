@@ -418,6 +418,7 @@ void MainWindow::connectHistory() {
     connect(refs_, &gity::ui::RefsSidebar::compareTooMany, this, [this](int count) {
         endComparison();
         currentOid_.clear();
+        currentRenamedPath_.clear();
         graph_->clearSelection();
         clearCommitView();
         detail_->setCannotCompare(count);
@@ -704,7 +705,9 @@ void MainWindow::onDetailReady(gity::session::DetailPtr detail) {
     // file it is the history of.
     if (detail && !detail->files.empty()) {
         QString landing = QString::fromStdString(detail->files.front().path);
-        const QString wanted = QString::fromStdString(walkedFilter_.path);
+        const QString wanted = !currentRenamedPath_.isEmpty()
+                                   ? currentRenamedPath_
+                                   : QString::fromStdString(walkedFilter_.path);
         if (!wanted.isEmpty()) {
             for (const auto& file : detail->files) {
                 const QString path = QString::fromStdString(file.path);
@@ -766,6 +769,7 @@ void MainWindow::startComparison(const QString& fromName, const QString& fromOid
     // Not one commit, so no row is selected: a highlighted row would claim the
     // tabs below describe it.
     currentOid_.clear();
+    currentRenamedPath_.clear();
     graph_->clearSelection();
     commitFiles_->clear();
     diff_->clearDiff();
@@ -823,6 +827,7 @@ void MainWindow::onRowSelected(qsizetype row) {
     // Show what we already have immediately; the file list follows once the
     // diff comes back, so the panel never appears to describe the old commit.
     currentOid_ = model_.fullId(index);
+    currentRenamedPath_ = model_.renamedPath(index);
     detail_->setPending(model_.shortId(index), model_.summary(index));
     setSummary(model_.summary(index),
                QStringLiteral("%1  ·  %2  ·  %3")
