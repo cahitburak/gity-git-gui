@@ -249,6 +249,7 @@ flowchart TB
 |---|---|---|
 | **libgit2** | History walk and graph topology, commit details, diffs, status, refs, blob reads for the diff and image views | Called thousands of times per interaction: must be in-process and free of parsing |
 | **git** | Staging and unstaging (whole file, hunk and line), commit, merge, rebase (including interactive), cherry-pick, revert, stash, checkout, reset, discard, clone, fetch, pull, push, submodule update, LFS | Runs the user's hooks, credential helper, LFS filters, merge drivers, signing and config exactly as their terminal does |
+| **git**, for one read | Blame | libgit2's blame is many times slower on a file with a long history, and git's is the answer people check against. Asked for once per file, so parsing its porcelain output costs nothing that matters |
 
 ### The GitProcess contract
 
@@ -409,6 +410,13 @@ cheap.
 A **filtered** view (by text, author or date) is a list of matches, not a graph: the commits between
 two matches are missing, so any lines drawn between them would describe a history that does not
 exist. Matches are shown on a single lane, and the view says it is showing matches.
+
+The **history of a file or folder** is a filter of the same kind. A commit is kept unless what the
+path names — a blob, or a folder's tree — has the same id in it as in one of its parents, which is
+how `git log -- path` decides; comparing two tree entries is far cheaper than a diff. Two
+differences from git remain: renames are not followed, and the walk does not prune the side of a
+merge whose version of the path the merge discarded, so a change thrown away by a merge can be
+listed.
 
 ---
 

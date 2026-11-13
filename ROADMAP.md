@@ -81,5 +81,6 @@ above is done, it needs:
 - [ ] Syntax highlighting in diffs — KSyntaxHighlighting or tree-sitter (ARCHITECTURE.md, open
       question 1).
 - [ ] A conflict-resolution editor.
-- [ ] Blame, and history for a single file or folder.
+- [x] **Blame, and history for a single file or folder** — from the file lists' menus and the
+      Repository menu. Renames are not followed yet.
 - [ ] A denser mode beyond the history rows, and further layout options.
