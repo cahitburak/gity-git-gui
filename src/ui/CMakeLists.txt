@@ -5,6 +5,8 @@ find_package(Qt6 6.8 REQUIRED COMPONENTS Core Gui Widgets)
 add_library(gity_ui STATIC
     image/ImageDiffView.cpp
     image/ImageDiffView.h
+    diffview/BlameView.cpp
+    diffview/BlameView.h
     diffview/DiffView.cpp
     diffview/DiffView.h
     graphview/GraphColumns.h
@@ -24,6 +26,8 @@ add_library(gity_ui STATIC
     panels/WelcomePanel.cpp
     panels/CommandLogView.cpp
     panels/PreviewDialog.cpp
+    panels/BlamePanel.cpp
+    panels/BlamePanel.h
     panels/PreviewPrompt.cpp
     panels/PreviewPrompt.h
     panels/RemotesDialog.cpp
