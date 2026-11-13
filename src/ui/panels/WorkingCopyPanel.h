@@ -67,6 +67,10 @@ signals:
     void stashRequested(const QStringList& paths);
     void lockRequested(const QString& path);
     void unlockRequested(const QString& path, bool force);
+    /// The commits that changed `path`.
+    void historyRequested(const QString& path);
+    /// Who last changed each line of `path` as it is on disk now.
+    void blameRequested(const QString& path);
 
 private:
     void showRowMenu(QTreeWidget* list, const QPoint& where);

@@ -319,6 +319,15 @@ QTabBar {
     font-weight: bold;
 }
 
+/* The file or folder the history is narrowed to; a click lets go of it. */
+#historyPath {
+    background: @fillInfoChip@;
+    border: 1px solid @fillInfoChipBorder@;
+    border-radius: 4px;
+    color: @semanticInfo@;
+    padding: 1px 6px;
+}
+
 /* The line above the Commit and Changes tabs. */
 #commitSummary {
     background: @surfaceHeader@;

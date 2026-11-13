@@ -33,6 +33,9 @@ public:
     void setFilter(const gity::git::CommitFilter& filter);
     /// Says on screen whether the list below is filtered, and what that means.
     void showState(bool filtered);
+    /// Narrows the history to the commits that changed `path`, a file or a
+    /// folder; empty shows every file again. Sends filterChanged at once.
+    void showPath(const QString& path);
 
     /// The authors offered, most commits first, with how many each made.
     /// What has been typed is kept.
@@ -54,6 +57,9 @@ private:
 
     QLabel* title_ = nullptr;
     QLabel* note_ = nullptr;
+    /// The file or folder the history is narrowed to; clicking it lets go.
+    QToolButton* pathChip_ = nullptr;
+    QString path_;
     QComboBox* author_ = nullptr;
     QToolButton* date_ = nullptr;
     QLineEdit* text_ = nullptr;

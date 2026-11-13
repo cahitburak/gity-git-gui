@@ -581,6 +581,22 @@ void WorkingCopyPanel::showRowMenu(QTreeWidget* list, const QPoint& where) {
         menu.addAction(glyph(Glyph::Discard), tr("Discard Changes to %1…").arg(subject));
     menu.addSeparator();
 
+    // History and blame need the file to have a past: not one that is new,
+    // and not one deleted from the disk.
+    QAction* history = nullptr;
+    QAction* blame = nullptr;
+    if (single) {
+        const git::StatusEntry* entry = status_ ? status_->find(path.toStdString()) : nullptr;
+        const bool isNew =
+            entry != nullptr && (entry->isUntracked() || entry->staged == git::FileState::Added);
+        history = menu.addAction(tr("Show History of %1").arg(subject));
+        blame = menu.addAction(tr("Blame %1").arg(subject));
+        history->setEnabled(!isNew);
+        blame->setEnabled(!isNew && !workdir_.isEmpty() &&
+                          QFileInfo::exists(QDir(workdir_).filePath(path)));
+        menu.addSeparator();
+    }
+
     QAction* open = nullptr;
     QAction* reveal = nullptr;
     if (single && !workdir_.isEmpty()) {
@@ -679,6 +695,14 @@ void WorkingCopyPanel::showRowMenu(QTreeWidget* list, const QPoint& where) {
                                          : target);
         }
         QApplication::clipboard()->setText(lines.join(QChar('\n')));
+        return;
+    }
+    if (chosen == history) {
+        emit historyRequested(path);
+        return;
+    }
+    if (chosen == blame) {
+        emit blameRequested(path);
         return;
     }
     if (chosen == open) {

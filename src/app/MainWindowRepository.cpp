@@ -9,6 +9,7 @@
 #include "ui/graphview/CommitGraphView.h"
 #include "ui/graphview/GraphHeader.h"
 #include "ui/graphview/HistoryFilterBar.h"
+#include "ui/panels/BlamePanel.h"
 #include "ui/panels/Confirm.h"
 #include "ui/panels/RefsSidebar.h"
 #include "ui/panels/RepositoryTabs.h"
@@ -156,6 +157,8 @@ void MainWindow::openRepository(const QString& path) {
         // A different repository has different contributors; the list is
         // rebuilt when its history arrives.
         filterBar_->setContributors({});
+        // A blame is of one repository's file.
+        blame_->clear();
     }
 
     if (!refreshing) {

@@ -9,6 +9,7 @@
 #include "ui/graphview/GraphHeader.h"
 #include "ui/graphview/HistoryFilterBar.h"
 #include "ui/image/ImageDiffView.h"
+#include "ui/panels/BlamePanel.h"
 #include "ui/panels/CommandLogView.h"
 #include "ui/panels/CommitDetailPanel.h"
 #include "ui/panels/Confirm.h"
@@ -29,6 +30,7 @@
 #include <QLineEdit>
 #include <QMessageBox>
 #include <QScreen>
+#include <QSignalBlocker>
 #include <QSplitter>
 #include <QStackedWidget>
 #include <QTabBar>
@@ -51,6 +53,7 @@ MainWindow::MainWindow(QWidget* parent) : QMainWindow(parent) {
     connectSidebar();
     connectWorkingCopy();
     connectRepositoryTabs();
+    connectFileHistory();
 }
 
 void MainWindow::buildLayout() {
@@ -126,6 +129,8 @@ void MainWindow::buildLayout() {
     commitTabs_->setDocumentMode(true);
     commitTabs_->addTab(detail_, tr("Commit"));
     commitTabs_->addTab(changesSplit, tr("Changes"));
+    blame_ = new gity::ui::BlamePanel(this);
+    commitTabs_->addTab(blame_, tr("Blame"));
     // Changes first: the diff is what is read most, and the full message is
     // one click away on Commit (2026-09 UI review).
     commitTabs_->setCurrentIndex(kChangesTab);
@@ -695,9 +700,23 @@ void MainWindow::onDetailReady(gity::session::DetailPtr detail) {
     setChangesCount(detail ? static_cast<int>(detail->files.size()) : -1);
 
     // Land on the first changed file so the diff pane has content without a
-    // second click.
+    // second click — or, while the history is of one file or folder, on the
+    // file it is the history of.
     if (detail && !detail->files.empty()) {
-        onFileActivated(QString::fromStdString(detail->files.front().path));
+        QString landing = QString::fromStdString(detail->files.front().path);
+        const QString wanted = QString::fromStdString(walkedFilter_.path);
+        if (!wanted.isEmpty()) {
+            for (const auto& file : detail->files) {
+                const QString path = QString::fromStdString(file.path);
+                if (path == wanted || path.startsWith(wanted + QChar('/'))) {
+                    landing = path;
+                    break;
+                }
+            }
+            const QSignalBlocker quiet(commitFiles_);
+            commitFiles_->selectPath(landing);
+        }
+        onFileActivated(landing);
     } else {
         diff_->clearDiff();
         diff_->setPlaceholder(detail ? tr("This commit changes no files")

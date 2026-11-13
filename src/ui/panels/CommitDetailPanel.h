@@ -34,6 +34,14 @@ public:
 signals:
     /// The user picked a file — by click or by keyboard.
     void fileSelected(const QString& path);
+    /// From the menu: the commits that changed `path`, a file or a folder.
+    void historyRequested(const QString& path);
+    /// From the menu: who last changed each line of `path`, as of the commit
+    /// these files are from.
+    void blameRequested(const QString& path);
+
+protected:
+    void contextMenuEvent(QContextMenuEvent* event) override;
 };
 
 class CommitDetailPanel : public QWidget {
@@ -63,6 +71,9 @@ signals:
     void swapRequested();
     /// A file in the commit's list was clicked.
     void fileActivated(const QString& path);
+    /// Passed on from the file list's menu.
+    void historyRequested(const QString& path);
+    void blameRequested(const QString& path);
 
 private:
     void rebuild();

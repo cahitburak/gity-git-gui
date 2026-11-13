@@ -34,6 +34,13 @@ HistoryFilterBar::HistoryFilterBar(QWidget* parent) : QWidget(parent) {
     title_->setObjectName(QStringLiteral("historyTitle"));
     note_ = new QLabel(this);
     applyRole(note_, QStringLiteral("note"));
+    pathChip_ = new QToolButton(this);
+    pathChip_->setObjectName(QStringLiteral("historyPath"));
+    pathChip_->setAutoRaise(true);
+    pathChip_->setVisible(false);
+    // The note beside it gives way first; the path is what was asked for.
+    pathChip_->setSizePolicy(QSizePolicy::Minimum, QSizePolicy::Fixed);
+    connect(pathChip_, &QToolButton::clicked, this, [this] { showPath({}); });
 
     debounce_ = new QTimer(this);
     debounce_->setSingleShot(true);
@@ -88,6 +95,7 @@ HistoryFilterBar::HistoryFilterBar(QWidget* parent) : QWidget(parent) {
     connect(text_, &QLineEdit::textChanged, this, [this] { debounce_->start(); });
 
     layout->addWidget(title_);
+    layout->addWidget(pathChip_);
     layout->addWidget(note_, 1);
     layout->addWidget(author_);
     layout->addWidget(date_);
@@ -100,6 +108,7 @@ gity::git::CommitFilter HistoryFilterBar::filter() const {
     filter.author = author_->currentText().trimmed().toStdString();
     filter.since = since_;
     filter.until = until_;
+    filter.path = path_.toStdString();
     return filter;
 }
 
@@ -111,6 +120,7 @@ void HistoryFilterBar::setFilter(const gity::git::CommitFilter& filter) {
     author_->setCurrentText(QString::fromStdString(filter.author));
     since_ = filter.since;
     until_ = filter.until;
+    path_ = QString::fromStdString(filter.path);
     refreshDateLabel();
     showState(filter.active());
 }
@@ -118,10 +128,46 @@ void HistoryFilterBar::setFilter(const gity::git::CommitFilter& filter) {
 void HistoryFilterBar::showState(bool filtered) {
     // Said on screen, not only in a tooltip: a filtered list has no graph
     // lines, and that is by design rather than a rendering fault.
-    title_->setText(filtered ? tr("Matching commits") : tr("All commits"));
-    note_->setText(filtered ? tr("The commits between matches are not shown, so no "
-                                 "graph lines join them.")
-                            : QString());
+    const bool byPath = !path_.isEmpty();
+    pathChip_->setVisible(byPath);
+    if (byPath) {
+        // The header is crowded at narrow widths. A deep path gives up its
+        // middle folders first, and its file name last.
+        const QFontMetrics fm = pathChip_->fontMetrics();
+        constexpr int kRoom = 170;
+        QString shown = path_;
+        const QString name = path_.section(QChar('/'), -1);
+        if (fm.horizontalAdvance(shown) > kRoom && path_.count(QChar('/')) > 1) {
+            shown = path_.section(QChar('/'), 0, 0) + QStringLiteral("/…/") + name;
+        }
+        if (fm.horizontalAdvance(shown) > kRoom && name != path_) {
+            shown = QStringLiteral("…/") + name;
+        }
+        shown = fm.elidedText(shown, Qt::ElideRight, kRoom);
+        const QString text = QStringLiteral("%1  ✕").arg(shown);
+        pathChip_->setText(text);
+        // Wide enough for the text as shortened here: left to the layout, the
+        // style cut it again, mid-name.
+        pathChip_->setMinimumWidth(fm.horizontalAdvance(text) + 24);
+        pathChip_->setToolTip(tr("%1\n\nOnly the commits that changed it; renames are not "
+                                 "followed, and no graph lines are drawn. Click to show "
+                                 "every file again.")
+                                  .arg(path_));
+    }
+    title_->setText(byPath     ? tr("History of")
+                    : filtered ? tr("Matching commits")
+                               : tr("All commits"));
+    // With a path the chip's tooltip says what the note would, and the
+    // header has no room for both beside the filters.
+    note_->setText(filtered && !byPath ? tr("The commits between matches are not shown, so no "
+                                            "graph lines join them.")
+                                       : QString());
+}
+
+void HistoryFilterBar::showPath(const QString& path) {
+    path_ = path;
+    showState(filter().active());
+    changedNow();
 }
 
 void HistoryFilterBar::setContributors(const QList<QPair<QString, int>>& contributors) {

@@ -31,6 +31,7 @@ class QLineEdit;
 class QTimer;
 
 namespace gity::ui {
+class BlamePanel;
 class ChangedFilesList;
 class WelcomePanel;
 class CommitDetailPanel;
@@ -74,6 +75,12 @@ public:
     void setSessionPersistence(bool enabled);
     void showChangesTab();
     void showImageTab(const QString& path);
+    /// Narrows the history to the commits that changed `path`, a file or a
+    /// folder, keeping the selected commit if it is one of them.
+    void showFileHistory(const QString& path);
+    /// Opens the Blame tab on `path` as of `revision`; empty is the working
+    /// copy as it is on disk.
+    void blameFile(const QString& path, const QString& revision);
 
 private slots:
     void chooseRepository();
@@ -134,8 +141,9 @@ private:
     /// literal after it at the wrong one.
     enum Screen : int { ScreenHistory = 0, ScreenChanges = 1, ScreenWelcome = 2 };
 
-    /// The Changes tab, under the graph.
+    /// The Changes and Blame tabs, under the graph.
     static constexpr int kChangesTab = 1;
+    static constexpr int kBlameTab = 2;
 
     /// Adds `path` to the recent repositories, when the session is saved.
     void rememberRepository(const QString& path);
@@ -168,6 +176,13 @@ private:
     void connectSidebar();
     void connectWorkingCopy();
     void connectRepositoryTabs();
+    void connectFileHistory();
+
+    /// Asks for a file or folder in the repository; its path from the top,
+    /// or empty if none was chosen.
+    [[nodiscard]] QString choosePath(bool folder);
+    /// Selects the commit `id` in the graph, or says why it cannot.
+    void selectCommit(const QString& id);
 
     /// Makes `path`'s session the one on screen, creating it on first use.
     void activateSession(const QString& path);
@@ -196,6 +211,8 @@ private:
     gity::ui::GraphHeader* graphHeader_ = nullptr;
     gity::ui::RefsSidebar* refs_ = nullptr;
     gity::ui::CommitDetailPanel* detail_ = nullptr;
+    /// The Blame tab.
+    gity::ui::BlamePanel* blame_ = nullptr;
     gity::ui::WelcomePanel* welcome_ = nullptr;
     /// The commit's files in the Changes tab, beside the diff.
     gity::ui::ChangedFilesList* commitFiles_ = nullptr;

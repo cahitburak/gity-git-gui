@@ -3,7 +3,12 @@
 #include "ui/panels/Confirm.h"
 #include "ui/theme/Theme.h"
 
+#include <QApplication>
+#include <QClipboard>
+#include <QContextMenuEvent>
 #include <QDateTime>
+#include <QFileInfo>
+#include <QMenu>
 
 #include <QHBoxLayout>
 #include <QHeaderView>
@@ -45,6 +50,8 @@ QColor statusColour(git::ChangeStatus status, const Theme& theme) {
 }
 
 constexpr int kPathRole = Qt::UserRole;
+/// True for a file the commit deleted: there is nothing left to blame.
+constexpr int kDeletedRole = Qt::UserRole + 1;
 
 /// Commits listed per side of a comparison before "… and N more".
 constexpr std::size_t kShown = 10;
@@ -97,6 +104,7 @@ void ChangedFilesList::setFiles(const std::vector<git::ChangedFile>& files) {
         }
         item->setText(1, label);
         item->setData(0, kPathRole, QString::fromStdString(file.path));
+        item->setData(0, kDeletedRole, file.status == git::ChangeStatus::Deleted);
         if (file.binary) {
             item->setForeground(1, theme.textMuted);
             item->setToolTip(1, tr("Binary file"));
@@ -119,6 +127,42 @@ void ChangedFilesList::selectPath(const QString& path) {
             scrollToItem(item);
             return;
         }
+    }
+}
+
+void ChangedFilesList::contextMenuEvent(QContextMenuEvent* event) {
+    QTreeWidgetItem* item = itemAt(viewport()->mapFrom(this, event->pos()));
+    if (item == nullptr) {
+        return;
+    }
+    const QString path = item->data(0, kPathRole).toString();
+    if (path.isEmpty()) {
+        return;
+    }
+    const QString name = QFileInfo(path).fileName();
+    const QString folder = path.contains(QChar('/')) ? path.section(QChar('/'), 0, -2) : QString();
+
+    QMenu menu(this);
+    QAction* history = menu.addAction(tr("Show History of %1").arg(name));
+    QAction* folderHistory =
+        folder.isEmpty() ? nullptr : menu.addAction(tr("Show History of Folder %1").arg(folder));
+    QAction* blame = menu.addAction(tr("Blame %1").arg(name));
+    blame->setEnabled(!item->data(0, kDeletedRole).toBool());
+    menu.addSeparator();
+    QAction* copy = menu.addAction(tr("Copy Path"));
+
+    QAction* chosen = menu.exec(event->globalPos());
+    if (chosen == nullptr) {
+        return;
+    }
+    if (chosen == history) {
+        emit historyRequested(path);
+    } else if (chosen == folderHistory) {
+        emit historyRequested(folder);
+    } else if (chosen == blame) {
+        emit blameRequested(path);
+    } else if (chosen == copy) {
+        QApplication::clipboard()->setText(path);
     }
 }
 
@@ -167,6 +211,9 @@ CommitDetailPanel::CommitDetailPanel(QWidget* parent) : QWidget(parent) {
 
     files_ = new ChangedFilesList(this);
     layout->addWidget(files_, 1);
+    connect(files_, &ChangedFilesList::historyRequested, this,
+            &CommitDetailPanel::historyRequested);
+    connect(files_, &ChangedFilesList::blameRequested, this, &CommitDetailPanel::blameRequested);
 
     // A click here means "show me this file", and the diff lives in the
     // Changes tab — so the click is handed up rather than acted on.

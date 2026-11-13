@@ -77,6 +77,16 @@ int main(int argc, char** argv) {
         QCoreApplication::translate("main", "Open on the Image tab for <path>."),
         QStringLiteral("path"));
     parser.addOption(imageTabOption);
+    const QCommandLineOption historyOfOption(
+        QStringList{QStringLiteral("history-of")},
+        QCoreApplication::translate("main", "Show the history of <path> once loaded."),
+        QStringLiteral("path"));
+    parser.addOption(historyOfOption);
+    const QCommandLineOption blameOption(
+        QStringList{QStringLiteral("blame")},
+        QCoreApplication::translate("main", "Blame <path> in the working copy once loaded."),
+        QStringLiteral("path"));
+    parser.addOption(blameOption);
     parser.addOption(screenshotOption);
     parser.process(app);
 
@@ -133,6 +143,17 @@ int main(int argc, char** argv) {
         }
         if (parser.isSet(imageTabOption)) {
             window.showImageTab(parser.value(imageTabOption));
+        }
+        // Both need the repository open, which takes a moment.
+        if (parser.isSet(historyOfOption)) {
+            QTimer::singleShot(500, &window, [&window, path = parser.value(historyOfOption)] {
+                window.showFileHistory(path);
+            });
+        }
+        if (parser.isSet(blameOption)) {
+            QTimer::singleShot(700, &window, [&window, path = parser.value(blameOption)] {
+                window.blameFile(path, {});
+            });
         }
         if (parser.isSet(screenshotOption)) {
             const QString file = parser.value(screenshotOption);

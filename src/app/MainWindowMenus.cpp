@@ -168,6 +168,24 @@ void MainWindow::buildMenus() {
     };
     repository->addSeparator();
     repository->addAction(tr("Refresh &LFS Locks"), this, [this] { session()->requestLocks(); });
+    repository->addSeparator();
+    // Any file, not only one a commit changed — the file lists' menus offer
+    // the same for those.
+    repository->addAction(tr("File &History…"), this, [this] {
+        if (const QString path = choosePath(false); !path.isEmpty()) {
+            showFileHistory(path);
+        }
+    });
+    repository->addAction(tr("F&older History…"), this, [this] {
+        if (const QString path = choosePath(true); !path.isEmpty()) {
+            showFileHistory(path);
+        }
+    });
+    repository->addAction(tr("&Blame File…"), this, [this] {
+        if (const QString path = choosePath(false); !path.isEmpty()) {
+            blameFile(path, {});
+        }
+    });
 
     QMenu* branch = menuBar()->addMenu(tr("&Branch"));
     branch->addAction(tr("&New Branch…"), QKeySequence(Qt::CTRL | Qt::SHIFT | Qt::Key_N), this,
