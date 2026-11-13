@@ -47,6 +47,49 @@ bool CommitFilter::matches(std::string_view summary, std::string_view authorName
 
 namespace {
 
+/// The id of what `path` names in `tree` — a blob, a folder's tree, a
+/// submodule's commit — or zero when there is nothing there.
+git_oid entryAt(git_tree* tree, const std::string& path) {
+    git_oid id{};
+    git_tree_entry* entry = nullptr;
+    const int rc = git_tree_entry_bypath(&entry, tree, path.c_str());
+    if (rc == 0) {
+        git_oid_cpy(&id, git_tree_entry_id(entry));
+        git_tree_entry_free(entry);
+    } else if (rc != GIT_ENOTFOUND) {
+        throwLastError(rc, "look up a path in a commit");
+    }
+    return id;
+}
+
+git_oid entryAt(git_commit* commit, const std::string& path) {
+    TreeHandle tree;
+    check(git_commit_tree(tree.receive(), commit), "read a commit's tree");
+    return entryAt(tree.get(), path);
+}
+
+} // namespace
+
+bool commitTouchesPath(git_repository* repo, git_commit* commit, const std::string& path) {
+    const git_oid mine = entryAt(commit, path);
+    const unsigned int parents = git_commit_parentcount(commit);
+    if (parents == 0) {
+        return !git_oid_is_zero(&mine);
+    }
+    for (unsigned int p = 0; p < parents; ++p) {
+        CommitHandle parent;
+        check(git_commit_lookup(parent.receive(), repo, git_commit_parent_id(commit, p)),
+              "look up a parent commit");
+        const git_oid theirs = entryAt(parent.get(), path);
+        if (git_oid_equal(&mine, &theirs) != 0) {
+            return false;
+        }
+    }
+    return true;
+}
+
+namespace {
+
 using Clock = std::chrono::steady_clock;
 
 double msSince(Clock::time_point start) {
@@ -150,6 +193,10 @@ StreamStats streamHistory(git_repository* repo, const StreamOptions& options,
 
         const auto summary = summaryOf(commit.get());
         const auto author = authorOf(commit.get());
+        if (!options.filter.path.empty() &&
+            !commitTouchesPath(repo, commit.get(), options.filter.path)) {
+            continue;
+        }
         if (filtering) {
             git_oid_tostr(oidHex, sizeof(oidHex), &oid);
             if (!options.filter.matches(summary, author, oidHex,

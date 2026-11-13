@@ -7,7 +7,10 @@
 
 #include <cstdlib>
 #include <filesystem>
+#include <map>
 #include <string>
+#include <utility>
+#include <vector>
 
 namespace {
 
@@ -116,4 +119,155 @@ TEST(HistoryStream, FilteredRowsAreFullyInitialised) {
             return true;
         }));
     EXPECT_EQ(matched, 6u);
+}
+
+namespace {
+
+/// Commits built from file contents, for path filtering: each commit is the
+/// whole tree, as {path, content} with at most one folder level.
+class FileRepo {
+public:
+    using Files = std::vector<std::pair<std::string, std::string>>;
+
+    FileRepo() {
+        git_libgit2_init();
+        path_ =
+            fs::temp_directory_path() /
+            ("gity-path-test-" + std::to_string(::testing::UnitTest::GetInstance()->random_seed()));
+        fs::remove_all(path_);
+        EXPECT_EQ(git_repository_init(&repo_, path_.string().c_str(), 0), 0);
+        EXPECT_EQ(git_signature_new(&who_, "Test", "test@invalid", 1700000000, 0), 0);
+    }
+
+    ~FileRepo() {
+        git_signature_free(who_);
+        git_repository_free(repo_);
+        std::error_code error;
+        fs::remove_all(path_, error);
+        git_libgit2_shutdown();
+    }
+
+    FileRepo(const FileRepo&) = delete;
+    FileRepo& operator=(const FileRepo&) = delete;
+
+    /// Commits `files` on top of `parents` (by message), moving HEAD to it.
+    void commit(const std::string& message, const Files& files,
+                const std::vector<std::string>& parents) {
+        const git_oid tree = writeTree(files);
+        git_tree* treeObject = nullptr;
+        EXPECT_EQ(git_tree_lookup(&treeObject, repo_, &tree), 0);
+        std::vector<git_commit*> parentCommits;
+        for (const auto& name : parents) {
+            git_commit* parent = nullptr;
+            EXPECT_EQ(git_commit_lookup(&parent, repo_, &ids_.at(name)), 0);
+            parentCommits.push_back(parent);
+        }
+        std::vector<const git_commit*> constParents(parentCommits.begin(), parentCommits.end());
+        git_oid id{};
+        EXPECT_EQ(git_commit_create(&id, repo_, nullptr, who_, who_, nullptr, message.c_str(),
+                                    treeObject, constParents.size(), constParents.data()),
+                  0);
+        for (git_commit* parent : parentCommits) {
+            git_commit_free(parent);
+        }
+        git_tree_free(treeObject);
+        ids_[message] = id;
+        git_reference* ref = nullptr;
+        EXPECT_EQ(git_reference_create(&ref, repo_, "refs/heads/main", &id, 1, nullptr), 0);
+        git_reference_free(ref);
+        EXPECT_EQ(git_repository_set_head(repo_, "refs/heads/main"), 0);
+    }
+
+    /// Summaries of the commits that changed `path`, newest first.
+    std::vector<std::string> history(const std::string& path) {
+        gity::git::StreamOptions options;
+        options.filter.path = path;
+        std::vector<std::string> found;
+        static_cast<void>(
+            gity::git::streamHistory(repo_, options, [&](gity::model::HistoryChunk&& chunk) {
+                for (std::size_t i = 0; i < chunk.rowCount(); ++i) {
+                    found.emplace_back(
+                        chunk.commits.summary(static_cast<gity::model::CommitIndex>(i)));
+                }
+                return true;
+            }));
+        return found;
+    }
+
+private:
+    git_oid writeBlob(const std::string& content) {
+        git_oid id{};
+        EXPECT_EQ(git_blob_create_from_buffer(&id, repo_, content.data(), content.size()), 0);
+        return id;
+    }
+
+    git_oid writeTree(const Files& files) {
+        std::map<std::string, Files> folders;
+        git_treebuilder* builder = nullptr;
+        EXPECT_EQ(git_treebuilder_new(&builder, repo_, nullptr), 0);
+        for (const auto& [name, content] : files) {
+            const auto slash = name.find('/');
+            if (slash != std::string::npos) {
+                folders[name.substr(0, slash)].emplace_back(name.substr(slash + 1), content);
+                continue;
+            }
+            const git_oid blob = writeBlob(content);
+            EXPECT_EQ(
+                git_treebuilder_insert(nullptr, builder, name.c_str(), &blob, GIT_FILEMODE_BLOB),
+                0);
+        }
+        for (const auto& [folder, inside] : folders) {
+            const git_oid sub = writeTree(inside);
+            EXPECT_EQ(
+                git_treebuilder_insert(nullptr, builder, folder.c_str(), &sub, GIT_FILEMODE_TREE),
+                0);
+        }
+        git_oid id{};
+        EXPECT_EQ(git_treebuilder_write(&id, builder), 0);
+        git_treebuilder_free(builder);
+        return id;
+    }
+
+    git_repository* repo_ = nullptr;
+    git_signature* who_ = nullptr;
+    std::map<std::string, git_oid> ids_;
+    fs::path path_;
+};
+
+using Names = std::vector<std::string>;
+
+} // namespace
+
+TEST(HistoryStream, PathKeepsOnlyCommitsThatChangedIt) {
+    FileRepo repo;
+    repo.commit("add both", {{"a.txt", "1"}, {"src/b.txt", "1"}}, {});
+    repo.commit("edit a", {{"a.txt", "2"}, {"src/b.txt", "1"}}, {"add both"});
+    repo.commit("edit b", {{"a.txt", "2"}, {"src/b.txt", "2"}}, {"edit a"});
+    repo.commit("add c", {{"a.txt", "2"}, {"src/b.txt", "2"}, {"src/c.txt", "1"}}, {"edit b"});
+    repo.commit("delete a", {{"src/b.txt", "2"}, {"src/c.txt", "1"}}, {"add c"});
+
+    EXPECT_EQ(repo.history("a.txt"), (Names{"delete a", "edit a", "add both"}));
+    EXPECT_EQ(repo.history("src/b.txt"), (Names{"edit b", "add both"}));
+    // A folder: anything inside it.
+    EXPECT_EQ(repo.history("src"), (Names{"add c", "edit b", "add both"}));
+    EXPECT_TRUE(repo.history("missing.txt").empty());
+}
+
+TEST(HistoryStream, PathSkipsAMergeThatTookOneSideUnchanged) {
+    FileRepo repo;
+    repo.commit("base", {{"a.txt", "1"}, {"b.txt", "1"}}, {});
+    repo.commit("side edits a", {{"a.txt", "2"}, {"b.txt", "1"}}, {"base"});
+    repo.commit("main edits b", {{"a.txt", "1"}, {"b.txt", "2"}}, {"base"});
+    // A clean merge: a.txt comes from the side unchanged, so the merge itself
+    // did not change it — git log -- a.txt does not list it either.
+    repo.commit("merge", {{"a.txt", "2"}, {"b.txt", "2"}}, {"main edits b", "side edits a"});
+    EXPECT_EQ(repo.history("a.txt"), (Names{"side edits a", "base"}));
+
+    // A merge that resolved a.txt to something neither side had did change it.
+    repo.commit("main edits a", {{"a.txt", "3"}, {"b.txt", "2"}}, {"merge"});
+    repo.commit("side again", {{"a.txt", "4"}, {"b.txt", "1"}}, {"side edits a"});
+    repo.commit("resolved", {{"a.txt", "5"}, {"b.txt", "2"}}, {"main edits a", "side again"});
+    const Names found = repo.history("a.txt");
+    ASSERT_FALSE(found.empty());
+    EXPECT_EQ(found.front(), "resolved");
 }

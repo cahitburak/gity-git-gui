@@ -37,9 +37,13 @@ struct CommitFilter {
     /// Commit time bounds, seconds since the epoch, inclusive. Zero is open.
     std::int64_t since = 0;
     std::int64_t until = 0;
+    /// A file or folder, relative to the top of the working copy with `/`
+    /// between parts: only commits that changed it. Checked by the walk, not
+    /// by matches(), since it needs the commit's trees.
+    std::string path;
 
     [[nodiscard]] bool active() const noexcept {
-        return !text.empty() || !author.empty() || since != 0 || until != 0;
+        return !text.empty() || !author.empty() || since != 0 || until != 0 || !path.empty();
     }
 
     [[nodiscard]] bool matches(std::string_view summary, std::string_view authorName,
@@ -67,6 +71,15 @@ struct StreamOptions {
     /// superseded filter walked the whole history before noticing.
     const std::atomic<bool>* cancel = nullptr;
 };
+
+/// Whether `commit` changed `path` — a file or a folder — as `git log -- path`
+/// decides it: a commit is kept unless what `path` names is the same in it as
+/// in one of its parents. A merge that took one side's version unchanged is
+/// therefore left out, as git leaves it out. Unlike git, the sides of a merge
+/// that did not reach its result are still walked, so a change a merge
+/// threw away can be listed; renames are not followed.
+[[nodiscard]] bool commitTouchesPath(git_repository* repo, git_commit* commit,
+                                     const std::string& path);
 
 /// True when `filter` matches any of the fields a person would search.
 [[nodiscard]] bool commitMatches(std::string_view summary, std::string_view author,
