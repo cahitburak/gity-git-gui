@@ -13,6 +13,7 @@ include(GoogleTest)
 # headless leg). The session tests below add QtCore and nothing more. If a
 # test ever needs QtWidgets, the layering has been violated.
 add_executable(gity_tests
+    test_blame.cpp
     test_blob_reader.cpp
     test_staging.cpp
     test_network_outcome.cpp

@@ -30,6 +30,8 @@ add_library(gity_core STATIC
     git/WorkingCopy.h
     git/FileDiff.cpp
     git/FileDiff.h
+    git/Blame.cpp
+    git/Blame.h
     git/BlobReader.cpp
     git/BlobReader.h
     git/CommitDetail.cpp
