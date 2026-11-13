@@ -34,6 +34,7 @@ public slots:
     void setFilter(const gity::git::CommitFilter& filter);
     void loadDetail(const QString& oidHex, quint64 generation);
     void loadFileDiff(const QString& oidHex, const QString& path, quint64 generation);
+    void loadBlame(const QString& path, const QString& revision, quint64 generation);
     void loadComparison(const QString& fromHex, const QString& toHex, quint64 generation);
     void loadFileDiffBetween(const QString& fromHex, const QString& toHex, const QString& path,
                              quint64 generation);
@@ -102,6 +103,8 @@ signals:
     void detailReady(gity::session::DetailPtr detail, quint64 generation);
     void comparisonReady(gity::session::ComparisonPtr comparison, quint64 generation);
     void fileDiffReady(gity::session::FileDiffPtr diff, quint64 generation);
+    void blameReady(const QString& path, const QString& revision, gity::session::BlamePtr blame,
+                    const QString& problem, quint64 generation);
     void statusReady(gity::session::StatusPtr status);
     void imageDiffReady(gity::session::ImageDiffPtr diff, quint64 generation);
     void workingDiffReady(gity::session::FileDiffPtr diff, gity::session::HunkStagingPtr staging,

@@ -62,6 +62,11 @@ public:
     /// See commitPeekReady. An empty path asks for the file list.
     void requestCommitPeek(const QString& oidHex, const QString& path = {});
 
+    /// Who last changed each line of `path`: as of `revision`, a commit id,
+    /// or with it empty, as the file is in the working copy now, edits
+    /// included. Supersedes the blame asked for before.
+    void requestBlame(const QString& path, const QString& revision);
+
     /// Two commits — usually two branch tips — side by side. Shares the
     /// detail generation, so selecting a commit supersedes a comparison still
     /// loading and the reverse.
@@ -256,6 +261,9 @@ signals:
     void detailReady(gity::session::DetailPtr detail);
     void comparisonReady(gity::session::ComparisonPtr comparison);
     void fileDiffReady(gity::session::FileDiffPtr diff);
+    /// `blame` is null when git could not blame the file; `problem` says why.
+    void blameReady(const QString& path, const QString& revision, gity::session::BlamePtr blame,
+                    const QString& problem);
     void statusReady(gity::session::StatusPtr status);
     void imageDiffReady(gity::session::ImageDiffPtr diff);
     /// `staging` carries one entry per hunk; empty when the file has no
@@ -333,6 +341,7 @@ private:
     std::atomic<quint64> diffGeneration_{0};
     std::atomic<quint64> workingDiffGeneration_{0};
     std::atomic<quint64> imageGeneration_{0};
+    std::atomic<quint64> blameGeneration_{0};
 };
 
 } // namespace gity::session

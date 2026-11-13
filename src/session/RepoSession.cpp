@@ -30,6 +30,7 @@ RepoSession::RepoSession(QObject* parent) : QObject(parent) {
     qRegisterMetaType<FileDiffPtr>("gity::session::FileDiffPtr");
     qRegisterMetaType<StatusPtr>("gity::session::StatusPtr");
     qRegisterMetaType<ImageDiffPtr>("gity::session::ImageDiffPtr");
+    qRegisterMetaType<BlamePtr>("gity::session::BlamePtr");
 
     worker_ = new RepoWorker(cancel_);
     worker_->moveToThread(&thread_);
@@ -54,6 +55,13 @@ RepoSession::RepoSession(QObject* parent) : QObject(parent) {
             [this](FileDiffPtr diff, quint64 generation) {
                 if (generation == diffGeneration_) {
                     emit fileDiffReady(std::move(diff));
+                }
+            });
+    connect(worker_, &RepoWorker::blameReady, this,
+            [this](const QString& path, const QString& revision, BlamePtr blame,
+                   const QString& problem, quint64 generation) {
+                if (generation == blameGeneration_) {
+                    emit blameReady(path, revision, std::move(blame), problem);
                 }
             });
     connect(worker_, &RepoWorker::statusReady, this, &RepoSession::statusReady);
@@ -190,6 +198,15 @@ void RepoSession::requestFileDiff(const QString& oidHex, const QString& path) {
             }
         },
         Qt::QueuedConnection);
+}
+
+void RepoSession::requestBlame(const QString& path, const QString& revision) {
+    const quint64 generation = ++blameGeneration_;
+    postRead([this, path, revision, generation] {
+        if (generation == blameGeneration_) {
+            worker_->loadBlame(path, revision, generation);
+        }
+    });
 }
 
 void RepoSession::requestComparison(const QString& fromHex, const QString& toHex) {

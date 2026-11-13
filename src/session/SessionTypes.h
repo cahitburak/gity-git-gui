@@ -4,6 +4,7 @@
 #pragma once
 
 #include "ImageDiff.h"
+#include "core/git/Blame.h"
 #include "core/git/BlobReader.h"
 #include "core/git/CommitDetail.h"
 #include "core/git/Compare.h"
@@ -37,6 +38,7 @@ using RemoteListPtr = std::shared_ptr<const std::vector<git::RemoteEntry>>;
 using HunkStagingPtr = std::shared_ptr<const std::vector<git::HunkStaging>>;
 using LockListPtr = std::shared_ptr<const std::vector<git::LfsLock>>;
 using ComparisonPtr = std::shared_ptr<const git::Comparison>;
+using BlamePtr = std::shared_ptr<const git::Blame>;
 
 /// What an operation would do, worked out before it runs.
 struct Preview {
@@ -101,3 +103,4 @@ Q_DECLARE_METATYPE(gity::session::ComparisonPtr)
 Q_DECLARE_METATYPE(gity::session::PreviewPtr)
 Q_DECLARE_METATYPE(gity::session::FileDiffPtr)
 Q_DECLARE_METATYPE(gity::session::StatusPtr)
+Q_DECLARE_METATYPE(gity::session::BlamePtr)

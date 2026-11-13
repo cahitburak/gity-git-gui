@@ -4,6 +4,7 @@
 
 #include <QDir>
 #include <QFile>
+#include <QRegularExpression>
 #include <QTemporaryDir>
 
 namespace gity::session {
@@ -373,6 +374,37 @@ void RepoWorker::loadHeadAncestors(int limit) {
         }
     }
     emit headAncestorsReady(oids, subjects);
+}
+
+void RepoWorker::loadBlame(const QString& path, const QString& revision, quint64 generation) {
+    if (!repo_) {
+        return;
+    }
+    // A revision is only ever a commit id the UI was given; checked, so
+    // nothing else can reach git's argument list ahead of the "--".
+    static const QRegularExpression commitId(QStringLiteral("^[0-9a-f]{7,64}$"));
+    if (!revision.isEmpty() && !commitId.match(revision).hasMatch()) {
+        emit blameReady(path, revision, nullptr, tr("Not a commit: %1").arg(revision), generation);
+        return;
+    }
+    // Without a revision git blames the file as it is on disk, so lines
+    // edited since the last commit show as not committed yet.
+    QStringList args{QStringLiteral("blame"), QStringLiteral("--porcelain")};
+    if (!revision.isEmpty()) {
+        args << revision;
+    }
+    args << QStringLiteral("--") << path;
+    const GitResult result = GitProcess::run(workdir_, args);
+    if (!result.ok()) {
+        emit blameReady(path, revision, nullptr,
+                        result.timedOut ? tr("git blame took too long and was stopped.")
+                                        : result.firstProblemLine(),
+                        generation);
+        return;
+    }
+    auto blame = std::make_shared<gity::git::Blame>(
+        gity::git::parseBlamePorcelain(result.output.toStdString()));
+    emit blameReady(path, revision, std::move(blame), {}, generation);
 }
 
 void RepoWorker::loadCommitsSince(const QString& baseOid) {
