@@ -14,6 +14,8 @@ include(GoogleTest)
 # test ever needs QtWidgets, the layering has been violated.
 add_executable(gity_tests
     test_blame.cpp
+    test_merge3.cpp
+    test_conflict.cpp
     test_blob_reader.cpp
     test_staging.cpp
     test_network_outcome.cpp

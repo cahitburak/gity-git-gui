@@ -32,6 +32,10 @@ add_library(gity_core STATIC
     git/FileDiff.h
     git/Blame.cpp
     git/Blame.h
+    git/Conflict.cpp
+    git/Conflict.h
+    git/Merge3.cpp
+    git/Merge3.h
     git/BlobReader.cpp
     git/BlobReader.h
     git/CommitDetail.cpp
