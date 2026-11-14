@@ -31,6 +31,7 @@ RepoSession::RepoSession(QObject* parent) : QObject(parent) {
     qRegisterMetaType<StatusPtr>("gity::session::StatusPtr");
     qRegisterMetaType<ImageDiffPtr>("gity::session::ImageDiffPtr");
     qRegisterMetaType<BlamePtr>("gity::session::BlamePtr");
+    qRegisterMetaType<ConflictPtr>("gity::session::ConflictPtr");
 
     worker_ = new RepoWorker(cancel_);
     worker_->moveToThread(&thread_);
@@ -64,6 +65,14 @@ RepoSession::RepoSession(QObject* parent) : QObject(parent) {
                     emit blameReady(path, revision, std::move(blame), problem);
                 }
             });
+    connect(worker_, &RepoWorker::conflictReady, this,
+            [this](const QString& path, ConflictPtr conflict, const QString& problem,
+                   quint64 generation) {
+                if (generation == conflictGeneration_) {
+                    emit conflictReady(path, std::move(conflict), problem);
+                }
+            });
+    connect(worker_, &RepoWorker::conflictWriteFinished, this, &RepoSession::conflictWriteFinished);
     connect(worker_, &RepoWorker::statusReady, this, &RepoSession::statusReady);
     connect(worker_, &RepoWorker::networkStarted, this, [this](const QString& verb) {
         networkBusy_.store(true, std::memory_order_relaxed);
@@ -207,6 +216,33 @@ void RepoSession::requestBlame(const QString& path, const QString& revision) {
             worker_->loadBlame(path, revision, generation);
         }
     });
+}
+
+void RepoSession::requestConflict(const QString& path) {
+    const quint64 generation = ++conflictGeneration_;
+    postRead(
+        [this, path, generation] {
+            if (generation == conflictGeneration_) {
+                worker_->loadConflict(path, generation);
+            }
+        },
+        Qt::QueuedConnection);
+}
+
+void RepoSession::requestSaveResolution(const QString& path, const QByteArray& content,
+                                        bool markResolved) {
+    post([this, path, content,
+          markResolved] { worker_->saveResolution(path, content, markResolved); },
+         Qt::QueuedConnection);
+}
+
+void RepoSession::requestResolveWithSide(const QString& path, ConflictSide side) {
+    post([this, path, side] { worker_->resolveWithSide(path, static_cast<int>(side)); },
+         Qt::QueuedConnection);
+}
+
+void RepoSession::requestRestartConflict(const QString& path) {
+    post([this, path] { worker_->restartConflict(path); }, Qt::QueuedConnection);
 }
 
 void RepoSession::requestComparison(const QString& fromHex, const QString& toHex) {

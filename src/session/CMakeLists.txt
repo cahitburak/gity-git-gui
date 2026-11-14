@@ -30,6 +30,7 @@ add_library(gity_session STATIC
     SwitchContext.h
     WorkerAccounts.cpp
     WorkerBranches.cpp
+    WorkerConflicts.cpp
     WorkerHistory.cpp
     WorkerNetwork.cpp
     WorkerPreview.cpp

@@ -8,6 +8,7 @@
 #include "core/git/BlobReader.h"
 #include "core/git/CommitDetail.h"
 #include "core/git/Compare.h"
+#include "core/git/Conflict.h"
 #include "core/git/FileDiff.h"
 #include "core/git/HistoryStream.h"
 #include "core/git/HunkStaging.h"
@@ -39,6 +40,7 @@ using HunkStagingPtr = std::shared_ptr<const std::vector<git::HunkStaging>>;
 using LockListPtr = std::shared_ptr<const std::vector<git::LfsLock>>;
 using ComparisonPtr = std::shared_ptr<const git::Comparison>;
 using BlamePtr = std::shared_ptr<const git::Blame>;
+using ConflictPtr = std::shared_ptr<const git::ConflictFile>;
 
 /// What an operation would do, worked out before it runs.
 struct Preview {
@@ -104,3 +106,4 @@ Q_DECLARE_METATYPE(gity::session::PreviewPtr)
 Q_DECLARE_METATYPE(gity::session::FileDiffPtr)
 Q_DECLARE_METATYPE(gity::session::StatusPtr)
 Q_DECLARE_METATYPE(gity::session::BlamePtr)
+Q_DECLARE_METATYPE(gity::session::ConflictPtr)

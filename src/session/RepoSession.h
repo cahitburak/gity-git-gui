@@ -67,6 +67,23 @@ public:
     /// included. Supersedes the blame asked for before.
     void requestBlame(const QString& path, const QString& revision);
 
+    /// The versions of a conflicted file, split into regions for the conflict
+    /// editor. Supersedes the conflict asked for before.
+    void requestConflict(const QString& path);
+    /// Writes the editor's result to the file in the working copy and, with
+    /// `markResolved`, stages it — `git add`, which is what tells git the
+    /// conflict is resolved.
+    void requestSaveResolution(const QString& path, const QByteArray& content, bool markResolved);
+    /// Which whole version of a conflicted file to keep.
+    enum class ConflictSide { Ours = 0, Theirs = 1, Delete = 2 };
+    /// Resolves to one side's whole file — `git checkout --ours` or
+    /// `--theirs`, then `git add` — or, for a file one side deleted, to
+    /// deleting it with `git rm`.
+    void requestResolveWithSide(const QString& path, ConflictSide side);
+    /// Puts the conflict back as git first left it, markers and all, even
+    /// after it was staged: `git checkout -m`.
+    void requestRestartConflict(const QString& path);
+
     /// Two commits — usually two branch tips — side by side. Shares the
     /// detail generation, so selecting a commit supersedes a comparison still
     /// loading and the reverse.
@@ -264,6 +281,13 @@ signals:
     /// `blame` is null when git could not blame the file; `problem` says why.
     void blameReady(const QString& path, const QString& revision, gity::session::BlamePtr blame,
                     const QString& problem);
+    /// `conflict` is null when the versions could not be read; `problem`
+    /// says why.
+    void conflictReady(const QString& path, gity::session::ConflictPtr conflict,
+                       const QString& problem);
+    /// A save, a side taken or a restart finished. The status is refreshed
+    /// after it either way.
+    void conflictWriteFinished(const QString& path, bool ok, const QString& message);
     void statusReady(gity::session::StatusPtr status);
     void imageDiffReady(gity::session::ImageDiffPtr diff);
     /// `staging` carries one entry per hunk; empty when the file has no
@@ -342,6 +366,7 @@ private:
     std::atomic<quint64> workingDiffGeneration_{0};
     std::atomic<quint64> imageGeneration_{0};
     std::atomic<quint64> blameGeneration_{0};
+    std::atomic<quint64> conflictGeneration_{0};
 };
 
 } // namespace gity::session
