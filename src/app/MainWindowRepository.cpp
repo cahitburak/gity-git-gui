@@ -6,11 +6,13 @@
 
 #include "session/Accounts.h"
 #include "session/RepoWatcher.h"
+#include "ui/conflict/ConflictWindow.h"
 #include "ui/graphview/CommitGraphView.h"
 #include "ui/graphview/GraphHeader.h"
 #include "ui/graphview/HistoryFilterBar.h"
 #include "ui/panels/BlamePanel.h"
 #include "ui/panels/Confirm.h"
+#include "ui/panels/OperationBanner.h"
 #include "ui/panels/RefsSidebar.h"
 #include "ui/panels/RepositoryTabs.h"
 #include "ui/panels/WelcomePanel.h"
@@ -136,6 +138,8 @@ void MainWindow::openRepository(const QString& path) {
     // message, which screen and which lower tab. A refresh of the same one
     // keeps its selected commit instead of jumping back to the newest
     // (2026-09 UI review).
+    conflicts_->setRepository(path, QFileInfo(path).fileName());
+
     ViewState arriving;
     if (refreshing) {
         pendingSelectOid_ = currentOid_;
@@ -393,6 +397,8 @@ void MainWindow::onStatusReady(gity::session::StatusPtr status) {
     }
     currentStatus_ = status;
     changes_->setStatus(status);
+    conflicts_->setStatus(status);
+    operationBanner_->setConflictCount(status ? static_cast<int>(status->conflictedCount()) : 0);
 }
 
 void MainWindow::openSubmodule(const QString& relativePath) {
@@ -519,6 +525,18 @@ void MainWindow::closeEvent(QCloseEvent* event) {
             return;
         }
         statusBar()->showMessage(tr("Waiting for git to finish…"));
+    }
+    if (conflicts_->hasUnsaved()) {
+        const auto answer = QMessageBox::warning(
+            this, tr("Conflict choices not saved"),
+            tr("Choices made in the conflict editor have not been saved, and go when Gity "
+               "closes. Quit anyway?"),
+            QMessageBox::Cancel | QMessageBox::Yes, QMessageBox::Cancel);
+        if (answer != QMessageBox::Yes) {
+            conflicts_->openFile();
+            event->ignore();
+            return;
+        }
     }
     QMainWindow::closeEvent(event);
 }

@@ -226,6 +226,18 @@ WorkingCopyPanel::WorkingCopyPanel(QWidget* parent) : QWidget(parent) {
         if (!selected.isEmpty()) {
             viewingStaged_ = staged;
             diff_->setShowingStaged(staged);
+            // A conflict has no diff to stage from; what it needs is the
+            // conflict editor, so the pane says how to get there.
+            const git::StatusEntry* entry =
+                status_ ? status_->find(selected.first().toStdString()) : nullptr;
+            if (entry != nullptr && entry->conflicted) {
+                diff_->clearDiff();
+                diff_->setPlaceholder(tr("%1 is conflicted. Double-click it to open the conflict "
+                                         "editor, or right-click it to keep one side whole.")
+                                          .arg(QFileInfo(selected.first()).fileName()));
+                return;
+            }
+            diff_->setPlaceholder(tr("Select a file to see its changes"));
             emit diffRequested(selected.first(), staged);
         }
     };
@@ -274,8 +286,17 @@ WorkingCopyPanel::WorkingCopyPanel(QWidget* parent) : QWidget(parent) {
             [this] { emit stageRequested(withRenameSources(selectionOf(unstaged_), false)); });
     connect(unstageButton_, &QPushButton::clicked, this,
             [this] { emit unstageRequested(withRenameSources(selectionOf(staged_), true)); });
-    connect(unstaged_, &QTreeWidget::itemDoubleClicked, this,
-            [this] { emit stageRequested(withRenameSources(selectionOf(unstaged_), false)); });
+    connect(unstaged_, &QTreeWidget::itemDoubleClicked, this, [this](QTreeWidgetItem* item) {
+        // A conflicted file opens in the conflict editor: staging it as it
+        // stands would mark it resolved with git's markers still inside.
+        const QString path = item != nullptr ? item->data(0, PathRole).toString() : QString();
+        const git::StatusEntry* entry = status_ ? status_->find(path.toStdString()) : nullptr;
+        if (entry != nullptr && entry->conflicted) {
+            emit resolveRequested(path);
+            return;
+        }
+        emit stageRequested(withRenameSources(selectionOf(unstaged_), false));
+    });
     connect(staged_, &QTreeWidget::itemDoubleClicked, this,
             [this] { emit unstageRequested(withRenameSources(selectionOf(staged_), true)); });
 
@@ -574,6 +595,23 @@ void WorkingCopyPanel::showRowMenu(QTreeWidget* list, const QPoint& where) {
     const QString subject =
         single ? QFileInfo(targets.first()).fileName() : tr("%n file(s)", nullptr, count);
 
+    // A conflict is resolved first, and the menu leads with it.
+    QAction* resolve = nullptr;
+    QAction* takeOurs = nullptr;
+    QAction* takeTheirs = nullptr;
+    if (single) {
+        const git::StatusEntry* entry = status_ ? status_->find(path.toStdString()) : nullptr;
+        if (entry != nullptr && entry->conflicted) {
+            resolve = menu.addAction(tr("Resolve in Conflict Editor…"));
+            QFont bold = resolve->font();
+            bold.setBold(true);
+            resolve->setFont(bold);
+            takeOurs = menu.addAction(tr("Resolve with Ours"));
+            takeTheirs = menu.addAction(tr("Resolve with Theirs"));
+            menu.addSeparator();
+        }
+    }
+
     QAction* stage = staged ? menu.addAction(tr("Unstage %1").arg(subject))
                             : menu.addAction(tr("Stage %1").arg(subject));
     QAction* stash = menu.addAction(glyph(Glyph::Stash), tr("Stash %1").arg(subject));
@@ -652,8 +690,24 @@ void WorkingCopyPanel::showRowMenu(QTreeWidget* list, const QPoint& where) {
     describeCommand(unlock, tr("Release the lock so others can edit it."),
                     QStringLiteral("lfs unlock -- %1").arg(path));
 
+    if (resolve != nullptr) {
+        resolve->setToolTip(tr("Ours, theirs and the result side by side, conflict by conflict."));
+    }
+    describeCommand(takeOurs, tr("Keep our whole version of the file and mark it resolved."),
+                    QStringLiteral("checkout --ours -- %1 · add").arg(path));
+    describeCommand(takeTheirs, tr("Keep their whole version of the file and mark it resolved."),
+                    QStringLiteral("checkout --theirs -- %1 · add").arg(path));
+
     QAction* chosen = menu.exec(list->viewport()->mapToGlobal(where));
     if (chosen == nullptr) {
+        return;
+    }
+    if (chosen == resolve) {
+        emit resolveRequested(path);
+        return;
+    }
+    if (chosen == takeOurs || chosen == takeTheirs) {
+        emit takeSideRequested(path, chosen == takeOurs);
         return;
     }
     if (chosen == stage) {

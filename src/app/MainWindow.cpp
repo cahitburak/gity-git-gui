@@ -54,6 +54,7 @@ MainWindow::MainWindow(QWidget* parent) : QMainWindow(parent) {
     connectWorkingCopy();
     connectRepositoryTabs();
     connectFileHistory();
+    connectConflicts();
 }
 
 void MainWindow::buildLayout() {

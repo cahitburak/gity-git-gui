@@ -27,6 +27,13 @@ OperationBanner::OperationBanner(QWidget* parent) : QWidget(parent) {
     text_->setObjectName(QStringLiteral("operationText"));
     layout->addWidget(text_, 1);
 
+    resolve_ = new QPushButton(this);
+    resolve_->setToolTip(tr("Open the conflict editor on the files still conflicted."));
+    applyRole(resolve_, QStringLiteral("primary"));
+    layout->addWidget(resolve_);
+    resolve_->setVisible(false);
+    connect(resolve_, &QPushButton::clicked, this, &OperationBanner::resolveRequested);
+
     continue_ = new QPushButton(tr("Continue"), this);
     abort_ = new QPushButton(tr("Abandon"), this);
     // "Abandon", not "Abort": it is the word for what happens to the work, and
@@ -44,6 +51,14 @@ OperationBanner::OperationBanner(QWidget* parent) : QWidget(parent) {
     setVisible(false);
 }
 
+void OperationBanner::setConflictCount(int count) {
+    if (count == conflicts_) {
+        return;
+    }
+    conflicts_ = count;
+    setOperation(operation_, noun_);
+}
+
 void OperationBanner::setEditing(const QString& subject) {
     if (subject == editing_) {
         return;
@@ -52,9 +67,19 @@ void OperationBanner::setEditing(const QString& subject) {
     setOperation(operation_, noun_);
 }
 
+void OperationBanner::showResolve() {
+    // While files are conflicted, resolving them is the way forward, so it
+    // is the lit button and Continue waits its turn.
+    const bool conflicted = conflicts_ > 0;
+    resolve_->setText(tr("Resolve %n Conflict(s)…", nullptr, conflicts_));
+    resolve_->setVisible(conflicted);
+    applyRole(continue_, conflicted ? QString() : QStringLiteral("primary"));
+}
+
 void OperationBanner::setOperation(git::Operation operation, const QString& noun) {
     operation_ = operation;
     noun_ = noun;
+    resolve_->setVisible(false);
     if (operation == git::Operation::None) {
         setVisible(false);
         return;
@@ -88,12 +113,14 @@ void OperationBanner::setOperation(git::Operation operation, const QString& noun
                           "change, stage or unstage them, then Continue — it recommits them "
                           "with the message in the commit box and carries on with the rebase.")
                            .arg(editing_));
+        showResolve();
         setVisible(true);
         return;
     }
     text_->setText(tr("You are in the middle of %1. Resolve any conflicts and stage the "
                       "results, then continue — or abandon it to return to where you were.")
                        .arg(noun));
+    showResolve();
     setVisible(true);
 }
 

@@ -71,6 +71,10 @@ signals:
     void historyRequested(const QString& path);
     /// Who last changed each line of `path` as it is on disk now.
     void blameRequested(const QString& path);
+    /// Open the conflict editor on `path`.
+    void resolveRequested(const QString& path);
+    /// Resolve `path` with one side's whole version.
+    void takeSideRequested(const QString& path, bool ours);
 
 private:
     void showRowMenu(QTreeWidget* list, const QPoint& where);

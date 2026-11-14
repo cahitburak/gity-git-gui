@@ -186,6 +186,9 @@ void MainWindow::buildMenus() {
             blameFile(path, {});
         }
     });
+    repository->addSeparator();
+    repository->addAction(tr("Resolve &Conflicts…"), QKeySequence(Qt::CTRL | Qt::SHIFT | Qt::Key_C),
+                          this, [this] { openConflicts(); });
 
     QMenu* branch = menuBar()->addMenu(tr("&Branch"));
     branch->addAction(tr("&New Branch…"), QKeySequence(Qt::CTRL | Qt::SHIFT | Qt::Key_N), this,

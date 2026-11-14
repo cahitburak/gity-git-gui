@@ -87,6 +87,17 @@ int main(int argc, char** argv) {
         QCoreApplication::translate("main", "Blame <path> in the working copy once loaded."),
         QStringLiteral("path"));
     parser.addOption(blameOption);
+    const QCommandLineOption resolveOption(
+        QStringList{QStringLiteral("resolve")},
+        QCoreApplication::translate("main", "Open the conflict editor on <path> once loaded; a "
+                                            "screenshot is then of its window."),
+        QStringLiteral("path"));
+    parser.addOption(resolveOption);
+    const QCommandLineOption conflictLayoutOption(
+        QStringList{QStringLiteral("conflict-layout")},
+        QCoreApplication::translate("main", "The conflict editor's layout: three, two or below."),
+        QStringLiteral("layout"));
+    parser.addOption(conflictLayoutOption);
     parser.addOption(screenshotOption);
     parser.process(app);
 
@@ -155,10 +166,23 @@ int main(int argc, char** argv) {
                 window.blameFile(path, {});
             });
         }
+        if (parser.isSet(conflictLayoutOption)) {
+            const QString layout = parser.value(conflictLayoutOption);
+            window.setConflictLayout(layout == QLatin1String("two")     ? 1
+                                     : layout == QLatin1String("below") ? 2
+                                                                        : 0);
+        }
+        const bool resolving = parser.isSet(resolveOption);
+        if (resolving) {
+            QTimer::singleShot(700, &window, [&window, path = parser.value(resolveOption)] {
+                window.openConflicts(path);
+            });
+        }
         if (parser.isSet(screenshotOption)) {
             const QString file = parser.value(screenshotOption);
-            QTimer::singleShot(2000, &window, [&window, file] {
-                if (!window.grab().save(file)) {
+            QTimer::singleShot(2000, &window, [&window, file, resolving] {
+                QWidget* shown = resolving ? window.conflictWindow() : &window;
+                if (!shown->grab().save(file)) {
                     qWarning("could not write %s", qPrintable(file));
                 }
                 QCoreApplication::quit();

@@ -390,7 +390,8 @@ void DiffView::paintEvent(QPaintEvent* event) {
         } else if (diff_ && diff_->lines.empty()) {
             message = tr("No textual changes");
         }
-        painter.drawText(viewport()->rect(), Qt::AlignCenter, message);
+        painter.drawText(viewport()->rect().adjusted(24, 0, -24, 0),
+                         Qt::AlignCenter | Qt::TextWordWrap, message);
         paintFocus(painter);
         return;
     }

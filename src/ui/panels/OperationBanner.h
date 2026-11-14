@@ -30,16 +30,24 @@ public:
     /// A rebase stopped to edit the commit with this summary, its changes
     /// staged; empty when not. Changes what the banner says, not what it does.
     void setEditing(const QString& subject);
+    /// Files still conflicted. While there are any, resolving them is the next
+    /// step, and the banner leads with it.
+    void setConflictCount(int count);
 
 signals:
     void continueRequested();
     void abortRequested();
+    void resolveRequested();
 
 private:
+    void showResolve();
+
     QLabel* text_ = nullptr;
     QString editing_;
     git::Operation operation_ = git::Operation::None;
     QString noun_;
+    QPushButton* resolve_ = nullptr;
+    int conflicts_ = 0;
     QPushButton* continue_ = nullptr;
     QPushButton* abort_ = nullptr;
 };

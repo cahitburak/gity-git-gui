@@ -14,6 +14,7 @@ qt_add_executable(gity_app
     MainWindow.cpp
     MainWindow.h
     MainWindowCommands.cpp
+    MainWindowConflicts.cpp
     MainWindowFileHistory.cpp
     MainWindowMenus.cpp
     MainWindowRepository.cpp

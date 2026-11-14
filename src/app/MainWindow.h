@@ -32,6 +32,7 @@ class QTimer;
 
 namespace gity::ui {
 class BlamePanel;
+class ConflictWindow;
 class ChangedFilesList;
 class WelcomePanel;
 class CommitDetailPanel;
@@ -81,6 +82,13 @@ public:
     /// Opens the Blame tab on `path` as of `revision`; empty is the working
     /// copy as it is on disk.
     void blameFile(const QString& path, const QString& revision);
+    /// Opens the conflict editor's window on `path`, or on the first file
+    /// still conflicted.
+    void openConflicts(const QString& path = {});
+    /// For a screenshot run: the conflict editor's layout, 0–2 as
+    /// ConflictEditor::Layout, and its window.
+    void setConflictLayout(int layout);
+    [[nodiscard]] QWidget* conflictWindow() const;
 
 private slots:
     void chooseRepository();
@@ -177,6 +185,7 @@ private:
     void connectWorkingCopy();
     void connectRepositoryTabs();
     void connectFileHistory();
+    void connectConflicts();
 
     /// Asks for a file or folder in the repository; its path from the top,
     /// or empty if none was chosen.
@@ -213,6 +222,8 @@ private:
     gity::ui::CommitDetailPanel* detail_ = nullptr;
     /// The Blame tab.
     gity::ui::BlamePanel* blame_ = nullptr;
+    /// The conflict editor's window, made once and shown when asked for.
+    gity::ui::ConflictWindow* conflicts_ = nullptr;
     gity::ui::WelcomePanel* welcome_ = nullptr;
     /// The commit's files in the Changes tab, beside the diff.
     gity::ui::ChangedFilesList* commitFiles_ = nullptr;
