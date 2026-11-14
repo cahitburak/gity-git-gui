@@ -68,7 +68,7 @@ void MainWindow::openConflicts(const QString& path) {
 
 void MainWindow::setConflictLayout(int layout) {
     conflicts_->editor()->setLayoutChoice(
-        static_cast<gity::ui::ConflictEditor::Layout>(std::clamp(layout, 0, 2)));
+        static_cast<gity::ui::ConflictEditor::Layout>(std::clamp(layout, 0, 1)));
 }
 
 QWidget* MainWindow::conflictWindow() const {

@@ -1,14 +1,11 @@
 // Resolving one conflicted file.
 //
-// Three ways to lay it out, chosen at the top and remembered:
+// Two ways to lay it out, chosen at the top and remembered:
 //
-//  * Three Columns — ours, the result, theirs, side by side. Everything at
-//    once, for a wide screen.
-//  * Two Columns — ours and theirs only, side by side, each conflict taken
-//    from one or the other. For deciding between two versions without the
-//    result in between; Edit opens a conflict's result on its own.
-//  * Result Below — ours and theirs side by side above, the result across the
-//    bottom, at full width for reading and editing.
+//  * Three Columns — ours on the left, theirs on the right, the result
+//    between them. Everything at once, for a wide screen.
+//  * Two Columns — ours on the left, theirs on the right, the result in a row
+//    below them, at full width for reading and editing.
 //
 // The columns scroll together and keep each region level across them. A file
 // that cannot be merged line by line — binary, or deleted on one side — gets
@@ -37,7 +34,7 @@ class ConflictEditor : public QWidget {
     Q_OBJECT
 
 public:
-    enum class Layout { ThreeColumns = 0, TwoColumns = 1, ResultBelow = 2 };
+    enum class Layout { ThreeColumns = 0, TwoColumns = 1 };
     /// The whole-file choices; the values are RepoSession::ConflictSide's.
     enum class Side { Ours = 0, Theirs = 1, Delete = 2 };
 
@@ -81,7 +78,6 @@ private:
     void updateState();
     void goToConflict(int step);
     void setCurrent(std::optional<std::size_t> region);
-    void editInDialog(std::size_t region);
     void save(bool markResolved);
     void showWholeFile(const session::ConflictPtr& file);
     [[nodiscard]] QString oursMarker() const;
@@ -94,7 +90,7 @@ private:
 
     QLabel* path_ = nullptr;
     QLabel* status_ = nullptr;
-    QToolButton* layoutButtons_[3] = {nullptr, nullptr, nullptr};
+    QToolButton* layoutButtons_[2] = {nullptr, nullptr};
     QWidget* toolbar_ = nullptr;
     QPushButton* previous_ = nullptr;
     QPushButton* next_ = nullptr;

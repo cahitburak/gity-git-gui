@@ -69,25 +69,6 @@ void ConflictDocument::reset() {
     rebuild();
 }
 
-void ConflictDocument::setVisibleColumns(bool ours, bool result, bool theirs) {
-    showOurs_ = ours;
-    showResult_ = result;
-    showTheirs_ = theirs;
-    rebuild();
-}
-
-bool ConflictDocument::showing(Column column) const {
-    switch (column) {
-    case Column::Ours:
-        return showOurs_;
-    case Column::Result:
-        return showResult_;
-    case Column::Theirs:
-        return showTheirs_;
-    }
-    return false;
-}
-
 void ConflictDocument::rebuild() {
     const std::size_t n = resolution_.regionCount();
     results_.assign(n, {});
@@ -110,17 +91,8 @@ void ConflictDocument::rebuild() {
         theirs += static_cast<int>(region.theirs.size());
         result += static_cast<int>(results_[i].size());
 
-        std::size_t rows = 0;
-        if (showOurs_) {
-            rows = std::max(rows, region.ours.size());
-        }
-        if (showTheirs_) {
-            rows = std::max(rows, region.theirs.size());
-        }
-        if (showResult_) {
-            rows = std::max(rows, results_[i].size());
-        }
-        // A change keeps a row even where every column showing is empty —
+        std::size_t rows = std::max({region.ours.size(), region.theirs.size(), results_[i].size()});
+        // A change keeps a row even where every column is empty —
         // both sides deleted the same lines — so it can still be seen.
         if (region.kind != git::MergeRegion::Kind::Same) {
             rows = std::max<std::size_t>(rows, 1);

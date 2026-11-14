@@ -95,7 +95,7 @@ int main(int argc, char** argv) {
     parser.addOption(resolveOption);
     const QCommandLineOption conflictLayoutOption(
         QStringList{QStringLiteral("conflict-layout")},
-        QCoreApplication::translate("main", "The conflict editor's layout: three, two or below."),
+        QCoreApplication::translate("main", "The conflict editor's layout: three or two."),
         QStringLiteral("layout"));
     parser.addOption(conflictLayoutOption);
     parser.addOption(screenshotOption);
@@ -168,9 +168,7 @@ int main(int argc, char** argv) {
         }
         if (parser.isSet(conflictLayoutOption)) {
             const QString layout = parser.value(conflictLayoutOption);
-            window.setConflictLayout(layout == QLatin1String("two")     ? 1
-                                     : layout == QLatin1String("below") ? 2
-                                                                        : 0);
+            window.setConflictLayout(layout == QLatin1String("two") ? 1 : 0);
         }
         const bool resolving = parser.isSet(resolveOption);
         if (resolving) {

@@ -5,12 +5,8 @@
 #include "ui/theme/Tokens.h"
 
 #include <QButtonGroup>
-#include <QDialog>
-#include <QDialogButtonBox>
-#include <QFontDatabase>
 #include <QHBoxLayout>
 #include <QLabel>
-#include <QPlainTextEdit>
 #include <QPushButton>
 #include <QScrollBar>
 #include <QShortcut>
@@ -71,12 +67,12 @@ ConflictEditor::ConflictEditor(QWidget* parent) : QWidget(parent) {
     top->addWidget(layoutLabel);
     auto* group = new QButtonGroup(this);
     group->setExclusive(true);
-    const QString names[3] = {tr("Three Columns"), tr("Two Columns"), tr("Result Below")};
-    const QString tips[3] = {
-        tr("Ours, the result and theirs side by side (Ctrl+1)"),
-        tr("Ours and theirs side by side, taking each conflict from one (Ctrl+2)"),
-        tr("Ours and theirs side by side, the result across the bottom (Ctrl+3)")};
-    for (int i = 0; i < 3; ++i) {
+    const QString names[2] = {tr("Three Columns"), tr("Two Columns")};
+    const QString tips[2] = {tr("Ours on the left, theirs on the right, the result between them "
+                                "(Ctrl+1)"),
+                             tr("Ours on the left, theirs on the right, the result in a row "
+                                "below them (Ctrl+2)")};
+    for (int i = 0; i < 2; ++i) {
         auto* button = new QToolButton(header);
         button->setObjectName(QStringLiteral("conflictLayout"));
         button->setText(names[i]);
@@ -192,13 +188,8 @@ ConflictEditor::ConflictEditor(QWidget* parent) : QWidget(parent) {
         }
         connect(pane, &MergePane::regionActivated, this,
                 [this](std::size_t region) { setCurrent(region); });
-        connect(pane, &MergePane::editRequested, this, [this](std::size_t region) {
-            if (layout_ == Layout::TwoColumns) {
-                editInDialog(region);
-            } else {
-                result_.pane->editRegion(region);
-            }
-        });
+        connect(pane, &MergePane::editRequested, this,
+                [this](std::size_t region) { result_.pane->editRegion(region); });
     }
     connect(document_, &ConflictDocument::changed, this, [this] { updateState(); });
 
@@ -304,9 +295,6 @@ void ConflictEditor::arrange() {
     delete outer_;
     outer_ = nullptr;
 
-    const bool withResult = layout_ != Layout::TwoColumns;
-    document_->setVisibleColumns(true, withResult, true);
-
     switch (layout_) {
     case Layout::ThreeColumns:
         outer_ = new QSplitter(Qt::Horizontal, columnsPage_);
@@ -315,13 +303,7 @@ void ConflictEditor::arrange() {
         outer_->addWidget(theirs_.box);
         outer_->setSizes({1, 1, 1});
         break;
-    case Layout::TwoColumns:
-        outer_ = new QSplitter(Qt::Horizontal, columnsPage_);
-        outer_->addWidget(ours_.box);
-        outer_->addWidget(theirs_.box);
-        outer_->setSizes({1, 1});
-        break;
-    case Layout::ResultBelow: {
+    case Layout::TwoColumns: {
         outer_ = new QSplitter(Qt::Vertical, columnsPage_);
         auto* sides = new QSplitter(Qt::Horizontal, outer_);
         sides->addWidget(ours_.box);
@@ -335,12 +317,12 @@ void ConflictEditor::arrange() {
     }
     }
     outer_->setChildrenCollapsible(false);
-    result_.box->setVisible(withResult);
+    result_.box->show();
     // The columns scroll as one, so one scroll bar is enough: theirs, at the
     // right edge — and the result's too when it runs across the bottom.
     ours_.pane->setVerticalScrollBarPolicy(Qt::ScrollBarAlwaysOff);
     result_.pane->setVerticalScrollBarPolicy(
-        layout_ == Layout::ResultBelow ? Qt::ScrollBarAsNeeded : Qt::ScrollBarAlwaysOff);
+        layout_ == Layout::TwoColumns ? Qt::ScrollBarAsNeeded : Qt::ScrollBarAlwaysOff);
     theirs_.pane->setVerticalScrollBarPolicy(Qt::ScrollBarAsNeeded);
     ours_.box->show();
     theirs_.box->show();
@@ -348,8 +330,7 @@ void ConflictEditor::arrange() {
     outer_->show();
     // Even widths whatever the window's size: a splitter given {1, 1, 1}
     // shares out by those proportions.
-    const int span =
-        layout_ == Layout::ResultBelow ? columnsPage_->height() : columnsPage_->width();
+    const int span = layout_ == Layout::TwoColumns ? columnsPage_->height() : columnsPage_->width();
     if (span > 0) {
         QList<int> sizes;
         for (int i = 0; i < outer_->count(); ++i) {
@@ -560,41 +541,6 @@ void ConflictEditor::goToConflict(int step) {
     const MergePane* pane = ours_.pane;
     const int y = std::max(0, (document_->regionRow(*target) - 3) * pane->rowHeight());
     ours_.pane->verticalScrollBar()->setValue(y);
-}
-
-void ConflictEditor::editInDialog(std::size_t region) {
-    QDialog dialog(this);
-    dialog.setWindowTitle(tr("Edit the Result"));
-    auto* layout = new QVBoxLayout(&dialog);
-    auto* note = new QLabel(tr("What this part of %1 should hold:").arg(path()), &dialog);
-    note->setTextFormat(Qt::PlainText);
-    auto* text = new QPlainTextEdit(&dialog);
-    QFont mono = QFontDatabase::systemFont(QFontDatabase::FixedFont);
-    text->setFont(mono);
-    text->setLineWrapMode(QPlainTextEdit::NoWrap);
-    QStringList lines;
-    const git::Lines& now = document_->lines(Column::Result, region);
-    const git::Lines& start = now.empty() && document_->pick(region) == Pick::Unresolved
-                                  ? document_->region(region).ours
-                                  : now;
-    for (const auto& line : start) {
-        QString shown = fromStd(line);
-        while (shown.endsWith(QLatin1Char('\n')) || shown.endsWith(QLatin1Char('\r'))) {
-            shown.chop(1);
-        }
-        lines << shown;
-    }
-    text->setPlainText(lines.join(QLatin1Char('\n')));
-    auto* buttons = new QDialogButtonBox(QDialogButtonBox::Ok | QDialogButtonBox::Cancel, &dialog);
-    connect(buttons, &QDialogButtonBox::accepted, &dialog, &QDialog::accept);
-    connect(buttons, &QDialogButtonBox::rejected, &dialog, &QDialog::reject);
-    layout->addWidget(note);
-    layout->addWidget(text, 1);
-    layout->addWidget(buttons);
-    dialog.resize(720, 420);
-    if (dialog.exec() == QDialog::Accepted) {
-        document_->setEdited(region, text->toPlainText());
-    }
 }
 
 QString ConflictEditor::oursMarker() const {

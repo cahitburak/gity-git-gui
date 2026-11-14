@@ -37,8 +37,9 @@ A review of the whole codebase, and what it found fixed. Details are in the comm
   its commit, and the version before any change is a right-click away. Blaming the working copy
   marks lines not committed yet. A file's history follows it through renames, and the rows from
   before one say what it was called then.
-* **A conflict editor.** Ours, theirs and the result, aligned region by region, in three columns,
-  two columns, or with the result below — chosen at the top and remembered. Take a side, both, or
+* **A conflict editor.** Ours, theirs and the result, aligned region by region, in three columns
+  with the result in the middle, or two with the result below them — chosen at the top and
+  remembered. Take a side, both, or
   neither for each conflict, or edit the result in place; Save and Mark Resolved stages it, and
   Start Over brings the conflict back. Binary files and files one side deleted are resolved by
   keeping a whole version. Open it from the banner during a merge or rebase, by double-clicking a

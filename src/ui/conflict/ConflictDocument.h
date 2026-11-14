@@ -3,9 +3,8 @@
 // The columns — ours, the result, theirs — are painted side by side or one
 // above another, and a region has to start on the same row in every column
 // beside it, or the eye loses which lines answer which. So the document lays
-// out rows: each region takes as many as the longest of the columns showing,
-// and a column with fewer lines there fills the rest. Which columns are
-// showing is set by the layout, so the rows follow it.
+// out rows: each region takes as many as the longest of its columns, and a
+// column with fewer lines there fills the rest.
 #pragma once
 
 #include "core/git/Merge3.h"
@@ -57,10 +56,6 @@ public:
         dirty_ = true;
         emit changed();
     }
-
-    /// Which columns are on screen; the rows are laid out for those.
-    void setVisibleColumns(bool ours, bool result, bool theirs);
-    [[nodiscard]] bool showing(Column column) const;
 
     [[nodiscard]] int rowCount() const noexcept { return rowCount_; }
 
@@ -114,9 +109,6 @@ private:
     int rowCount_ = 0;
     int longestFile_ = 0;
     bool dirty_ = false;
-    bool showOurs_ = true;
-    bool showResult_ = true;
-    bool showTheirs_ = true;
 };
 
 } // namespace gity::ui

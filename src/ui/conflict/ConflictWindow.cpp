@@ -90,8 +90,12 @@ ConflictWindow::ConflictWindow(QWidget* parent) : QWidget(parent, Qt::Window) {
     split->setChildrenCollapsible(false);
 
     QSettings settings;
-    editor_->setLayoutChoice(static_cast<ConflictEditor::Layout>(
-        std::clamp(settings.value(kLayoutKey, 0).toInt(), 0, 2)));
+    // Anything but three columns is two: the result below. An older third
+    // layout, ours and theirs alone, was stored as 1 and the result below as
+    // 2; both come back as two columns.
+    editor_->setLayoutChoice(settings.value(kLayoutKey, 0).toInt() == 0
+                                 ? ConflictEditor::Layout::ThreeColumns
+                                 : ConflictEditor::Layout::TwoColumns);
     restoreGeometry(settings.value(kGeometryKey).toByteArray());
 
     connect(editor_, &ConflictEditor::layoutChosen, this, [](ConflictEditor::Layout chosen) {

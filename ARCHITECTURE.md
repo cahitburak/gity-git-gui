@@ -643,9 +643,9 @@ out of it, as git's markers leave them out.
 starts on the same row in every column and the columns scroll as one. A conflict has one more row,
 its header, for its buttons, so they never cover a line.
 
-**Three layouts, chosen and remembered:** three columns (ours, result, theirs), two columns (ours
-and theirs, each conflict taken from one), and the result across the bottom. **A window of its
-own**: three columns of code need a screen's width.
+**Two layouts, chosen and remembered:** three columns (ours on the left, theirs on the right, the
+result between them) and two columns (ours and theirs side by side, the result in a row below them).
+**A window of its own**: three columns of code need a screen's width.
 
 **Writes.** The result is written to the file the way an editor writes one (replaced whole,
 permissions kept). Everything git must know goes through git: `add` marks it resolved,
