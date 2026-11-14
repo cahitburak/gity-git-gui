@@ -28,7 +28,7 @@ A review of the whole codebase, and what it found fixed. Details are in the comm
   start with `#`, and more.
 * CI packages releases (AppImage, macOS disk image, Windows zip) into a draft release on a tag, and
   checks sanitizers, versions, desktop metadata and formatting. Tests now include real
-  repositories driven through `git`: 282 in all, up from 187.
+  repositories driven through `git`: 304 in all, up from 187.
 * The two largest files are split up — the main window and the repository session — with no change
   in behaviour.
 * **History of a file or folder, and blame.** Right-click a file in a commit, a comparison or the
@@ -37,6 +37,12 @@ A review of the whole codebase, and what it found fixed. Details are in the comm
   its commit, and the version before any change is a right-click away. Blaming the working copy
   marks lines not committed yet. A file's history follows it through renames, and the rows from
   before one say what it was called then.
+* **A conflict editor.** Ours, theirs and the result, aligned region by region, in three columns,
+  two columns, or with the result below — chosen at the top and remembered. Take a side, both, or
+  neither for each conflict, or edit the result in place; Save and Mark Resolved stages it, and
+  Start Over brings the conflict back. Binary files and files one side deleted are resolved by
+  keeping a whole version. Open it from the banner during a merge or rebase, by double-clicking a
+  conflicted file, or from Repository ▸ Resolve Conflicts….
 
 ## 0.1.0 — 2026-09-29
 

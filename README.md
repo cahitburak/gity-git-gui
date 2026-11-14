@@ -71,6 +71,8 @@ you find, with that in mind.
   discard — and bring submodules along.
 * Merge, cherry-pick, revert, reset, stash, and plain and interactive rebase — with reword, squash,
   fixup, drop, and stop-to-edit in Local Changes.
+* **A conflict editor** — ours, theirs and the result side by side in three columns, in two, or
+  with the result below; take a side or both for each conflict, or edit the result in place.
 
 **Working with remotes**
 

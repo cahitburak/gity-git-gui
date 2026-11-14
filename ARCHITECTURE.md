@@ -27,6 +27,7 @@ was built and then removed when Gity became a general Git client, and they are g
 - [ADR-007 — Packaging and distribution](#adr-007--packaging-and-distribution)
 - [ADR-010 — Signing in through a browser](#adr-010--signing-in-through-a-browser)
 - [ADR-011 — Safety net: undo, previews and a visible command log](#adr-011--safety-net-undo-previews-and-a-visible-command-log)
+- [ADR-012 — The conflict editor](#adr-012--the-conflict-editor)
 - [Module boundaries](#module-boundaries)
 - [Licensing](#licensing)
 - [Risks](#risks)
@@ -132,6 +133,7 @@ repository is the one that counts.
 | 007 | Packaging | **AppImage, DMG, Windows installer; Flatpak deferred** | Signing and notarization cost money and time |
 | 010 | Account sign-in | **OAuth device flow; the token goes to git's credential helper, never to Gity** | Needs a registered OAuth app per provider |
 | 011 | Safety net | **Undo from snapshots in git objects; previews from trial merges; every command logged** | A working-copy hash before each destructive action |
+| 012 | Conflict editor | **Its own three-way split of the index's three versions, in a window of its own** | Conflicts grouped a little differently from git's markers |
 
 ---
 
@@ -247,8 +249,8 @@ flowchart TB
 
 | Backend | Operations | Why |
 |---|---|---|
-| **libgit2** | History walk and graph topology, commit details, diffs, status, refs, blob reads for the diff and image views | Called thousands of times per interaction: must be in-process and free of parsing |
-| **git** | Staging and unstaging (whole file, hunk and line), commit, merge, rebase (including interactive), cherry-pick, revert, stash, checkout, reset, discard, clone, fetch, pull, push, submodule update, LFS | Runs the user's hooks, credential helper, LFS filters, merge drivers, signing and config exactly as their terminal does |
+| **libgit2** | History walk and graph topology, commit details, diffs, status, refs, blob reads for the diff and image views, a conflicted file's three versions | Called thousands of times per interaction: must be in-process and free of parsing |
+| **git** | Staging and unstaging (whole file, hunk and line), commit, merge, rebase (including interactive), cherry-pick, revert, stash, checkout, reset, discard, resolving conflicts (`add`, `checkout --ours`/`--theirs`, `rm`, `checkout -m`), clone, fetch, pull, push, submodule update, LFS | Runs the user's hooks, credential helper, LFS filters, merge drivers, signing and config exactly as their terminal does |
 | **git**, for one read | Blame | libgit2's blame is many times slower on a file with a long history, and git's is the answer people check against. Asked for once per file, so parsing its porcelain output costs nothing that matters |
 
 ### The GitProcess contract
@@ -614,6 +616,50 @@ entries show the command behind them on hover.
   not safe, and promising it would be worse than not offering it.
 * **Shelving uncommitted work per branch automatically.** It hides a real git state (a stash) behind
   an invented one, and restoring it can collide with changes made meanwhile.
+
+---
+
+## ADR-012 — The conflict editor
+
+**Status:** Accepted, 2026-11-14.
+
+### Decision
+
+**Work from the three versions, not the markers.** A conflict leaves three entries for the path in
+the index: the common ancestor, ours and theirs. The editor reads those (libgit2, through the
+checkout filters, so line endings match the disk) and splits them itself with a three-way merge:
+each side is diffed against the ancestor, and the ancestor is walked from change to change. A
+change on one side only is merged; the same change on both is taken once; anything else is a
+conflict. Reading the markers instead would break on a file the user had already half edited, and
+would show "ours" as the merged file rather than our version.
+
+The split agrees with git where it matters. Against `git merge-file` on 3,000 random merges, taking
+one side for every conflict gives git's file in every case. The grouping differs on purpose: git
+joins conflicts separated by three or fewer unchanged lines into one, and the editor keeps them
+apart so each can be chosen on its own. Lines both sides agree on at the edge of a conflict are left
+out of it, as git's markers leave them out.
+
+**Rows, not lines.** Each region takes as many rows as the longest column showing, so a region
+starts on the same row in every column and the columns scroll as one. A conflict has one more row,
+its header, for its buttons, so they never cover a line.
+
+**Three layouts, chosen and remembered:** three columns (ours, result, theirs), two columns (ours
+and theirs, each conflict taken from one), and the result across the bottom. **A window of its
+own**: three columns of code need a screen's width.
+
+**Writes.** The result is written to the file the way an editor writes one (replaced whole,
+permissions kept). Everything git must know goes through git: `add` marks it resolved,
+`checkout --ours`/`--theirs` takes a whole side, `rm` takes a deletion, and `checkout -m` puts the
+conflict back as the merge left it, even after it was staged — git keeps what it needs for that in
+the index. A conflict still open when the file is saved is written with git's markers, so the file
+can be finished in any editor.
+
+### Not doing
+
+* **An undo entry for each resolution.** Resolving is a step inside an operation the undo log
+  already covers: Start Over (`checkout -m`) is the way back for one file, and abandoning the
+  operation for all of it.
+* **Merging binary files.** Only a whole side can be kept.
 
 ---
 

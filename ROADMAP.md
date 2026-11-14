@@ -80,7 +80,8 @@ above is done, it needs:
       *Risks*).
 - [ ] Syntax highlighting in diffs — KSyntaxHighlighting or tree-sitter (ARCHITECTURE.md, open
       question 1).
-- [ ] A conflict-resolution editor.
+- [x] **A conflict-resolution editor** — three columns, two columns, or the result below; a side,
+      both, or an edit per conflict; whole versions for binary and deleted files.
 - [x] **Blame, and history for a single file or folder** — from the file lists' menus and the
       Repository menu. A file's history follows it through renames.
 - [ ] A denser mode beyond the history rows, and further layout options.
