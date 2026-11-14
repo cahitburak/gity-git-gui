@@ -44,6 +44,14 @@ add_library(gity_ui STATIC
     panels/CommitDetailPanel.h
     panels/RefsSidebar.cpp
     panels/RefsSidebar.h
+    conflict/ConflictDocument.cpp
+    conflict/ConflictDocument.h
+    conflict/ConflictEditor.cpp
+    conflict/ConflictEditor.h
+    conflict/ConflictWindow.cpp
+    conflict/ConflictWindow.h
+    conflict/MergePane.cpp
+    conflict/MergePane.h
     model/HistoryModel.cpp
     model/HistoryModel.h
     theme/Theme.cpp

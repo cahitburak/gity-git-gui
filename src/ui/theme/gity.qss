@@ -339,6 +339,63 @@ QTabBar {
     font-weight: bold;
 }
 
+/* --- the conflict editor --------------------------------------------- */
+
+#conflictHeader {
+    background: @surfaceHeader@;
+    border-bottom: 1px solid @borderHard@;
+}
+
+#conflictPath {
+    color: @textStrong@;
+    font-weight: bold;
+}
+
+/* The layout chooser: three buttons, the chosen one lit. */
+QToolButton#conflictLayout {
+    border: 1px solid @borderControl@;
+    padding: 3px 10px;
+}
+
+QToolButton#conflictLayout:checked {
+    background: @fillInfoChip@;
+    border-color: @fillInfoChipBorder@;
+    color: @semanticInfo@;
+}
+
+/* Each column's title, in its side's colour. */
+#conflictOursTitle,
+#conflictTheirsTitle,
+#conflictResultTitle {
+    background: @surfaceToolbar@;
+    border-bottom: 1px solid @borderHard@;
+    padding: 5px 10px;
+}
+
+#conflictOursTitle {
+    color: @semanticInfo@;
+    border-top: 2px solid @semanticInfo@;
+}
+
+#conflictTheirsTitle {
+    color: @semanticMeta@;
+    border-top: 2px solid @semanticMeta@;
+}
+
+#conflictResultTitle {
+    color: @textStrong@;
+    border-top: 2px solid @borderControl@;
+}
+
+#conflictFiles {
+    background: @surfacePanel@;
+}
+
+#conflictFilesHeader {
+    color: @textLabel@;
+    font-weight: bold;
+}
+
 #welcomePanel {
     background: @surfaceWindow@;
 }

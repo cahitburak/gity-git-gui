@@ -104,6 +104,10 @@ public:
     [[nodiscard]] std::string text(std::string_view oursLabel = "ours",
                                    std::string_view theirsLabel = "theirs") const;
 
+    /// The line ending most of the file's lines have: what text written into
+    /// the result should end its lines with.
+    [[nodiscard]] const std::string& eol() const noexcept { return eol_; }
+
 private:
     Merge3 merge_;
     std::vector<Pick> picks_;
