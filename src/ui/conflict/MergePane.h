@@ -8,6 +8,7 @@
 #pragma once
 
 #include "ConflictDocument.h"
+#include "ui/highlight/SyntaxHighlight.h"
 
 #include <QAbstractScrollArea>
 #include <QPointer>
@@ -82,6 +83,14 @@ private:
     void paintHeader(QPainter& painter, std::size_t region, int y);
     [[nodiscard]] QColor bandFor(std::size_t region) const;
     [[nodiscard]] bool dimmed(std::size_t region) const;
+
+    /// Colours for this column's file, made when first painted and again when
+    /// its text or the theme changes.
+    void highlight();
+    FileSpansPtr spans_;
+    QString spansKey_;
+    const void* spansFile_ = nullptr;
+    bool spansReady_ = false;
 
     ConflictDocument* document_;
     ConflictDocument::Column column_;

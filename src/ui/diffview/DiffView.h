@@ -12,6 +12,7 @@
 
 #include "core/git/Staging.h"
 #include "session/SessionTypes.h"
+#include "ui/highlight/SyntaxHighlight.h"
 
 #include <QAbstractScrollArea>
 
@@ -123,6 +124,17 @@ private:
 
     mutable std::vector<HunkButtons> hunkButtons_;
     int longestLine_ = 0; ///< In characters, for the horizontal range.
+
+    /// Colours each line from the side it belongs to: a deletion from the
+    /// old file, everything else from the new. Done on the first paint of a
+    /// diff, and again when the theme's colours change.
+    void highlight();
+    FileSpansPtr oldSpans_;
+    FileSpansPtr newSpans_;
+    /// Per diff line, its spans; null where there are none.
+    std::vector<const LineSpans*> lineSpans_;
+    QString spansKey_;
+    bool spansReady_ = false;
 };
 
 } // namespace gity::ui

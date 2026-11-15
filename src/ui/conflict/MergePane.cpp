@@ -21,28 +21,13 @@ using Column = ConflictDocument::Column;
 using Kind = git::MergeRegion::Kind;
 using git::Pick;
 
-constexpr int kTabWidth = 4;
-
-/// A line as painted: its ending gone, tabs as spaces.
+/// A line as painted: its ending gone. Tabs are drawCodeLine's.
 QString displayed(const std::string& line) {
     std::string_view view(line);
     while (!view.empty() && (view.back() == '\n' || view.back() == '\r')) {
         view.remove_suffix(1);
     }
-    const QString text = QString::fromUtf8(view.data(), static_cast<qsizetype>(view.size()));
-    if (!text.contains(QLatin1Char('\t'))) {
-        return text;
-    }
-    QString out;
-    out.reserve(text.size() + 16);
-    for (const QChar c : text) {
-        if (c == QLatin1Char('\t')) {
-            out += QString(kTabWidth - (out.size() % kTabWidth), QLatin1Char(' '));
-        } else {
-            out += c;
-        }
-    }
-    return out;
+    return QString::fromUtf8(view.data(), static_cast<qsizetype>(view.size()));
 }
 
 bool takesOurs(Pick pick) {
@@ -60,6 +45,11 @@ MergePane::MergePane(ConflictDocument* document, ConflictDocument::Column column
     setFrameShape(QFrame::NoFrame);
     viewport()->setMouseTracking(true);
     connect(document_, &ConflictDocument::changed, this, [this] {
+        // Ours and theirs change only with the file; the result with every
+        // choice made.
+        if (column_ == Column::Result || document_->file().get() != spansFile_) {
+            spansReady_ = false;
+        }
         longestLine_ = 0;
         for (std::size_t i = 0; i < document_->regionCount(); ++i) {
             for (const auto& line : document_->lines(column_, i)) {
@@ -78,6 +68,29 @@ QFont MergePane::monoFont() const {
         monoFontValid_ = true;
     }
     return monoFont_;
+}
+
+void MergePane::highlight() {
+    const QString key = syntax::themeKey();
+    if (spansReady_ && key == spansKey_) {
+        return;
+    }
+    spansReady_ = true;
+    spansKey_ = key;
+    spansFile_ = document_->file().get();
+    spans_.reset();
+    if (key.isEmpty() || !document_->file()) {
+        return;
+    }
+    // The column's whole file, region after region: for ours and theirs the
+    // versions git kept, for the result what it holds so far.
+    std::string text;
+    for (std::size_t i = 0; i < document_->regionCount(); ++i) {
+        for (const auto& line : document_->lines(column_, i)) {
+            text += line;
+        }
+    }
+    spans_ = syntax::highlight(QString::fromStdString(document_->file()->path), text);
 }
 
 int MergePane::rowHeight() const {
@@ -273,6 +286,7 @@ void MergePane::paintEvent(QPaintEvent* event) {
     const int last = std::min(document_->rowCount() - 1, (scroll + event->rect().bottom()) / h);
 
     painter.fillRect(0, 0, gutter, viewport()->height(), theme.gutterBg);
+    highlight();
 
     for (int row = first; row <= last; ++row) {
         const ConflictDocument::Place place = document_->placeAt(row);
@@ -323,10 +337,13 @@ void MergePane::paintEvent(QPaintEvent* event) {
                          QString::number(document_->firstLine(column_, index) + lineIndex));
         painter.save();
         painter.setClipRect(gutter, y, width - gutter, h);
-        painter.setPen(dimmed(index) ? theme.textFaint : theme.text);
-        const QString text = displayed(lines[static_cast<std::size_t>(lineIndex)]);
-        painter.drawText(QRect(textX, y, fm.horizontalAdvance(text) + 8, h),
-                         Qt::AlignLeft | Qt::AlignVCenter, text);
+        const bool faint = dimmed(index);
+        drawCodeLine(painter, textX, y, h, displayed(lines[static_cast<std::size_t>(lineIndex)]),
+                     faint ? nullptr
+                           : syntax::lineSpans(
+                                 spans_, static_cast<std::size_t>(
+                                             document_->firstLine(column_, index) + lineIndex)),
+                     faint ? theme.textFaint : theme.text);
         painter.restore();
     }
 
@@ -525,7 +542,7 @@ void MergePane::editRegion(std::size_t region) {
     editor->setObjectName(QStringLiteral("conflictInlineEditor"));
     editor->setFont(monoFont());
     editor->setLineWrapMode(QPlainTextEdit::NoWrap);
-    editor->setTabStopDistance(charWidth() * kTabWidth);
+    editor->setTabStopDistance(charWidth() * kCodeTabWidth);
     editor->setPlainText(typed.join(QLatin1Char('\n')));
     editor->setToolTip(tr("Ctrl+Enter or click away to keep, Esc to cancel"));
     editor->installEventFilter(this);

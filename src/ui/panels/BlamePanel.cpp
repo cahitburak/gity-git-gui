@@ -90,7 +90,7 @@ void BlamePanel::setBlame(const QString& path, const QString& revision,
         describe({});
         return;
     }
-    view_->setBlame(blame);
+    view_->setBlame(blame, path);
     describe(tr("%n line(s), from %1", nullptr, static_cast<int>(blame->lines.size()))
                  .arg(tr("%n commit(s)", nullptr, static_cast<int>(blame->commits.size()))));
 }

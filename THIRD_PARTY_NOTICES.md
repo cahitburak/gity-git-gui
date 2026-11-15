@@ -13,6 +13,7 @@ is linked below and ships with the component.
 |---|---|---|
 | [Qt 6](https://www.qt.io/) — Core, Gui, Widgets, Network, DBus (Linux), and the SVG image-format plugin at run time | The whole user interface; D-Bus access to the system keyring on Linux | [LGPL-3.0-only](https://doc.qt.io/qt-6/lgpl.html) (also available under GPL and commercial terms) |
 | [libgit2](https://libgit2.org/) | Reading repositories: history, refs, diffs, status | [GPL-2.0 with a linking exception](https://github.com/libgit2/libgit2/blob/main/COPYING) |
+| [KSyntaxHighlighting](https://invent.kde.org/frameworks/syntax-highlighting) — optional, linked only when the build finds it | Colouring code in diffs, blame and the conflict editor | [MIT](https://invent.kde.org/frameworks/syntax-highlighting/-/blob/master/LICENSES/MIT.txt); its syntax definitions each carry their own, mostly MIT or LGPL |
 
 ### Linked along with libgit2
 
@@ -29,8 +30,8 @@ not part of any Gity package.
 
 Which packages bundle them:
 
-* **Distribution packages** (`cmake --install`, CPack, the AUR) bundle nothing: Qt, libgit2 and
-  these come from the system.
+* **Distribution packages** (`cmake --install`, CPack, the AUR) bundle nothing: Qt, libgit2,
+  KSyntaxHighlighting and these come from the system.
 * **The AppImage** bundles Qt and libgit2 (built from source with PCRE2, zlib and the build
   system's OpenSSL 1.1), together with the libraries `linuxdeploy` collects for them. Those
   include libraries Qt itself uses — ICU, and image and text libraries such as libpng, FreeType

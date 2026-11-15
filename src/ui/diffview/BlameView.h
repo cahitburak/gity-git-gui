@@ -7,6 +7,7 @@
 #pragma once
 
 #include "session/SessionTypes.h"
+#include "ui/highlight/SyntaxHighlight.h"
 
 #include <QAbstractScrollArea>
 #include <QString>
@@ -21,7 +22,8 @@ class BlameView : public QAbstractScrollArea {
 public:
     explicit BlameView(QWidget* parent = nullptr);
 
-    void setBlame(session::BlamePtr blame);
+    /// `path` names the file, which says what language it is in.
+    void setBlame(session::BlamePtr blame, const QString& path = {});
     void clearBlame();
     /// Shown while there is no blame.
     void setPlaceholder(const QString& text);
@@ -64,8 +66,13 @@ private:
 
     session::BlamePtr blame_;
     std::vector<Label> labels_;
-    /// Each line's text with tabs expanded.
+    /// Each line's text, its ending gone.
     std::vector<QString> texts_;
+    QString path_;
+    /// Colours, made on the first paint and again when the theme changes.
+    FileSpansPtr spans_;
+    QString spansKey_;
+    bool spansReady_ = false;
     /// Each line's run, counted from the top: odd runs are shaded.
     std::vector<std::uint32_t> runs_;
     int longestLine_ = 0;

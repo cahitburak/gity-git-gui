@@ -28,7 +28,7 @@ A review of the whole codebase, and what it found fixed. Details are in the comm
   start with `#`, and more.
 * CI packages releases (AppImage, macOS disk image, Windows zip) into a draft release on a tag, and
   checks sanitizers, versions, desktop metadata and formatting. Tests now include real
-  repositories driven through `git`: 304 in all, up from 187.
+  repositories driven through `git`: 306 in all, up from 187.
 * The two largest files are split up — the main window and the repository session — with no change
   in behaviour.
 * **History of a file or folder, and blame.** Right-click a file in a commit, a comparison or the
@@ -39,11 +39,13 @@ A review of the whole codebase, and what it found fixed. Details are in the comm
   before one say what it was called then.
 * **A conflict editor.** Ours, theirs and the result, aligned region by region, in three columns
   with the result in the middle, or two with the result below them — chosen at the top and
-  remembered. Take a side, both, or
-  neither for each conflict, or edit the result in place; Save and Mark Resolved stages it, and
-  Start Over brings the conflict back. Binary files and files one side deleted are resolved by
-  keeping a whole version. Open it from the banner during a merge or rebase, by double-clicking a
-  conflicted file, or from Repository ▸ Resolve Conflicts….
+  remembered. Take a side, both, or neither for each conflict, or edit the result in place; Save
+  and Mark Resolved stages it, and Start Over brings the conflict back. Binary files and files one
+  side deleted are resolved by keeping a whole version. Open it from the banner during a merge or
+  rebase, by double-clicking a conflicted file, or from Repository ▸ Resolve Conflicts….
+* **Syntax highlighting** in diffs, blame and the conflict editor, in light and dark to match the
+  theme. Each file is coloured whole, so a hunk that starts inside a comment shows as one. It uses
+  KSyntaxHighlighting where it is installed; without it code is drawn plain.
 
 ## 0.1.0 — 2026-09-29
 

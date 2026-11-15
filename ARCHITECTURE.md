@@ -28,6 +28,7 @@ was built and then removed when Gity became a general Git client, and they are g
 - [ADR-010 — Signing in through a browser](#adr-010--signing-in-through-a-browser)
 - [ADR-011 — Safety net: undo, previews and a visible command log](#adr-011--safety-net-undo-previews-and-a-visible-command-log)
 - [ADR-012 — The conflict editor](#adr-012--the-conflict-editor)
+- [ADR-013 — Syntax highlighting](#adr-013--syntax-highlighting)
 - [Module boundaries](#module-boundaries)
 - [Licensing](#licensing)
 - [Risks](#risks)
@@ -134,6 +135,7 @@ repository is the one that counts.
 | 010 | Account sign-in | **OAuth device flow; the token goes to git's credential helper, never to Gity** | Needs a registered OAuth app per provider |
 | 011 | Safety net | **Undo from snapshots in git objects; previews from trial merges; every command logged** | A working-copy hash before each destructive action |
 | 012 | Conflict editor | **Its own three-way split of the index's three versions, in a window of its own** | Conflicts grouped a little differently from git's markers |
+| 013 | Syntax highlighting | **KSyntaxHighlighting, optional; each file coloured whole** | A KDE Frameworks library; builds without it draw plain text |
 
 ---
 
@@ -663,6 +665,34 @@ can be finished in any editor.
 
 ---
 
+## ADR-013 — Syntax highlighting
+
+**Status:** Accepted, 2026-11-15. Answers what was open question 1.
+
+### Decision
+
+**KSyntaxHighlighting, not tree-sitter.** It is a Qt library already, knows some three hundred
+languages by file name, and ships light and dark themes; tree-sitter would mean a grammar to bundle
+for every language and an integration to write. It colours a 50,000-line file in about a tenth of a
+second, so the views can afford to colour a file whole.
+
+**Optional.** CMake looks for it and, without it, the views draw plain text as before. The CI
+builds that install Qt alone still build and work; the Arch packages depend on it.
+
+**Whole files, not lines.** Whether line 400 is inside a comment depends on the lines above it, so a
+diff carries both sides of the file whole (`FileDiff::oldSource`, `newSource`, read when the patch
+is, up to 2 MB a side), and each line is coloured from its own side: a deletion from the old file,
+anything else from the new. Without them — too large, or unreadable — the diff's own lines stand in.
+Blame colours the file it shows; the conflict editor colours each column's file, and the result
+again after each choice.
+
+**Colours under the tints.** Text is coloured; backgrounds stay the views' own, so additions,
+deletions, ours and theirs read as before. The themes are GitHub Light and GitHub Dark, chosen by
+whether Gity's theme is light. A view colours a file on its first paint and keeps the answer until
+the file or the theme changes.
+
+---
+
 ## Module boundaries
 
 One rule governs the layering, and CI tests it: **`src/core` must build and run with no Qt at all.**
@@ -680,8 +710,10 @@ src/
 ├── ui/          Qt Widgets
 │   ├── theme/   tokens, theme variants, gity.qss, painted icons
 │   ├── model/   the history model the graph paints from
-│   ├── graphview/ and diffview/   the two painted QAbstractScrollArea views, and the history's
-│   │            filter bar
+│   ├── graphview/ and diffview/   the painted QAbstractScrollArea views — graph, diff,
+│   │            blame — and the history's filter bar
+│   ├── conflict/ the conflict editor and its window (ADR-012)
+│   ├── highlight/ syntax colours for the code views (ADR-013)
 │   ├── image/   image comparison
 │   └── panels/  sidebar, staging, commit detail, dialogs, repository tabs, settings
 ├── app/         main() and the main window — its layout and wiring, menus, repository handling
@@ -723,13 +755,10 @@ must include.
 
 ## Open questions
 
-1. **Syntax highlighting: KSyntaxHighlighting or tree-sitter?** KSyntaxHighlighting is Qt-native
-   and drops straight in, but adds a KDE Frameworks dependency. tree-sitter is faster and more
-   accurate, but means bundling grammars and writing the integration.
-2. **Minimum OS versions, and Qt 6.8 as the floor?** Proposed: macOS 12, Windows 10 1809, glibc 2.31.
+1. **Minimum OS versions, and Qt 6.8 as the floor?** Proposed: macOS 12, Windows 10 1809, glibc 2.31.
    Since every artifact bundles Qt, the floor could rise — at the cost of distribution packages that
    use the system Qt.
-3. **An in-app updater?** Qt ships nothing for it: Sparkle on macOS, WinSparkle or a custom updater
+2. **An in-app updater?** Qt ships nothing for it: Sparkle on macOS, WinSparkle or a custom updater
    on Windows, and nothing on Linux, where the package manager or AppImageUpdate owns it.
 
 ---

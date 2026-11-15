@@ -21,23 +21,14 @@ namespace {
 
 /// The who-and-when column, in characters: a short id, an author and a date.
 constexpr int kLabelChars = 38;
-constexpr int kTabWidth = 4;
 
-QString expandTabs(const std::string& line) {
-    const QString text = QString::fromStdString(line);
-    if (!text.contains(QChar('\t'))) {
-        return text;
+/// A line as the file holds it, its ending gone.
+QString lineText(const std::string& line) {
+    std::string_view text(line);
+    while (!text.empty() && (text.back() == '\n' || text.back() == '\r')) {
+        text.remove_suffix(1);
     }
-    QString out;
-    out.reserve(text.size() + 16);
-    for (const QChar c : text) {
-        if (c == QChar('\t')) {
-            out += QString(kTabWidth - (out.size() % kTabWidth), QChar(' '));
-        } else {
-            out += c;
-        }
-    }
-    return out;
+    return QString::fromUtf8(text.data(), static_cast<qsizetype>(text.size()));
 }
 
 } // namespace
@@ -48,8 +39,11 @@ BlameView::BlameView(QWidget* parent) : QAbstractScrollArea(parent) {
     setPlaceholder(tr("Right-click a file and choose Blame to see who last changed each line."));
 }
 
-void BlameView::setBlame(session::BlamePtr blame) {
+void BlameView::setBlame(session::BlamePtr blame, const QString& path) {
     blame_ = std::move(blame);
+    path_ = path;
+    spans_.reset();
+    spansReady_ = false;
     labels_.clear();
     texts_.clear();
     runs_.clear();
@@ -85,8 +79,8 @@ void BlameView::setBlame(session::BlamePtr blame) {
                 ++run;
             }
             runs_.push_back(run);
-            texts_.push_back(expandTabs(line.text));
-            longestLine_ = std::max(longestLine_, static_cast<int>(texts_.back().size()));
+            texts_.push_back(lineText(line.text));
+            longestLine_ = std::max(longestLine_, codeLineColumns(texts_.back()));
         }
     }
     verticalScrollBar()->setValue(0);
@@ -178,6 +172,11 @@ void BlameView::paintEvent(QPaintEvent* event) {
 
     painter.setFont(monoFont());
     const QFontMetrics fm(monoFont());
+    if (const QString key = syntax::themeKey(); !spansReady_ || key != spansKey_) {
+        spansReady_ = true;
+        spansKey_ = key;
+        spans_ = key.isEmpty() ? nullptr : syntax::highlightLines(path_, texts_);
+    }
     const int h = rowHeight();
     const int scroll = verticalScrollBar()->value();
     const int label = labelWidth();
@@ -244,10 +243,8 @@ void BlameView::paintEvent(QPaintEvent* event) {
 
         painter.save();
         painter.setClipRect(textLeft, y, width - textLeft, h);
-        painter.setPen(theme.text);
-        painter.drawText(QRect(textLeft + 6 - horizontalScrollBar()->value(), y,
-                               fm.horizontalAdvance(texts_[index]) + 8, h),
-                         Qt::AlignLeft | Qt::AlignVCenter, texts_[index]);
+        drawCodeLine(painter, textLeft + 6 - horizontalScrollBar()->value(), y, h, texts_[index],
+                     syntax::lineSpans(spans_, index + 1), theme.text);
         painter.restore();
     }
 

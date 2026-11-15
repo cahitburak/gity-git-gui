@@ -297,6 +297,7 @@ void DiffView::setDiff(FileDiffPtr diff, session::HunkStagingPtr staging) {
 
     hunkStaging_ = std::move(staging);
     diff_ = std::move(diff);
+    spansReady_ = false;
     selection_.clear();
     anchorRow_ = -1;
     cursorRow_ = -1;
@@ -317,6 +318,7 @@ void DiffView::setDiff(FileDiffPtr diff, session::HunkStagingPtr staging) {
 
 void DiffView::clearDiff() {
     diff_.reset();
+    spansReady_ = false;
     selection_.clear();
     anchorRow_ = -1;
     cursorRow_ = -1;
@@ -330,6 +332,83 @@ void DiffView::clearDiff() {
 void DiffView::setPlaceholder(const QString& text) {
     placeholder_ = text;
     viewport()->update();
+}
+
+void DiffView::highlight() {
+    const QString key = syntax::themeKey();
+    if (spansReady_ && key == spansKey_) {
+        return;
+    }
+    spansReady_ = true;
+    spansKey_ = key;
+    oldSpans_.reset();
+    newSpans_.reset();
+    lineSpans_.assign(diff_ ? diff_->lines.size() : 0, nullptr);
+    if (!diff_ || diff_->binary || diff_->lines.empty() || key.isEmpty()) {
+        return;
+    }
+    const QString newName = QString::fromStdString(diff_->path);
+    const QString oldName =
+        diff_->oldPath.empty() ? newName : QString::fromStdString(diff_->oldPath);
+    const auto& lines = diff_->lines;
+    const auto fromOld = [](const git::DiffLine& line) {
+        return line.kind == git::DiffLineKind::Deletion;
+    };
+
+    if (diff_->hasSources) {
+        // Each side whole, as far as its last line shown: a hunk that opens
+        // inside a comment is coloured as one.
+        std::uint32_t lastOld = 0;
+        std::uint32_t lastNew = 0;
+        for (const auto& line : lines) {
+            lastOld = std::max(lastOld, line.oldLine);
+            lastNew = std::max(lastNew, line.newLine);
+        }
+        if (lastOld > 0) {
+            oldSpans_ = syntax::highlight(oldName, diff_->oldSource, lastOld);
+        }
+        if (lastNew > 0) {
+            newSpans_ = syntax::highlight(newName, diff_->newSource, lastNew);
+        }
+        for (std::size_t i = 0; i < lines.size(); ++i) {
+            const auto& line = lines[i];
+            if (line.kind == git::DiffLineKind::NoNewlineMarker) {
+                continue;
+            }
+            lineSpans_[i] = fromOld(line) ? syntax::lineSpans(oldSpans_, line.oldLine)
+                                          : syntax::lineSpans(newSpans_, line.newLine);
+        }
+        return;
+    }
+
+    // Without the files — too large, or unreadable — the diff's own lines
+    // stand in for them: each side's lines in order, context in both.
+    std::vector<QString> oldLines;
+    std::vector<QString> newLines;
+    std::vector<std::size_t> at(lines.size(), 0);
+    for (std::size_t i = 0; i < lines.size(); ++i) {
+        const auto& line = lines[i];
+        if (line.kind == git::DiffLineKind::NoNewlineMarker) {
+            continue;
+        }
+        const auto text = diff_->lineText(line);
+        const QString shown = QString::fromUtf8(text.data(), static_cast<qsizetype>(text.size()));
+        if (line.kind != git::DiffLineKind::Addition) {
+            oldLines.push_back(shown);
+            at[i] = oldLines.size();
+        }
+        if (line.kind != git::DiffLineKind::Deletion) {
+            newLines.push_back(shown);
+            at[i] = newLines.size();
+        }
+    }
+    oldSpans_ = syntax::highlightLines(oldName, oldLines);
+    newSpans_ = syntax::highlightLines(newName, newLines);
+    for (std::size_t i = 0; i < lines.size(); ++i) {
+        if (at[i] != 0) {
+            lineSpans_[i] = syntax::lineSpans(fromOld(lines[i]) ? oldSpans_ : newSpans_, at[i]);
+        }
+    }
 }
 
 void DiffView::rebuildRows() {
@@ -397,6 +476,7 @@ void DiffView::paintEvent(QPaintEvent* event) {
     }
 
     painter.setFont(monoFont());
+    highlight();
 
     const int h = rowHeight();
     const int scroll = verticalScrollBar()->value();
@@ -604,9 +684,13 @@ void DiffView::paintRow(QPainter& painter, const Row& row, int y, int gutter) co
         text.remove_prefix(skip);
     }
     const int skipped = static_cast<int>(skip) * digit;
-    painter.drawText(QRect(gutter + digit - xScroll + skipped, y, xScroll + width - skipped, h),
-                     Qt::AlignVCenter | Qt::AlignLeft,
-                     QString::fromUtf8(text.data(), static_cast<qsizetype>(text.size())));
+    const LineSpans* spans = row.index < lineSpans_.size() ? lineSpans_[row.index] : nullptr;
+    painter.save();
+    painter.setClipRect(gutter, y, width - gutter, h);
+    drawCodeLine(painter, gutter + digit - xScroll + skipped, y, h,
+                 QString::fromUtf8(text.data(), static_cast<qsizetype>(text.size())), spans,
+                 theme.text, static_cast<int>(skip), static_cast<int>(skip));
+    painter.restore();
 }
 
 void DiffView::focusInEvent(QFocusEvent* event) {
