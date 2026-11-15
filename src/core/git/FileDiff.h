@@ -93,6 +93,9 @@ struct FileDiffOptions {
     /// Beyond this the diff is reported as too large rather than rendered.
     std::size_t maxLines = 200000;
     std::uint32_t contextLines = 3;
+    /// Read both sides whole into the FileDiff, for highlighting. Off for a
+    /// diff that is only counted, never shown.
+    bool readSources = true;
 };
 
 /// Past this a side is not read whole: the diff is still shown, highlighted
@@ -101,8 +104,9 @@ inline constexpr std::size_t kMaxSourceBytes = std::size_t{2} << 20;
 
 /// Fills `out` from a libgit2 patch: status, modes and the binary flag from its
 /// delta, then every hunk and line, stopping at `maxLines`. The one place a
-/// patch becomes a FileDiff, for history and working copy alike.
-void readPatch(git_patch* patch, FileDiff& out, std::size_t maxLines);
+/// patch becomes a FileDiff, for history and working copy alike. With
+/// `readSources`, both sides are read whole too.
+void readPatch(git_patch* patch, FileDiff& out, std::size_t maxLines, bool readSources = true);
 
 /// Diffs `path` in `commit` against its first parent.
 [[nodiscard]] FileDiff loadFileDiff(git_repository* repo, const git_oid& commitOid,

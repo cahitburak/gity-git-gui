@@ -100,6 +100,8 @@ private:
 
     QPointer<QPlainTextEdit> editor_;
     std::size_t editing_ = 0;
+    /// The text the editor opened with, to tell an edit from a look.
+    QString editStart_;
 
     mutable QFont monoFont_;
     mutable bool monoFontValid_ = false;

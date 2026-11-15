@@ -127,7 +127,7 @@ FileDiff diffTrees(git_repository* repo, const TreeHandle& parentTree, const Tre
 
     PatchHandle patch;
     check(git_patch_from_diff(patch.receive(), diff.get(), deltaIndex), "build the patch");
-    readPatch(patch.get(), out, options.maxLines);
+    readPatch(patch.get(), out, options.maxLines, options.readSources);
     if (out.status != ChangeStatus::Renamed) {
         out.oldPath.clear();
     }
@@ -172,7 +172,7 @@ bool readSide(git_repository* repo, const git_diff_file& file, std::string& out)
     return true;
 }
 
-void readSources(git_patch* patch, const git_diff_delta& delta, FileDiff& out) {
+void readSides(git_patch* patch, const git_diff_delta& delta, FileDiff& out) {
     git_repository* repo = git_patch_owner(patch);
     if (repo == nullptr || out.binary || out.tooLarge || out.lines.empty()) {
         return;
@@ -187,7 +187,7 @@ void readSources(git_patch* patch, const git_diff_delta& delta, FileDiff& out) {
 
 } // namespace
 
-void readPatch(git_patch* patch, FileDiff& out, std::size_t maxLines) {
+void readPatch(git_patch* patch, FileDiff& out, std::size_t maxLines, bool readSources) {
     // The delta is read from the patch, not from the diff before it: libgit2
     // only knows a file is binary once it has loaded the contents, which
     // building the patch is what does. Read earlier, the flag is almost never
@@ -267,8 +267,8 @@ void readPatch(git_patch* patch, FileDiff& out, std::size_t maxLines) {
         }
     }
 
-    if (const git_diff_delta* delta = git_patch_get_delta(patch); delta != nullptr) {
-        readSources(patch, *delta, out);
+    if (const git_diff_delta* delta = git_patch_get_delta(patch); readSources && delta != nullptr) {
+        readSides(patch, *delta, out);
     }
 }
 

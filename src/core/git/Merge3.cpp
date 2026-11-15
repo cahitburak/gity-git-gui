@@ -195,11 +195,14 @@ Merge3 mergeLines(std::string_view baseText, std::string_view oursText,
                                             region.theirs[region.theirs.size() - 1 - tail]) {
             ++tail;
         }
-        const auto agreed = [](const Lines& lines, std::size_t begin, std::size_t end) {
+        // Where the conflict itself lands, once a head goes in before it.
+        const std::size_t conflictAt = trimmed.size() + (head > 0 ? 1 : 0);
+        const auto agreed = [conflictAt](const Lines& lines, std::size_t begin, std::size_t end) {
             MergeRegion both;
             both.kind = MergeRegion::Kind::Both;
             both.ours = slice(lines, begin, end);
             both.theirs = both.ours;
+            both.edgeOf = conflictAt;
             return both;
         };
         if (head > 0) {
@@ -296,6 +299,9 @@ void MergeResolution::pickAllConflicts(Pick pick) {
 Lines MergeResolution::result(std::size_t i) const {
     const MergeRegion& region = merge_.regions[i];
     const std::string_view eol = eol_;
+    if (region.edgeOf && picks_[*region.edgeOf] == Pick::Base) {
+        return {}; // the base is the whole of what was there before
+    }
     switch (picks_[i]) {
     case Pick::Unresolved:
         return {};

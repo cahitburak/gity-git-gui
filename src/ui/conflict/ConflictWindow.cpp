@@ -178,9 +178,20 @@ void ConflictWindow::setStatus(session::StatusPtr status) {
     // The file shown is not conflicted any more — resolved here or
     // elsewhere. Its choices are done with; on to the next.
     if (!current_.isEmpty()) {
+        // Said, not dropped quietly: choices never written go with it.
+        const bool lost = (editor_->path() == current_ && editor_->dirty()) ||
+                          unsaved_.contains(keyFor(workdir_, current_));
+        if (lost) {
+            setNotice(tr("%1 was resolved outside the conflict editor; the choices made here "
+                         "and not saved were set aside.")
+                          .arg(current_),
+                      false);
+        }
         kept_[workdir_].remove(current_);
         unsaved_.remove(keyFor(workdir_, current_));
         current_.clear();
+        // Nor left in the editor, where it would still count as unsaved.
+        editor_->showConflict(nullptr);
     }
     if (now.isEmpty()) {
         showDone();

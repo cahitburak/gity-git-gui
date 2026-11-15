@@ -162,3 +162,16 @@ TEST_F(Merge3Test, LinesBothSidesAgreeOnAreLeftOutOfTheConflict) {
     EXPECT_EQ(merge.regions[1].theirs, (Lines{"n3\n", "n2\n"}));
     EXPECT_EQ(MergeResolution(merge).text(), "n1\n<<<<<<< ours\n=======\nn3\nn2\n>>>>>>> theirs\n");
 }
+
+TEST_F(Merge3Test, NeitherLeavesOutTheLinesBothSidesAgreedOn) {
+    // Both sides replaced `a` with `a2` and then differ: `a2` is set apart
+    // from the conflict, but it is still their change, not the base's.
+    const Merge3 merge = gity::git::mergeLines("a\nb\n", "a2\nc\n", "a2\nd\n");
+    ASSERT_EQ(kinds(merge), (std::vector<Kind>{Kind::Both, Kind::Conflict}));
+    EXPECT_EQ(merge.regions[0].edgeOf, std::optional<std::size_t>{1});
+    MergeResolution resolution(merge);
+    resolution.setPick(1, Pick::Base);
+    EXPECT_EQ(resolution.text(), "a\nb\n");
+    resolution.setPick(1, Pick::Ours);
+    EXPECT_EQ(resolution.text(), "a2\nc\n");
+}

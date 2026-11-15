@@ -30,6 +30,21 @@ QString displayed(const std::string& line) {
     return QString::fromUtf8(view.data(), static_cast<qsizetype>(view.size()));
 }
 
+/// How many columns drawCodeLine gives a line, from its bytes: tabs to the
+/// next stop, one per character, the ending not at all. Counted on the bytes
+/// because it runs over every line of every column at each change.
+int lineColumns(const std::string& line) {
+    int column = 0;
+    for (const char c : line) {
+        if (c == '\t') {
+            column += kCodeTabWidth - (column % kCodeTabWidth);
+        } else if (c != '\n' && c != '\r' && (static_cast<unsigned char>(c) & 0xC0) != 0x80) {
+            ++column;
+        }
+    }
+    return column;
+}
+
 bool takesOurs(Pick pick) {
     return pick == Pick::Ours || pick == Pick::OursThenTheirs || pick == Pick::TheirsThenOurs;
 }
@@ -53,7 +68,7 @@ MergePane::MergePane(ConflictDocument* document, ConflictDocument::Column column
         longestLine_ = 0;
         for (std::size_t i = 0; i < document_->regionCount(); ++i) {
             for (const auto& line : document_->lines(column_, i)) {
-                longestLine_ = std::max(longestLine_, static_cast<int>(line.size()));
+                longestLine_ = std::max(longestLine_, lineColumns(line));
             }
         }
         updateScrollBars();
@@ -543,7 +558,8 @@ void MergePane::editRegion(std::size_t region) {
     editor->setFont(monoFont());
     editor->setLineWrapMode(QPlainTextEdit::NoWrap);
     editor->setTabStopDistance(charWidth() * kCodeTabWidth);
-    editor->setPlainText(typed.join(QLatin1Char('\n')));
+    editStart_ = typed.join(QLatin1Char('\n'));
+    editor->setPlainText(editStart_);
     editor->setToolTip(tr("Ctrl+Enter or click away to keep, Esc to cancel"));
     editor->installEventFilter(this);
     editor_ = editor;
@@ -584,7 +600,9 @@ void MergePane::stopEditing(bool keep) {
     editor->removeEventFilter(this);
     editor->hide();
     editor->deleteLater();
-    if (keep) {
+    // Only what was changed: opening a conflict to look at ours' lines and
+    // clicking away must not resolve it with them.
+    if (keep && text != editStart_) {
         document_->setEdited(editing_, text);
     }
     viewport()->setFocus();

@@ -72,8 +72,11 @@ void RepoWorker::loadWorkingFileDiff(const QString& path, bool staged, quint64 g
         // every line shown is staged already, so the count would say nothing.
         gity::session::HunkStagingPtr staging;
         if (!staged && !diff->hunks.empty()) {
+            // Counted, never shown: the files themselves are not needed.
+            gity::git::FileDiffOptions countOnly;
+            countOnly.readSources = false;
             const gity::git::FileDiff combined = gity::git::loadWorkingDiff(
-                repo_.get(), path.toStdString(), gity::git::DiffSide::Combined);
+                repo_.get(), path.toStdString(), gity::git::DiffSide::Combined, countOnly);
             staging = std::make_shared<const std::vector<gity::git::HunkStaging>>(
                 gity::git::hunkStagingCounts(*diff, combined));
         }

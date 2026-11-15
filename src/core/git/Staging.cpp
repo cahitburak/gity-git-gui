@@ -73,7 +73,7 @@ FileDiff loadWorkingDiff(git_repository* repo, const std::string& path, DiffSide
 
     PatchHandle patch;
     check(git_patch_from_diff(patch.receive(), diff.get(), 0), "build the patch");
-    readPatch(patch.get(), out, options.maxLines);
+    readPatch(patch.get(), out, options.maxLines, options.readSources);
     out.path = path;
     if (out.status != ChangeStatus::Renamed) {
         out.oldPath.clear();

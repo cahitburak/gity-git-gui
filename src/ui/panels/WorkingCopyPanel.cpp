@@ -707,7 +707,19 @@ void WorkingCopyPanel::showRowMenu(QTreeWidget* list, const QPoint& where) {
         return;
     }
     if (chosen == takeOurs || chosen == takeTheirs) {
-        emit takeSideRequested(path, chosen == takeOurs);
+        // The whole file is replaced, and the undo history does not cover
+        // it mid-merge: anything resolved in it by hand would go.
+        const bool ours = chosen == takeOurs;
+        const QString name = QFileInfo(path).fileName();
+        if (confirmDestructive(this, ours ? tr("Resolve with ours?") : tr("Resolve with theirs?"),
+                               ours ? tr("Replace %1 with our whole version?").arg(name)
+                                    : tr("Replace %1 with their whole version?").arg(name),
+                               tr("What the file holds now — conflict markers, and anything "
+                                  "resolved in it by hand — is replaced, and it is marked "
+                                  "resolved. This cannot be undone."),
+                               ours ? tr("Use Ours") : tr("Use Theirs"))) {
+            emit takeSideRequested(path, ours);
+        }
         return;
     }
     if (chosen == stage) {

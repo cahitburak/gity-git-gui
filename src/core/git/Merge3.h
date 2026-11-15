@@ -45,6 +45,10 @@ struct MergeRegion {
     Lines base;
     Lines ours;
     Lines theirs;
+    /// For lines both sides open or close a conflict with, set apart from it
+    /// as Both: the conflict's region. They are part of both sides' change,
+    /// so when that conflict takes the base they go too.
+    std::optional<std::size_t> edgeOf;
 };
 
 struct Merge3 {

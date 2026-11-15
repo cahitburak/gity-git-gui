@@ -138,7 +138,13 @@ void MainWindow::openRepository(const QString& path) {
     // message, which screen and which lower tab. A refresh of the same one
     // keeps its selected commit instead of jumping back to the newest
     // (2026-09 UI review).
-    conflicts_->setRepository(path, QFileInfo(path).fileName());
+    // The conflict window lets go of the repository being left; it takes up
+    // the new one in onOpened, under the workdir the session settles on — not
+    // `path`, which may be relative, a subfolder or a symlink, and would
+    // differ from the spelling every later refresh uses.
+    if (!refreshing) {
+        conflicts_->setRepository({}, {});
+    }
 
     ViewState arriving;
     if (refreshing) {
@@ -246,6 +252,7 @@ void MainWindow::refreshContributors() {
 void MainWindow::onOpened(const gity::session::RepoInfo& info) {
     repoLabel_->setText(QStringLiteral("%1  ·  %2").arg(info.workdir, info.headRef));
     currentWorkdir_ = info.workdir;
+    conflicts_->setRepository(info.workdir, QDir(info.workdir).dirName());
     sessions_.markOpened();
     syncNetworkState();
     updateRepositoryTitle();
