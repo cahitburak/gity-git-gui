@@ -83,6 +83,7 @@ using DiffHandle = Handle<git_diff, git_diff_free>;
 using StatusListHandle = Handle<git_status_list, git_status_list_free>;
 using IndexHandle = Handle<git_index, git_index_free>;
 using ObjectHandle = Handle<git_object, git_object_free>;
+using BlobHandle = Handle<git_blob, git_blob_free>;
 using ReferenceHandle = Handle<git_reference, git_reference_free>;
 using BranchIteratorHandle = Handle<git_branch_iterator, git_branch_iterator_free>;
 

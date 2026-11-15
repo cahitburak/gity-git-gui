@@ -1,5 +1,7 @@
 #include "FileDiff.h"
 
+#include "BlobReader.h"
+
 #include <algorithm>
 #include <cstring>
 
@@ -133,6 +135,56 @@ FileDiff diffTrees(git_repository* repo, const TreeHandle& parentTree, const Tre
     return out;
 }
 
+/// One side of the patch whole, or nothing when it cannot be had. A blob is
+/// read from the object database; the working copy's side usually has no blob
+/// there — its id is only a hash of the file — and is read from disk.
+bool readSide(git_repository* repo, const git_diff_file& file, std::string& out) {
+    out.clear();
+    if (file.mode == 0) {
+        return true; // the side does not exist: empty is the truth
+    }
+    if (file.mode == GIT_FILEMODE_COMMIT || file.mode == GIT_FILEMODE_LINK) {
+        return false;
+    }
+    if (file.size > kMaxSourceBytes) {
+        return false;
+    }
+    if (!git_oid_is_zero(&file.id)) {
+        BlobHandle blob;
+        if (git_blob_lookup(blob.receive(), repo, &file.id) == 0) {
+            const auto size = static_cast<std::size_t>(git_blob_rawsize(blob.get()));
+            if (size > kMaxSourceBytes) {
+                return false;
+            }
+            out.assign(static_cast<const char*>(git_blob_rawcontent(blob.get())), size);
+            return true;
+        }
+    }
+    const char* workdir = git_repository_workdir(repo);
+    if (workdir == nullptr || file.path == nullptr) {
+        return false;
+    }
+    const BlobContent disk = readWorktreeFile(workdir, file.path, kMaxSourceBytes);
+    if (disk.empty()) {
+        return false;
+    }
+    out.assign(disk.bytes.data(), disk.bytes.size());
+    return true;
+}
+
+void readSources(git_patch* patch, const git_diff_delta& delta, FileDiff& out) {
+    git_repository* repo = git_patch_owner(patch);
+    if (repo == nullptr || out.binary || out.tooLarge || out.lines.empty()) {
+        return;
+    }
+    out.hasSources = readSide(repo, delta.old_file, out.oldSource) &&
+                     readSide(repo, delta.new_file, out.newSource);
+    if (!out.hasSources) {
+        out.oldSource.clear();
+        out.newSource.clear();
+    }
+}
+
 } // namespace
 
 void readPatch(git_patch* patch, FileDiff& out, std::size_t maxLines) {
@@ -213,6 +265,10 @@ void readPatch(git_patch* patch, FileDiff& out, std::size_t maxLines) {
         if (out.tooLarge) {
             break;
         }
+    }
+
+    if (const git_diff_delta* delta = git_patch_get_delta(patch); delta != nullptr) {
+        readSources(patch, *delta, out);
     }
 }
 

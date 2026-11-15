@@ -71,6 +71,14 @@ struct FileDiff {
     std::vector<DiffLine> lines;
     std::string text; ///< Arena; DiffLine offsets index into this.
 
+    /// Both sides whole, for syntax highlighting: a hunk can start inside a
+    /// comment or a string, and only the lines before it say so. Read only
+    /// when `hasSources` — not for a binary or oversized file, or a side git
+    /// could not read — and empty for a side that does not exist.
+    std::string oldSource;
+    std::string newSource;
+    bool hasSources = false;
+
     [[nodiscard]] std::string_view lineText(const DiffLine& line) const noexcept {
         return std::string_view(text).substr(line.textOffset, line.textLength);
     }
@@ -86,6 +94,10 @@ struct FileDiffOptions {
     std::size_t maxLines = 200000;
     std::uint32_t contextLines = 3;
 };
+
+/// Past this a side is not read whole: the diff is still shown, highlighted
+/// from its own lines.
+inline constexpr std::size_t kMaxSourceBytes = std::size_t{2} << 20;
 
 /// Fills `out` from a libgit2 patch: status, modes and the binary flag from its
 /// delta, then every hunk and line, stopping at `maxLines`. The one place a

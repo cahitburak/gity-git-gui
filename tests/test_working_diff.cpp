@@ -184,6 +184,43 @@ TEST(WorkingDiff, AnUntrackedFileHasNoOldSide) {
     EXPECT_NE(diff.newMode, 0u);
 }
 
+TEST(WorkingDiff, BothSidesComeWholeForHighlighting) {
+    // A hunk can open inside a comment that started lines above it; only the
+    // whole file says so. The working copy's side is read from disk, since
+    // the file is not in the object database until it is staged.
+    Repo repo;
+    const std::string before = "/* a comment\n   over lines */\nint a;\nint b;\nint c;\nint d;\n";
+    repo.write("Assets/Player.cs", before);
+    repo.commitAll();
+    const std::string after = before + "int e;\n";
+    repo.write("Assets/Player.cs", after);
+
+    const auto unstaged = gity::git::loadWorkingDiff(repo.get(), "Assets/Player.cs",
+                                                     gity::git::DiffSide::Unstaged, {});
+    ASSERT_TRUE(unstaged.hasSources);
+    EXPECT_EQ(unstaged.oldSource, before);
+    EXPECT_EQ(unstaged.newSource, after);
+
+    repo.write("Assets/New.cs", "fresh\n");
+    const auto added =
+        gity::git::loadWorkingDiff(repo.get(), "Assets/New.cs", gity::git::DiffSide::Unstaged, {});
+    ASSERT_TRUE(added.hasSources);
+    EXPECT_TRUE(added.oldSource.empty()) << "an added file has no old side";
+    EXPECT_EQ(added.newSource, "fresh\n");
+}
+
+TEST(WorkingDiff, ABinaryFileHasNoSources) {
+    Repo repo;
+    repo.write("Assets/icon.bin", std::string("\x89PNG\0\0\x01", 7));
+    repo.commitAll();
+    repo.write("Assets/icon.bin", std::string("\x89PNG\0\0\x02", 7));
+
+    const auto diff = gity::git::loadWorkingDiff(repo.get(), "Assets/icon.bin",
+                                                 gity::git::DiffSide::Unstaged, {});
+    EXPECT_FALSE(diff.hasSources);
+    EXPECT_TRUE(diff.newSource.empty());
+}
+
 TEST(WorkingDiff, APathWithGlobCharactersDiffsOnlyThatFile) {
     // `[id].tsx` is an ordinary file name in several web frameworks, and read
     // as a pattern it matches `d.tsx` as well. The diff has to be of the file
@@ -246,6 +283,10 @@ TEST(WorkingDiff, ARenamedFileInACommitDiffsAgainstItsOldName) {
     EXPECT_EQ(diff.oldPath, "Assets/Old.cs");
     EXPECT_EQ(diff.additions(), 1u) << "only the added line, not the whole file";
     EXPECT_EQ(diff.deletions(), 0u);
+    // Each side whole, from the commit and its parent, under its own name.
+    ASSERT_TRUE(diff.hasSources);
+    EXPECT_EQ(diff.oldSource, body);
+    EXPECT_EQ(diff.newSource, body + "line six\n");
 }
 
 #include "core/git/Compare.h"

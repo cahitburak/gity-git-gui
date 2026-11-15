@@ -8,7 +8,6 @@
 namespace gity::git {
 namespace {
 
-using BlobHandle = Handle<git_blob, git_blob_free>;
 
 constexpr std::string_view kLfsMagic = "version https://git-lfs.github.com/spec/";
 

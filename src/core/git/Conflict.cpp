@@ -7,7 +7,6 @@
 namespace gity::git {
 namespace {
 
-using BlobHandle = Handle<git_blob, git_blob_free>;
 using RefHandle = Handle<git_reference, git_reference_free>;
 
 ConflictSide readSide(git_repository* repo, const git_index_entry* entry, const std::string& path,
