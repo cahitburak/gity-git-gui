@@ -6,10 +6,11 @@ namespace gity::ui {
 
 ConflictDocument::ConflictDocument(QObject* parent) : QObject(parent) {}
 
-void ConflictDocument::setFile(session::ConflictPtr file, git::MergeResolution resolution) {
+void ConflictDocument::setFile(session::ConflictPtr file, git::MergeResolution resolution,
+                               const std::optional<git::MergeResolution>& saved) {
     file_ = std::move(file);
     resolution_ = std::move(resolution);
-    dirty_ = false;
+    cleanText_ = saved ? saved->text() : resolution_.text();
     conflicts_.clear();
     for (std::size_t i = 0; i < resolution_.regionCount(); ++i) {
         if (resolution_.region(i).kind == git::MergeRegion::Kind::Conflict) {
@@ -28,7 +29,6 @@ void ConflictDocument::setPick(std::size_t region, git::Pick pick) {
         return;
     }
     resolution_.setPick(region, pick);
-    dirty_ = true;
     rebuild();
 }
 
@@ -53,20 +53,22 @@ void ConflictDocument::setEdited(std::size_t region, const QString& text) {
         bytes += eol;
     }
     resolution_.setEdited(region, bytes);
-    dirty_ = true;
     rebuild();
 }
 
 void ConflictDocument::pickAllConflicts(git::Pick pick) {
     resolution_.pickAllConflicts(pick);
-    dirty_ = true;
     rebuild();
 }
 
 void ConflictDocument::reset() {
     resolution_.reset();
-    dirty_ = true;
     rebuild();
+}
+
+void ConflictDocument::markSaved(const git::MergeResolution& saved) {
+    cleanText_ = saved.text();
+    dirty_ = resolution_.text() != cleanText_;
 }
 
 void ConflictDocument::rebuild() {
@@ -104,6 +106,9 @@ void ConflictDocument::rebuild() {
     }
     rowCount_ = row;
     longestFile_ = std::max({ours, theirs, result});
+    // The whole text again at every change, as the regions' results above
+    // already are: a pick is a click, not a keystroke.
+    dirty_ = resolution_.text() != cleanText_;
     emit changed();
 }
 

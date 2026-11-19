@@ -14,8 +14,10 @@
 #include "session/SessionTypes.h"
 
 #include <QHash>
-#include <QSet>
+#include <QList>
 #include <QWidget>
+
+#include <optional>
 
 class QLabel;
 class QListWidget;
@@ -36,12 +38,21 @@ public:
 
     /// Shows the window on `path`, or on the first conflicted file.
     void openFile(const QString& path = {});
+    /// Shows the window on a file of the repository shown whose choices are
+    /// not written, or as openFile() does when it has none.
+    void openUnsaved();
 
     void setConflict(const QString& path, session::ConflictPtr conflict, const QString& problem);
     void writeFinished(const QString& path, bool ok, const QString& message);
 
     /// Choices made and not written, in any repository.
     [[nodiscard]] bool hasUnsaved() const;
+    /// The repositories, by workdir, with choices made and not written: the
+    /// one shown first.
+    [[nodiscard]] QStringList unsavedRepositories() const;
+    /// A repository closed: the choices kept for it, written or not, go.
+    /// `workdir` may be spelled as its tab spells it.
+    void forgetRepository(const QString& workdir);
 
     [[nodiscard]] ConflictEditor* editor() const noexcept { return editor_; }
 
@@ -58,7 +69,30 @@ protected:
 private:
     enum class Pending { None, Save, Resolve, Side, Restart };
 
+    /// A write asked for and not yet finished.
+    struct Write {
+        Pending kind = Pending::None;
+        /// For a save: the choices written.
+        std::optional<git::MergeResolution> choices;
+    };
+
+    /// One file's choices, kept while another is shown.
+    struct Kept {
+        git::MergeResolution choices;
+        /// What was last written from here; none while the file holds what
+        /// git wrote.
+        std::optional<git::MergeResolution> written;
+        /// The choices differ from what the file holds.
+        bool unsaved = false;
+    };
+
     void keepChoices();
+    /// The file shown in the editor is `path` of this repository.
+    [[nodiscard]] bool showing(const QString& path) const;
+    /// Choices not written in the repository at `workdir`.
+    [[nodiscard]] bool unsavedIn(const QString& workdir) const;
+    /// A write that resolves `path` is under way from here.
+    [[nodiscard]] bool resolvingHere(const QString& path) const;
     void select(const QString& path);
     void showDone();
     void setNotice(const QString& text, bool error);
@@ -77,12 +111,14 @@ private:
     QStringList conflicted_;
     git::Operation operation_ = git::Operation::None;
     QString noun_;
-    Pending pending_ = Pending::None;
+    /// Per repository and file, by keyFor(): the writes under way, oldest
+    /// first. Per file, so one finishing is told from another asked for
+    /// since, and is settled for its own file whichever is shown by then.
+    QHash<QString, QList<Write>> writes_;
     /// Per repository, per file: the choices made, so a file shown again
-    /// comes back as it was left.
-    QHash<QString, QHash<QString, git::MergeResolution>> kept_;
-    /// Which of those were never written: repository and path, by keyFor().
-    QSet<QString> unsaved_;
+    /// comes back as it was left. The file shown is the editor's; its entry,
+    /// if any, is as it was when the file was last left or written.
+    QHash<QString, QHash<QString, Kept>> kept_;
 };
 
 } // namespace gity::ui

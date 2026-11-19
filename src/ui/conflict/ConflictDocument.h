@@ -13,6 +13,8 @@
 #include <QObject>
 #include <QString>
 
+#include <optional>
+#include <string>
 #include <vector>
 
 namespace gity::ui {
@@ -25,7 +27,11 @@ public:
 
     explicit ConflictDocument(QObject* parent = nullptr);
 
-    void setFile(session::ConflictPtr file, git::MergeResolution resolution);
+    /// `saved`, when given, is what the file was last written with from here;
+    /// without it, the file is taken to hold `resolution` — what git wrote,
+    /// or choices just saved.
+    void setFile(session::ConflictPtr file, git::MergeResolution resolution,
+                 const std::optional<git::MergeResolution>& saved = {});
     void clear();
 
     [[nodiscard]] const session::ConflictPtr& file() const noexcept { return file_; }
@@ -46,16 +52,13 @@ public:
     void pickAllConflicts(git::Pick pick);
     void reset();
 
-    /// Changed since it was loaded or last saved.
+    /// The result differs from what the file was loaded or last saved with.
+    /// Compared as text, so choices undone, or Reset back to where they
+    /// started, are not a change.
     [[nodiscard]] bool dirty() const noexcept { return dirty_; }
 
-    void markClean() { dirty_ = false; }
-
-    /// Choices brought back from before were never written.
-    void markDirty() {
-        dirty_ = true;
-        emit changed();
-    }
+    /// `saved` was written: the result is compared with it from now on.
+    void markSaved(const git::MergeResolution& saved);
 
     [[nodiscard]] int rowCount() const noexcept { return rowCount_; }
 
@@ -108,6 +111,8 @@ private:
     std::vector<std::size_t> conflicts_;
     int rowCount_ = 0;
     int longestFile_ = 0;
+    /// The result's text as last loaded or saved.
+    std::string cleanText_;
     bool dirty_ = false;
 };
 

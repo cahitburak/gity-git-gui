@@ -364,7 +364,8 @@ void ConflictEditor::arrange() {
 }
 
 void ConflictEditor::showConflict(session::ConflictPtr file,
-                                  std::optional<git::MergeResolution> kept, bool keptUnsaved) {
+                                  std::optional<git::MergeResolution> kept,
+                                  std::optional<git::MergeResolution> written) {
     result_.pane->finishEditing();
     current_.reset();
     if (!file) {
@@ -378,11 +379,14 @@ void ConflictEditor::showConflict(session::ConflictPtr file,
         showWholeFile(file);
         return;
     }
-    git::MergeResolution resolution = kept ? std::move(*kept) : git::MergeResolution(file->merge);
-    document_->setFile(file, std::move(resolution));
-    if (keptUnsaved) {
-        document_->markDirty();
+    // Kept choices count as unsaved against what was written from here, or
+    // failing that, against the file as git left it.
+    std::optional<git::MergeResolution> saved = std::move(written);
+    if (kept && !saved) {
+        saved = git::MergeResolution(file->merge);
     }
+    git::MergeResolution resolution = kept ? std::move(*kept) : git::MergeResolution(file->merge);
+    document_->setFile(file, std::move(resolution), saved);
     toolbar_->setVisible(true);
     pages_->setCurrentWidget(columnsPage_);
     updateTitles();
@@ -433,6 +437,11 @@ void ConflictEditor::showWholeFile(const session::ConflictPtr& file) {
 
 void ConflictEditor::showMessage(const QString& title, const QString& detail) {
     result_.pane->finishEditing();
+    // Not kept behind the message: the window asks path() and dirty() of
+    // what is shown, and a file left here would still answer — its choices
+    // kept again after Start Over threw them away, or counted as unsaved at
+    // quit.
+    document_->clear();
     toolbar_->setVisible(false);
     path_->clear();
     status_->clear();
@@ -458,8 +467,8 @@ std::optional<git::MergeResolution> ConflictEditor::resolution() const {
     return document_->resolution();
 }
 
-void ConflictEditor::markSaved() {
-    document_->markClean();
+void ConflictEditor::markSaved(const git::MergeResolution& saved) {
+    document_->markSaved(saved);
     updateState();
 }
 

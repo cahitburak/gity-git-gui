@@ -45,19 +45,25 @@ public:
 
     [[nodiscard]] Layout layoutChoice() const noexcept { return layout_; }
 
-    /// Shows `file`, starting from `kept` — choices made earlier — when given;
-    /// `keptUnsaved` when those were never written.
+    /// Shows `file`, starting from `kept` — choices made earlier — when given.
+    /// `written` is what the file was last saved with from here, which the
+    /// choices count as unsaved against; without it, against the file as git
+    /// left it.
     void showConflict(session::ConflictPtr file, std::optional<git::MergeResolution> kept = {},
-                      bool keptUnsaved = false);
+                      std::optional<git::MergeResolution> written = {});
     /// Instead of a file: why it could not be shown, or what to do first.
+    /// The file shown before is let go, and its choices with it.
     void showMessage(const QString& title, const QString& detail);
 
     [[nodiscard]] QString path() const;
+    /// Choices not written, an edit still open in the result among them.
     [[nodiscard]] bool dirty() const;
-    /// The choices so far, for keeping while another file is shown.
+    /// The choices so far, for keeping while another file is shown. An edit
+    /// still open is finished first.
     [[nodiscard]] std::optional<git::MergeResolution> resolution() const;
-    /// The last save was written: what is on screen is what is on disk.
-    void markSaved();
+    /// `saved` was written: what is on screen is unsaved only where it
+    /// differs from that.
+    void markSaved(const git::MergeResolution& saved);
 
 signals:
     void saveRequested(const QString& path, const QByteArray& content, bool markResolved);
