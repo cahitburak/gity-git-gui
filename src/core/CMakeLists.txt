@@ -24,6 +24,7 @@ add_library(gity_core STATIC
     git/Provider.cpp
     git/PullRequest.cpp
     git/DeviceFlow.cpp
+    git/JsonScanner.h
     git/Remotes.cpp
     git/Staging.h
     git/WorkingCopy.cpp

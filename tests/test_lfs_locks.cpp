@@ -73,6 +73,31 @@ TEST(ParseLfsLocks, UnfamiliarFieldsDoNotDerailTheElement) {
     EXPECT_EQ(locks[0].owner, "y");
 }
 
+TEST(ParseLfsLocks, NullAndEmptyFieldsAreFieldsMissingNotGarbage) {
+    // Any one of these threw the whole list away, so every other lock on the
+    // server stopped showing.
+    const auto locks =
+        parseLfsLocks(R"([{"id":"1","path":"a.psd","owner":null,"locked_at":"t"},)"
+                      R"({"id":"2","path":"b.psd","owner":{},"locked_at":null},)"
+                      R"({"id":"3","path":"c.psd","owner":{"name":null},"locked_at":"t"},)"
+                      R"({"id":"4","path":"d.psd","owner":{"name":"ayse"},"locked_at":"t"}])");
+    ASSERT_EQ(locks.size(), 4u);
+    EXPECT_TRUE(locks[0].owner.empty());
+    EXPECT_TRUE(locks[1].owner.empty());
+    EXPECT_TRUE(locks[1].lockedAt.empty());
+    EXPECT_TRUE(locks[2].owner.empty());
+    EXPECT_EQ(locks[3].owner, "ayse");
+}
+
+TEST(ParseLfsLocks, CharactersOutsideTheBmpAreDecoded) {
+    // A surrogate pair is one character. Written half by half it would be
+    // bytes no UTF-8 reader accepts.
+    const auto locks =
+        parseLfsLocks(R"([{"id":"1","path":"Art/🎨.psd","owner":{"name":"x"},"locked_at":"t"}])");
+    ASSERT_EQ(locks.size(), 1u);
+    EXPECT_EQ(locks[0].path, "Art/\xF0\x9F\x8E\xA8.psd");
+}
+
 TEST(ParseLfsLocks, GarbageYieldsNothingRatherThanHalfALockList) {
     // A lock list is advisory. Half of one is worse than none: it would show
     // a file as free that somebody is holding.
