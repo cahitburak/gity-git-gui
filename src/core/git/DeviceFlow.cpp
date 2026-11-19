@@ -1,5 +1,7 @@
 #include "DeviceFlow.h"
 
+#include "JsonScanner.h"
+
 #include <algorithm>
 #include <cctype>
 
@@ -45,65 +47,41 @@ std::string formDecode(std::string_view text) {
 /// elsewhere. Accepting both means the flow does not break on a provider that
 /// ignores the Accept header — which GitHub historically did.
 std::string valueOf(std::string_view body, std::string_view key) {
-    // JSON: "key":"value" or "key":123
-    std::string quoted = "\"";
-    quoted += key;
-    quoted += "\"";
-    std::size_t at = body.find(quoted);
-    if (at != std::string_view::npos) {
-        at = body.find(':', at + quoted.size());
-        if (at == std::string_view::npos) {
+    // JSON: a member of the top-level object, read with a scanner rather than
+    // found by searching for "key": a string value that happens to read
+    // "access_token", or a URL in an error description holding
+    // ?access_token=, was taken for the token itself.
+    std::size_t first = 0;
+    while (first < body.size() && std::isspace(static_cast<unsigned char>(body[first])) != 0) {
+        ++first;
+    }
+    if (first < body.size() && body[first] == '{') {
+        JsonScanner scanner(body);
+        if (!scanner.take('{') || scanner.take('}')) {
             return {};
         }
-        ++at;
-        while (at < body.size() && (body[at] == ' ' || body[at] == '\t')) {
-            ++at;
-        }
-        if (at < body.size() && body[at] == '"') {
-            // A JSON string, escapes decoded: a provider may write the
-            // verification URL as "https:\/\/github.com\/login\/device".
-            std::string value;
-            for (std::size_t i = at + 1; i < body.size(); ++i) {
-                const char c = body[i];
-                if (c == '"') {
-                    return value;
-                }
-                if (c == '\\' && i + 1 < body.size()) {
-                    const char escaped = body[++i];
-                    switch (escaped) {
-                    case 'n':
-                        value += '\n';
-                        break;
-                    case 't':
-                        value += '\t';
-                        break;
-                    case 'r':
-                        value += '\r';
-                        break;
-                    default:
-                        value += escaped; // \" \\ \/ and anything else, literally
-                        break;
-                    }
-                    continue;
-                }
-                value += c;
+        while (true) {
+            std::string name;
+            if (!scanner.readString(&name) || !scanner.take(':')) {
+                return {};
             }
-            return {}; // unterminated
+            if (name == key) {
+                // Strings come with their escapes decoded — a provider may
+                // write the verification URL as "https:\/\/github.com\/…",
+                // or an '&' as &. JSON's null is no value, not the four
+                // letters: an error reply with "access_token": null would
+                // otherwise be stored as the token "null".
+                std::string value;
+                return scanner.readScalar(&value) ? value : std::string();
+            }
+            if (!scanner.skipValue() || !scanner.take(',')) {
+                return {};
+            }
         }
-        const std::size_t end = body.find_first_of(",}", at);
-        std::string number(body.substr(at, end == std::string_view::npos ? end : end - at));
-        while (!number.empty() && std::isspace(static_cast<unsigned char>(number.back())) != 0) {
-            number.pop_back();
-        }
-        // JSON's null is no value, not the four letters: an error reply with
-        // "access_token": null would otherwise be stored as the token "null".
-        if (number == "null") {
-            return {};
-        }
-        return number;
     }
 
     // Form encoding: key=value&…
+    std::size_t at = 0;
     std::size_t search = 0;
     while ((at = body.find(key, search)) != std::string_view::npos) {
         const bool atStart = at == 0 || body[at - 1] == '&' || body[at - 1] == '?';

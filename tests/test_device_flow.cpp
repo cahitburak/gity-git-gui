@@ -154,3 +154,35 @@ TEST(ParsePollResponse, ANullTokenIsNoToken) {
     EXPECT_NE(result.state, PollState::Granted);
     EXPECT_TRUE(result.accessToken.empty());
 }
+
+TEST(ParsePollResponse, TheKeyInsideAnotherValueIsNotTheToken) {
+    // Searching the text for "access_token" found it as a string value, and
+    // the value after the next colon became the token; a URL in a description
+    // holding ?access_token= was read as a form-encoded grant.
+    PollResult result =
+        parsePollResponse(R"({"error":"bad_verification_code","error_description":"access_token",)"
+                          R"("error_uri":"https://docs.example/device"})");
+    EXPECT_EQ(result.state, PollState::Failed);
+    EXPECT_TRUE(result.accessToken.empty());
+
+    result =
+        parsePollResponse(R"({"error":"incorrect_client_credentials",)"
+                          R"("error_description":"see https://docs.example/?access_token=xyz"})");
+    EXPECT_EQ(result.state, PollState::Failed);
+    EXPECT_TRUE(result.accessToken.empty());
+
+    // Nor a member of a nested object.
+    result = parsePollResponse(
+        R"({"error":"authorization_pending","detail":{"access_token":"nested"}})");
+    EXPECT_EQ(result.state, PollState::Pending);
+    EXPECT_TRUE(result.accessToken.empty());
+}
+
+TEST(ParseDeviceCode, UnicodeEscapesAreDecoded) {
+    // & is how some encoders write '&'; it was read as the letters u0026.
+    const DeviceCode code =
+        parseDeviceCode(R"({"device_code":"a","user_code":"b",)"
+                        R"("verification_uri":"https://host/device?a=1&b=2","expires_in":900})");
+    EXPECT_EQ(code.verificationUrl, "https://host/device?a=1&b=2");
+    EXPECT_EQ(code.expiresInSeconds, 900);
+}
