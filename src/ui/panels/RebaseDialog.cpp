@@ -167,6 +167,8 @@ RebaseDialog::RebaseDialog(session::RepoSession& session, const QString& baseOid
            "the commit shown below them.")
             .arg(baseOid.left(8), baseSubject),
         this);
+    // Commit subjects, which may hold "<".
+    setPlainText(intro);
     intro->setWordWrap(true);
     layout->addWidget(intro);
 
@@ -223,6 +225,7 @@ RebaseDialog::RebaseDialog(session::RepoSession& session, const QString& baseOid
     auto* changesLayout = new QVBoxLayout(changes);
     changesLayout->setContentsMargins(0, 6, 0, 0);
     changesTitle_ = new QLabel(tr("Select a commit to see its changes."), changes);
+    setPlainText(changesTitle_);
     applyRole(changesTitle_, QStringLiteral("muted"));
     changesLayout->addWidget(changesTitle_);
     auto* changesSplit = new QSplitter(Qt::Horizontal, changes);
@@ -252,6 +255,7 @@ RebaseDialog::RebaseDialog(session::RepoSession& session, const QString& baseOid
     layout->addWidget(split, 1);
 
     status_ = new QLabel(this);
+    setPlainText(status_);
     status_->setWordWrap(true);
     layout->addWidget(status_);
 
@@ -359,7 +363,7 @@ void RebaseDialog::setAction(QTreeWidgetItem* item, git::RebaseAction action) {
     const QString reworded = item->data(0, kMessageRole).toString().section(QChar('\n'), 0, 0);
     const bool showReworded = action == git::RebaseAction::Reword && !reworded.isEmpty();
     item->setText(2, showReworded ? reworded : subject);
-    item->setToolTip(2, showReworded ? tr("Was: %1").arg(subject) : QString());
+    item->setToolTip(2, showReworded ? plainToolTip(tr("Was: %1").arg(subject)) : QString());
 
     const QColor colour = action == git::RebaseAction::Drop ? tokens::textDim : tokens::textDefault;
     for (int column = 1; column < 3; ++column) {

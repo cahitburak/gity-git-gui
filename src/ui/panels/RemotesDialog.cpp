@@ -62,6 +62,8 @@ RemotesDialog::RemotesDialog(session::RepoSession& session, QWidget* parent)
     layout->addWidget(tree_, 1);
 
     error_ = new QLabel(this);
+    // git's own words.
+    setPlainText(error_);
     error_->setWordWrap(true);
     applyRole(error_, QStringLiteral("error"));
     error_->setVisible(false);
@@ -227,9 +229,8 @@ void RemotesDialog::editUrlOfSelected() {
     // afterwards — editing the path must not save "***" over the token.
     const QString shown = QString::fromStdString(git::maskUrlCredentials(current));
     bool accepted = false;
-    const QString edited = QInputDialog::getText(this, tr("Change URL"), tr("URL for %1").arg(name),
-                                                 QLineEdit::Normal, shown, &accepted)
-                               .trimmed();
+    const QString edited =
+        enterText(this, tr("Change URL"), tr("URL for %1").arg(name), shown, &accepted).trimmed();
     if (!accepted || edited.isEmpty() || edited == shown) {
         return;
     }

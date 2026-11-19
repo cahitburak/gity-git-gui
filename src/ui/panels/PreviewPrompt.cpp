@@ -202,7 +202,7 @@ QString previewVerb(gity::session::Preview::Kind kind) {
 PreviewChoice choosePreviewAction(const gity::session::Preview& p, QWidget* parent) {
     const QString verb = previewVerb(p.kind);
     if (!p.problem.isEmpty()) {
-        QMessageBox::information(parent, verb, p.problem);
+        showPlainMessage(parent, QMessageBox::Information, verb, p.problem);
         return PreviewChoice::Cancel;
     }
     PreviewDialog dialog(verb, parent);

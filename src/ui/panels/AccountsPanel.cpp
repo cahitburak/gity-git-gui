@@ -88,7 +88,9 @@ AccountsPanel::AccountsPanel(QWidget* parent) : QWidget(parent) {
     buttons->addWidget(use_);
     layout->addLayout(buttons);
 
+    // Hosts from remote URLs, and what the configuration says.
     repositoryNote_ = new QLabel(this);
+    setPlainText(repositoryNote_);
     repositoryNote_->setWordWrap(true);
     applyRole(repositoryNote_, QStringLiteral("note"));
     layout->addWidget(repositoryNote_);
@@ -97,6 +99,7 @@ AccountsPanel::AccountsPanel(QWidget* parent) : QWidget(parent) {
     // screen is the obvious place to expect a password field, and its absence
     // needs explaining rather than leaving as a gap.
     storageNote_ = new QLabel(this);
+    setPlainText(storageNote_);
     storageNote_->setWordWrap(true);
     applyRole(storageNote_, QStringLiteral("note"));
     layout->addWidget(storageNote_);
@@ -254,8 +257,8 @@ void AccountsPanel::addAccount() {
     // from it is the one that broke a submodule. Asked, not refused — a
     // self-hosted service may use emails.
     if (account.provider == git::Provider::GitHub && account.username.contains(QChar('@'))) {
-        const auto answer = QMessageBox::question(
-            this, tr("Use an email as the account name?"),
+        const auto answer = showPlainMessage(
+            this, QMessageBox::Question, tr("Use an email as the account name?"),
             tr("GitHub account names are never email addresses — use the login shown on your "
                "GitHub profile (for GitHub CLI, the name in gh auth status). Git sends this name "
                "to find your token, so an email finds nothing.\n\nKeep \u201c%1\u201d anyway?")
@@ -284,14 +287,13 @@ void AccountsPanel::signInSelected() {
     QString clientId = store.value(key).toString();
     if (clientId.isEmpty()) {
         bool accepted = false;
-        clientId = QInputDialog::getText(
-                       this, tr("Client ID for %1").arg(account.host),
-                       tr("Signing in through a browser needs an OAuth application "
-                          "registered on %1, and its client ID.\n\n"
-                          "On GitHub: Settings ▸ Developer settings ▸ OAuth Apps ▸ New OAuth "
-                          "App, then enable device flow. No client secret is needed.")
-                           .arg(account.host),
-                       QLineEdit::Normal, QString(), &accepted)
+        clientId = enterText(this, tr("Client ID for %1").arg(account.host),
+                             tr("Signing in through a browser needs an OAuth application "
+                                "registered on %1, and its client ID.\n\n"
+                                "On GitHub: Settings ▸ Developer settings ▸ OAuth Apps ▸ New OAuth "
+                                "App, then enable device flow. No client secret is needed.")
+                                 .arg(account.host),
+                             QString(), &accepted)
                        .trimmed();
         if (!accepted || clientId.isEmpty()) {
             return;
@@ -305,6 +307,8 @@ void AccountsPanel::signInSelected() {
     dialog->setMinimumWidth(430);
     dialog->setAutoClose(false);
     dialog->setAutoReset(false);
+    // The code and the address come from the server.
+    setPlainLabels(dialog);
 
     auto* signIn = new session::BrowserSignIn(this);
     connect(signIn, &session::BrowserSignIn::codeReady, dialog,
@@ -322,9 +326,9 @@ void AccountsPanel::signInSelected() {
                 dialog->deleteLater();
                 signIn->deleteLater();
                 if (ok) {
-                    QMessageBox::information(this, tr("Signed in"), message);
+                    showPlainMessage(this, QMessageBox::Information, tr("Signed in"), message);
                 } else {
-                    QMessageBox::warning(this, tr("Sign-in failed"), message);
+                    showPlainMessage(this, QMessageBox::Warning, tr("Sign-in failed"), message);
                 }
             });
     // Cancel ends it: the flow stops listening, and both objects go rather

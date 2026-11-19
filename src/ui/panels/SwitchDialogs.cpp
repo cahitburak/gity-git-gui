@@ -106,6 +106,8 @@ CheckoutDialog::CheckoutDialog(const QString& ref, const gity::session::SwitchCo
                                          nullptr, context.submoduleChanges)
                        : QString()),
         this);
+    // Branch names, which may hold "<".
+    setPlainText(intro);
     intro->setWordWrap(true);
     layout->addWidget(intro);
 
@@ -146,6 +148,7 @@ NewBranchDialog::NewBranchDialog(const QString& base, const gity::session::Switc
 
     auto* intro = new QLabel(
         base.isEmpty() ? tr("Starts at the current commit.") : tr("Starts at %1.").arg(base), this);
+    setPlainText(intro);
     intro->setWordWrap(true);
     layout->addWidget(intro);
 
@@ -153,6 +156,7 @@ NewBranchDialog::NewBranchDialog(const QString& base, const gity::session::Switc
     name_->setPlaceholderText(tr("Branch name"));
     layout->addWidget(name_);
     problem_ = new QLabel(this);
+    setPlainText(problem_);
     applyRole(problem_, QStringLiteral("warn"));
     problem_->setVisible(false);
     layout->addWidget(problem_);

@@ -356,6 +356,8 @@ void MainWindow::buildToolBar() {
 
 void MainWindow::buildStatusBar() {
     repoLabel_ = new QLabel(tr("No repository open"), this);
+    // The path and HEAD's name, either of which may hold "<".
+    gity::ui::setPlainText(repoLabel_);
     countLabel_ = new QLabel(this);
     // Versions and load timings used to sit here too. They are diagnostics,
     // not status: git and libgit2 versions are in Help ▸ About and Settings ▸
@@ -393,13 +395,13 @@ void MainWindow::buildStatusBar() {
                 const QString who = !chosen.isEmpty() ? chosen : defaultAccount;
                 accountStatus_->setVisible(!host.isEmpty() && !who.isEmpty());
                 accountStatus_->setText(QStringLiteral("%1: %2").arg(host, who));
-                accountStatus_->setToolTip(
+                accountStatus_->setToolTip(gity::ui::plainToolTip(
                     !chosen.isEmpty()
                         ? tr("This repository uses %1 on %2 — set for it alone. Click to change.")
                               .arg(chosen, host)
                         : tr("This repository uses the default account on %1, %2. Click to "
                              "assign one to this repository.")
-                              .arg(host, defaultAccount));
+                              .arg(host, defaultAccount)));
             });
     statusBar()->addPermanentWidget(accountStatus_);
 

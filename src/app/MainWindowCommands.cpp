@@ -225,6 +225,7 @@ void MainWindow::confirmReset(const QString& oid, const QString& subject) {
            "reflog, so this is recoverable; what it does to your working copy is not.")
             .arg(oid.left(8), subject),
         &dialog);
+    gity::ui::setPlainText(intro);
     intro->setWordWrap(true);
     layout->addWidget(intro);
 
@@ -479,9 +480,8 @@ void MainWindow::chooseMerge() {
     }
 
     bool accepted = false;
-    const QString chosen =
-        QInputDialog::getItem(this, tr("Merge"), tr("Merge which branch into %1?").arg(head),
-                              candidates, 0, false, &accepted);
+    const QString chosen = gity::ui::chooseItem(
+        this, tr("Merge"), tr("Merge which branch into %1?").arg(head), candidates, &accepted);
     if (!accepted || chosen.isEmpty()) {
         return;
     }
@@ -607,8 +607,8 @@ void MainWindow::chooseRebase() {
 
     bool accepted = false;
     const QString onto =
-        QInputDialog::getItem(this, tr("Rebase"), tr("Replay %1 on top of which branch?").arg(head),
-                              candidates, 0, false, &accepted);
+        gity::ui::chooseItem(this, tr("Rebase"), tr("Replay %1 on top of which branch?").arg(head),
+                             candidates, &accepted);
     if (!accepted || onto.isEmpty()) {
         return;
     }
@@ -711,7 +711,7 @@ void MainWindow::onHistoryEditFinished(const QString& verb, bool ok, bool confli
         statusBar()->showMessage(message, 12000);
         return;
     }
-    QMessageBox::warning(this, tr("%1 failed").arg(verb), message);
+    gity::ui::showPlainMessage(this, QMessageBox::Warning, tr("%1 failed").arg(verb), message);
 }
 
 void MainWindow::chooseClone() {

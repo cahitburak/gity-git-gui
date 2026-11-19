@@ -158,6 +158,8 @@ WorkingCopyPanel::WorkingCopyPanel(QWidget* parent) : QWidget(parent) {
     amend_ = new QCheckBox(tr("Amend"), this);
 
     notice_ = new QLabel(this);
+    // A commit's summary and git's own errors are shown here.
+    setPlainText(notice_);
     notice_->setWordWrap(true);
     notice_->setVisible(false);
 
@@ -511,7 +513,7 @@ void WorkingCopyPanel::fillList(QTreeWidget* list, bool staged) {
                                        : stateWord(staged ? primary->staged : primary->unstaged));
         spoken += notes;
         item->setData(0, Qt::AccessibleTextRole, spoken.join(QStringLiteral(", ")));
-        item->setData(0, Qt::ToolTipRole, spoken.join(QStringLiteral(", ")));
+        item->setData(0, Qt::ToolTipRole, plainToolTip(spoken.join(QStringLiteral(", "))));
     }
 
     QLabel* header = staged ? stagedHeader_ : unstagedHeader_;
@@ -791,8 +793,8 @@ void WorkingCopyPanel::showRowMenu(QTreeWidget* list, const QPoint& where) {
         const git::StatusEntry* entry = status_ ? status_->find(path.toStdString()) : nullptr;
         const bool dirty = entry != nullptr && (entry->hasStaged() || entry->hasUnstaged());
         if (dirty) {
-            const auto answer = QMessageBox::question(
-                this, tr("Unlock anyway?"),
+            const auto answer = showPlainMessage(
+                this, QMessageBox::Question, tr("Unlock anyway?"),
                 tr("%1 still has uncommitted changes. Unlocking tells the rest of the team "
                    "you are finished with it, and they may start editing.\n\nCommit or "
                    "discard your changes first if you are not.")

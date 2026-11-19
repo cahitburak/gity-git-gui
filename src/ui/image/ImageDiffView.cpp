@@ -1,5 +1,6 @@
 #include "ImageDiffView.h"
 
+#include "ui/panels/Confirm.h"
 #include "ui/theme/Tokens.h"
 
 #include <QButtonGroup>
@@ -75,6 +76,8 @@ ImageDiffView::ImageDiffView(QWidget* parent) : QWidget(parent) {
     headerRow->setSpacing(10);
 
     path_ = new QLabel(header);
+    // A file name may hold "<".
+    setPlainText(path_);
     path_->setFont(monoFont(font()));
     path_->setObjectName(QStringLiteral("panePath"));
     headerRow->addWidget(path_, 1);

@@ -389,12 +389,8 @@ void MainWindow::onFailed(const QString& message, const QString& detail) {
         });
     }
     repoLabel_->setText(currentWorkdir_.isEmpty() ? tr("No repository open") : repoLabel_->text());
-    QMessageBox box(QMessageBox::Warning, tr("Could not open repository"), message, QMessageBox::Ok,
-                    this);
-    if (!detail.isEmpty()) {
-        box.setDetailedText(detail);
-    }
-    box.exec();
+    gity::ui::showPlainMessage(this, QMessageBox::Warning, tr("Could not open repository"), message,
+                               QMessageBox::Ok, QMessageBox::NoButton, detail);
 }
 
 void MainWindow::onStatusReady(gity::session::StatusPtr status) {
@@ -414,8 +410,8 @@ void MainWindow::openSubmodule(const QString& relativePath) {
     }
     const QString child = QDir(currentWorkdir_).filePath(relativePath);
     if (!QFileInfo::exists(child)) {
-        QMessageBox::information(
-            this, tr("Submodule not present"),
+        gity::ui::showPlainMessage(
+            this, QMessageBox::Information, tr("Submodule not present"),
             tr("%1 is recorded but its files are not on disk. Initialise it with "
                "git submodule update --init before it can be opened.")
                 .arg(relativePath));
@@ -519,8 +515,8 @@ void MainWindow::retireSession(const QString& path) {
 void MainWindow::closeEvent(QCloseEvent* event) {
     const QStringList busy = sessions_.busyRepositories();
     if (!busy.isEmpty()) {
-        const auto answer = QMessageBox::warning(
-            this, tr("git is still working"),
+        const auto answer = gity::ui::showPlainMessage(
+            this, QMessageBox::Warning, tr("git is still working"),
             tr("git is still changing %1. Quit anyway?").arg(busy.join(QStringLiteral(", "))),
             QMessageBox::Cancel | QMessageBox::Yes, QMessageBox::Cancel);
         // Quitting stops a fetch, pull, push or clone where it is. A commit,
@@ -559,12 +555,8 @@ void MainWindow::onNetworkFinished(const QString& verb, bool ok, const QString& 
         return;
     }
 
-    QMessageBox box(QMessageBox::Warning, tr("%1 failed").arg(verb), summary, QMessageBox::Ok,
-                    this);
-    if (!detail.isEmpty()) {
-        box.setDetailedText(detail);
-    }
-    box.exec();
+    gity::ui::showPlainMessage(this, QMessageBox::Warning, tr("%1 failed").arg(verb), summary,
+                               QMessageBox::Ok, QMessageBox::NoButton, detail);
 }
 
 } // namespace gity::app

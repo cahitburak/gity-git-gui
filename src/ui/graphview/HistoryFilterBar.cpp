@@ -149,10 +149,11 @@ void HistoryFilterBar::showState(bool filtered) {
         // Wide enough for the text as shortened here: left to the layout, the
         // style cut it again, mid-name.
         pathChip_->setMinimumWidth(fm.horizontalAdvance(text) + 24);
-        pathChip_->setToolTip(tr("%1\n\nOnly the commits that changed it; renames are not "
-                                 "followed, and no graph lines are drawn. Click to show "
-                                 "every file again.")
-                                  .arg(path_));
+        pathChip_->setToolTip(plainToolTip(tr("%1\n\nOnly the commits that changed it — a "
+                                              "file is followed back through renames — and no "
+                                              "graph lines are drawn. Click to show every file "
+                                              "again.")
+                                               .arg(path_)));
     }
     title_->setText(byPath     ? tr("History of")
                     : filtered ? tr("Matching commits")

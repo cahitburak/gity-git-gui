@@ -23,6 +23,8 @@ OperationBanner::OperationBanner(QWidget* parent) : QWidget(parent) {
     layout->addWidget(glyph);
 
     text_ = new QLabel(this);
+    // Names the commit stopped at, by its summary.
+    setPlainText(text_);
     text_->setWordWrap(true);
     text_->setObjectName(QStringLiteral("operationText"));
     layout->addWidget(text_, 1);

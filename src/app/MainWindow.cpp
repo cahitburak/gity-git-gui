@@ -526,8 +526,8 @@ void MainWindow::connectSidebar() {
     connect(
         refs_, &gity::ui::RefsSidebar::deleteBranchRequested, this,
         [this](const QString& name, bool) {
-            const auto answer = QMessageBox::question(
-                this, tr("Delete branch?"),
+            const auto answer = gity::ui::showPlainMessage(
+                this, QMessageBox::Question, tr("Delete branch?"),
                 tr("Delete \"%1\"?\n\nCommits it shares with another branch are kept.").arg(name),
                 QMessageBox::Yes | QMessageBox::No, QMessageBox::No);
             if (answer == QMessageBox::Yes) {

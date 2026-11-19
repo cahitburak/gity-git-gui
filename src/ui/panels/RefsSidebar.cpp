@@ -349,14 +349,14 @@ void RefsSidebar::contextMenuEvent(QContextMenuEvent* event) {
                        "branch."),
                     QStringLiteral("rebase -i %1").arg(name));
     if (pullRequest != nullptr) {
-        pullRequest->setToolTip(
+        pullRequest->setToolTip(plainToolTip(
             remoteBranch.isEmpty()
                 ? tr("%1 is only here. Push it, then propose it.").arg(name)
                 : tr("Opens the host's page for a new %1 from %2 into the default branch, "
                      "in your browser.")
-                      .arg(pullRequestNoun_.toLower(), remoteBranch.section(QChar('/'), 1)));
+                      .arg(pullRequestNoun_.toLower(), remoteBranch.section(QChar('/'), 1))));
     }
-    copy->setToolTip(tr("Put \"%1\" on the clipboard.").arg(name));
+    copy->setToolTip(plainToolTip(tr("Put \"%1\" on the clipboard.").arg(name)));
     if (pin != nullptr) {
         pin->setToolTip(isPinned ? tr("Take it out of the Pinned section.")
                                  : tr("Keep it in a Pinned section at the top of this list."));
@@ -475,6 +475,9 @@ QTreeWidgetItem* RefsSidebar::addEntry(QTreeWidgetItem* parent, const git::RefEn
         item->setToolTip(0,
                          item->toolTip(0).isEmpty() ? why : why + QChar('\n') + item->toolTip(0));
     }
+    // Made plain once, here, rather than piece by piece above: the pieces are
+    // joined, and a stash message or upstream name may hold "<".
+    item->setToolTip(0, plainToolTip(item->toolTip(0)));
     return item;
 }
 
@@ -603,7 +606,7 @@ void RefsSidebar::addSubmodules(QTreeWidgetItem* section,
                                          "repository records.")
                                     : tr("Has uncommitted changes of its own."));
         } else {
-            item->setToolTip(0, QString::fromStdString(submodule.url));
+            item->setToolTip(0, plainToolTip(QString::fromStdString(submodule.url)));
         }
     }
 }
@@ -683,10 +686,11 @@ void RefsSidebar::addWorkspaceGroup() {
     if (refs_ && refs_->headDetached) {
         auto* row = addWorkspaceRow(section, QStringLiteral("⚑"), tr("Detached HEAD"),
                                     Screen::History, 0, SidebarTone::Warn);
-        row->setToolTip(0, tr("HEAD is at %1 and not on any branch. Commits made here are "
-                              "reachable only by their id once you check something else out — "
-                              "make a branch first if you mean to keep them.")
-                               .arg(QString::fromStdString(refs_->headName)));
+        row->setToolTip(0, plainToolTip(tr("HEAD is at %1 and not on any branch. Commits made "
+                                           "here are reachable only by their id once you check "
+                                           "something else out — make a branch first if you "
+                                           "mean to keep them.")
+                                            .arg(QString::fromStdString(refs_->headName))));
     }
     addWorkspaceRow(section, QStringLiteral("◧"), tr("Local Changes"), Screen::WorkingCopy,
                     changedFiles_, SidebarTone::Default)

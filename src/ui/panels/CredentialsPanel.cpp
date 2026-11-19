@@ -53,6 +53,7 @@ CredentialsPanel::CredentialsPanel(QWidget* parent) : QWidget(parent) {
     layout->addWidget(repoTitle);
     auto* repoRow = new QHBoxLayout;
     repoAccountLabel_ = new QLabel(this);
+    setPlainText(repoAccountLabel_);
     repoAccount_ = new QComboBox(this);
     repoAccount_->setMinimumContentsLength(24);
     repoAccountApply_ = new QPushButton(tr("Apply"), this);
@@ -62,6 +63,7 @@ CredentialsPanel::CredentialsPanel(QWidget* parent) : QWidget(parent) {
     repoRow->addWidget(repoAccountApply_);
     layout->addLayout(repoRow);
     repoAccountNote_ = new QLabel(this);
+    setPlainText(repoAccountNote_);
     repoAccountNote_->setWordWrap(true);
     applyRole(repoAccountNote_, QStringLiteral("note"));
     layout->addWidget(repoAccountNote_);
@@ -113,6 +115,7 @@ CredentialsPanel::CredentialsPanel(QWidget* parent) : QWidget(parent) {
     layout->addLayout(form);
 
     status_ = new QLabel(this);
+    setPlainText(status_);
     status_->setWordWrap(true);
     applyRole(status_, QStringLiteral("muted"));
     layout->addWidget(status_);
@@ -153,6 +156,8 @@ CredentialsPanel::CredentialsPanel(QWidget* parent) : QWidget(parent) {
     layout->addWidget(stored_, 1);
 
     storedNote_ = new QLabel(this);
+    // What the stores say back.
+    setPlainText(storedNote_);
     storedNote_->setWordWrap(true);
     applyRole(storedNote_, QStringLiteral("note"));
     layout->addWidget(storedNote_);
@@ -188,9 +193,8 @@ CredentialsPanel::CredentialsPanel(QWidget* parent) : QWidget(parent) {
             [this](const QString& secret, const QString& problem) {
                 storedNote_->clear();
                 if (secret.isEmpty()) {
-                    QMessageBox::information(this, tr("Credential"),
-                                             problem.isEmpty() ? tr("Nothing is stored.")
-                                                               : problem);
+                    showPlainMessage(this, QMessageBox::Information, tr("Credential"),
+                                     problem.isEmpty() ? tr("Nothing is stored.") : problem);
                     return;
                 }
                 // Shown in a selectable field, so it can be copied, and gone
@@ -391,7 +395,7 @@ void CredentialsPanel::showStored(const QList<session::StoredCredential>& creden
                              : QStringLiteral("%1/%2").arg(credential.host, credential.path));
         item->setText(2, credential.active ? tr("%1 — in use").arg(credential.username)
                                            : credential.username);
-        item->setToolTip(0, credential.location);
+        item->setToolTip(0, plainToolTip(credential.location));
         item->setData(0, Qt::UserRole, i);
     }
     QString note = credentials.isEmpty()

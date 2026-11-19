@@ -86,13 +86,14 @@ void WelcomePanel::setRecent(const QStringList& paths) {
             QStringLiteral("%1    %2").arg(QDir(path).dirName(), QDir::toNativeSeparators(path)),
             recent_);
         item->setData(Qt::UserRole, path);
-        item->setToolTip(QDir::toNativeSeparators(path));
+        item->setToolTip(plainToolTip(QDir::toNativeSeparators(path)));
         if (!QFileInfo::exists(path)) {
             // Said in words as well as by greying: a dimmed row alone reads
             // as a styling accident.
             item->setText(tr("%1    (not found)").arg(item->text()));
             item->setFlags(item->flags() & ~Qt::ItemIsEnabled);
-            item->setToolTip(tr("%1 — no longer on disk").arg(QDir::toNativeSeparators(path)));
+            item->setToolTip(
+                plainToolTip(tr("%1 — no longer on disk").arg(QDir::toNativeSeparators(path))));
         }
     }
     recentHeading_->setVisible(!paths.isEmpty());

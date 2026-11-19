@@ -53,6 +53,8 @@ CloneDialog::CloneDialog(QWidget* parent) : QDialog(parent) {
     layout->addLayout(form);
 
     status_ = new QLabel(this);
+    // Names the folder, and what is wrong with the URL typed.
+    setPlainText(status_);
     status_->setWordWrap(true);
     layout->addWidget(status_);
 
