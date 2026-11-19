@@ -259,6 +259,24 @@ TEST(Staging, EmptyDiffProducesNoPatch) {
     EXPECT_TRUE(buildPartialPatch(empty, {}, false).empty());
 }
 
+TEST(Staging, ANameGitWouldQuoteIsQuoted) {
+    // Unquoted, the tab would end the name in the header. The name is quoted
+    // whole, prefix included, as git writes it.
+    FileDiff diff = simpleDiff();
+    diff.path = "dir/a\tb\x01.cs";
+    const std::string patch = buildPartialPatch(diff, linesOfHunk(diff, 0), false);
+    EXPECT_NE(patch.find("diff --git \"a/dir/a\\tb\\001.cs\" \"b/dir/a\\tb\\001.cs\"\n"
+                         "--- \"a/dir/a\\tb\\001.cs\"\n+++ \"b/dir/a\\tb\\001.cs\"\n"),
+              std::string::npos)
+        << patch;
+
+    // Spaces and non-ASCII names need nothing.
+    diff.path = "dir/caf\xC3\xA9 menu.cs";
+    EXPECT_NE(buildPartialPatch(diff, linesOfHunk(diff, 0), false)
+                  .find("diff --git a/dir/caf\xC3\xA9 menu.cs b/dir/caf\xC3\xA9 menu.cs\n"),
+              std::string::npos);
+}
+
 TEST(Staging, BothSidesNameTheCurrentPath) {
     // A staged rename already sits at the new path in the index. Naming the
     // old path on one side would turn a partial patch into a rename of its

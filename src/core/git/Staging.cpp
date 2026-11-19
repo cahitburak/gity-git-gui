@@ -109,6 +109,127 @@ void emitLine(std::ostringstream& out, char marker, std::string_view text, bool 
     out << '\n';
 }
 
+constexpr std::string_view kNoNewline = "\\ No newline at end of file\n";
+
+/// A line of a hunk being built: ' ' kept, '-' removed from the target, '+'
+/// added to it.
+struct PatchLine {
+    char marker = ' ';
+    std::string_view text;
+    bool carriageReturn = false;
+    /// The line ends its file without a newline, on the side it came from.
+    bool noNewline = false;
+};
+
+/// Writes a hunk's lines. A "\ No newline at end of file" applies to the line
+/// before it on each side that line is on, so it belongs only after the last
+/// line of a side, and only when that line ended its file without one.
+///
+/// Which line is last can change with the selection. A line kept as context
+/// that ends the target without a newline may have selected additions after
+/// it, and then it ends the target but not the result: it is written removed
+/// without the newline and added back with one, as git itself writes it.
+void emitHunk(std::ostringstream& out, const std::vector<PatchLine>& lines) {
+    constexpr std::size_t kNone = static_cast<std::size_t>(-1);
+    std::size_t lastOld = kNone;
+    std::size_t lastNew = kNone;
+    for (std::size_t i = 0; i < lines.size(); ++i) {
+        if (lines[i].marker != '+') {
+            lastOld = i;
+        }
+        if (lines[i].marker != '-') {
+            lastNew = i;
+        }
+    }
+    const PatchLine* endsResult = nullptr;
+    for (std::size_t i = 0; i < lines.size(); ++i) {
+        const PatchLine& line = lines[i];
+        const bool bareOld = i == lastOld && line.noNewline;
+        const bool bareNew = i == lastNew && line.noNewline;
+        if (line.marker == ' ' && bareOld != bareNew) {
+            emitLine(out, '-', line.text, line.carriageReturn);
+            if (bareOld) {
+                out << kNoNewline;
+                emitLine(out, '+', line.text, line.carriageReturn);
+            } else {
+                // The last line of the result, so written after everything
+                // else; only removals can follow it.
+                endsResult = &line;
+            }
+            continue;
+        }
+        emitLine(out, line.marker, line.text, line.carriageReturn);
+        if (bareOld || bareNew) {
+            out << kNoNewline;
+        }
+    }
+    if (endsResult != nullptr) {
+        emitLine(out, '+', endsResult->text, endsResult->carriageReturn);
+        out << kNoNewline;
+    }
+}
+
+/// `prefix` and `path` as a patch header names them: as they are, or quoted
+/// in C style as git quotes a name holding a control character, a quote or a
+/// backslash. Unquoted, a tab ends the name and a newline ends the line.
+std::string headerName(std::string_view prefix, std::string_view path) {
+    const auto special = [](char c) {
+        const auto byte = static_cast<unsigned char>(c);
+        return byte < 0x20 || byte == 0x7F || c == '"' || c == '\\';
+    };
+    std::string out;
+    if (std::none_of(path.begin(), path.end(), special)) {
+        out.append(prefix).append(path);
+        return out;
+    }
+    out += '"';
+    out.append(prefix);
+    for (const char c : path) {
+        switch (c) {
+        case '"':
+            out += "\\\"";
+            break;
+        case '\\':
+            out += "\\\\";
+            break;
+        case '\a':
+            out += "\\a";
+            break;
+        case '\b':
+            out += "\\b";
+            break;
+        case '\t':
+            out += "\\t";
+            break;
+        case '\n':
+            out += "\\n";
+            break;
+        case '\v':
+            out += "\\v";
+            break;
+        case '\f':
+            out += "\\f";
+            break;
+        case '\r':
+            out += "\\r";
+            break;
+        default:
+            if (special(c)) {
+                const auto byte = static_cast<unsigned char>(c);
+                out += '\\';
+                out += static_cast<char>('0' + ((byte >> 6U) & 7U));
+                out += static_cast<char>('0' + ((byte >> 3U) & 7U));
+                out += static_cast<char>('0' + (byte & 7U));
+            } else {
+                out += c;
+            }
+            break;
+        }
+    }
+    out += '"';
+    return out;
+}
+
 /// The `@@` header for a hunk of `oldCount` and `newCount` lines whose old
 /// side starts at `oldStart`, `offset` lines after the hunks before it moved
 /// things. An empty side names the line *before* where it would be, which is
@@ -153,19 +274,24 @@ std::string buildPartialPatch(const FileDiff& diff, const LineSelection& selecte
     std::ostringstream body;
     std::size_t emittedHunks = 0;
     int offset = 0;
+    int resultLines = 0;
+    std::vector<PatchLine> lines;
 
     for (const auto& hunk : diff.hunks) {
-        std::ostringstream hunkBody;
+        lines.clear();
         int oldCount = 0;
         int newCount = 0;
         bool anySelected = false;
-        bool previousEmitted = false;
 
         for (std::uint32_t i = 0; i < hunk.lineCount; ++i) {
             const std::uint32_t index = hunk.firstLine + i;
             const DiffLine& line = diff.lines[index];
             const std::string_view text = diff.lineText(line);
             const bool isSelected = selected.count(index) != 0;
+            // The marker after a line says that line ends its file without a
+            // newline. Where it is written is emitHunk's decision.
+            const bool noNewline = i + 1 < hunk.lineCount &&
+                                   diff.lines[index + 1].kind == DiffLineKind::NoNewlineMarker;
 
             // What this line is in the patch being built: '-' removed from the
             // target, '+' added to it, ' ' kept, or nothing at all.
@@ -189,19 +315,13 @@ std::string buildPartialPatch(const FileDiff& diff, const LineSelection& selecte
                 }
                 break;
             case DiffLineKind::NoNewlineMarker:
-                // It describes the line before it, so it goes wherever that
-                // line went.
-                if (previousEmitted) {
-                    hunkBody << "\\ No newline at end of file\n";
-                }
-                continue;
+                continue; // carried by the line before it, as noNewline
             }
 
-            previousEmitted = marker != 0;
             if (marker == 0) {
                 continue;
             }
-            emitLine(hunkBody, marker, text, line.carriageReturn);
+            lines.push_back(PatchLine{marker, text, line.carriageReturn, noNewline});
             if (marker != '+') {
                 ++oldCount;
             }
@@ -218,8 +338,10 @@ std::string buildPartialPatch(const FileDiff& diff, const LineSelection& selecte
         }
 
         const int oldStart = reverse ? hunk.newStart : hunk.oldStart;
-        body << hunkHeader(oldStart, oldCount, newCount, offset) << hunkBody.str();
+        body << hunkHeader(oldStart, oldCount, newCount, offset);
+        emitHunk(body, lines);
         offset += newCount - oldCount;
+        resultLines += newCount;
         ++emittedHunks;
     }
 
@@ -234,18 +356,27 @@ std::string buildPartialPatch(const FileDiff& diff, const LineSelection& selecte
     const std::uint32_t targetMode = reverse ? diff.newMode : diff.oldMode;
     const std::uint32_t resultMode = reverse ? diff.oldMode : diff.newMode;
     const bool creates = targetMode == 0 && resultMode != 0;
+    // And the other way round: every line of a deleted file staged, or every
+    // line of an added one unstaged, removes the file. Without saying so the
+    // patch only empties it, and git keeps an empty file in the index.
+    const bool deletes =
+        targetMode != 0 && resultMode == 0 && emittedHunks == diff.hunks.size() && resultLines == 0;
 
     // Both sides are named by the file's current path. For a staged rename the
     // index already holds it there; naming the old path on one side would make
     // the patch a rename of its own.
+    const std::string oldName = headerName("a/", diff.path);
+    const std::string newName = headerName("b/", diff.path);
     std::ostringstream patch;
-    patch << "diff --git a/" << diff.path << " b/" << diff.path << '\n';
+    patch << "diff --git " << oldName << ' ' << newName << '\n';
     if (creates) {
         patch << "new file mode " << octal(resultMode) << '\n' << "--- /dev/null\n";
+    } else if (deletes) {
+        patch << "deleted file mode " << octal(targetMode) << '\n' << "--- " << oldName << '\n';
     } else {
-        patch << "--- a/" << diff.path << '\n';
+        patch << "--- " << oldName << '\n';
     }
-    patch << "+++ b/" << diff.path << '\n' << body.str();
+    patch << "+++ " << (deletes ? std::string("/dev/null") : newName) << '\n' << body.str();
     return patch.str();
 }
 

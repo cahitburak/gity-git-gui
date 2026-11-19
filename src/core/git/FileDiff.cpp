@@ -14,6 +14,9 @@ DiffLineKind kindOf(char origin) noexcept {
         return DiffLineKind::Addition;
     case GIT_DIFF_LINE_DELETION:
         return DiffLineKind::Deletion;
+    // After a context line too: both sides end without a newline, and the
+    // last line is the same in each.
+    case GIT_DIFF_LINE_CONTEXT_EOFNL:
     case GIT_DIFF_LINE_ADD_EOFNL:
     case GIT_DIFF_LINE_DEL_EOFNL:
         return DiffLineKind::NoNewlineMarker;

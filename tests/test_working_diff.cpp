@@ -14,6 +14,7 @@
 #include <cstdio>
 #include <filesystem>
 #include <git2.h>
+#include <optional>
 
 namespace {
 
@@ -373,3 +374,195 @@ TEST(Compare, TwoBranchesDifferByTheirTipsAndTheirOwnCommits) {
     EXPECT_EQ(diff.deletions(), 1u);
     EXPECT_EQ(diff.additions(), 0u);
 }
+
+// Partial patches built from real diffs and applied to the index, the way
+// `git apply --cached` applies them. The hand-built cases in test_staging.cpp
+// pin the text; these pin that the text is a patch git accepts, and that it
+// does what was selected — most of all at the end of a file without a
+// newline, where the "\ No newline at end of file" lines decide the result.
+
+namespace {
+
+constexpr const char* kAbsent = "<absent>";
+
+/// What the index holds for `path` after `patch` is applied to it: nullopt
+/// when the patch does not apply, kAbsent when it took the file out.
+std::optional<std::string> indexAfterApplying(git_repository* repo, const std::string& patch,
+                                              const std::string& path) {
+    git_diff* diff = nullptr;
+    if (git_diff_from_buffer(&diff, patch.data(), patch.size()) != 0) {
+        return std::nullopt;
+    }
+    const int rc = git_apply(repo, diff, GIT_APPLY_LOCATION_INDEX, nullptr);
+    git_diff_free(diff);
+    if (rc != 0) {
+        return std::nullopt;
+    }
+    git_index* index = nullptr;
+    EXPECT_EQ(git_repository_index(&index, repo), 0);
+    EXPECT_EQ(git_index_read(index, 0), 0);
+    std::string contents = kAbsent;
+    if (const git_index_entry* entry = git_index_get_bypath(index, path.c_str(), 0);
+        entry != nullptr) {
+        git_blob* blob = nullptr;
+        EXPECT_EQ(git_blob_lookup(&blob, repo, &entry->id), 0);
+        const auto size = static_cast<std::size_t>(git_blob_rawsize(blob));
+        contents.assign(static_cast<const char*>(git_blob_rawcontent(blob)), size);
+        git_blob_free(blob);
+    }
+    git_index_free(index);
+    return contents;
+}
+
+/// Stages `path` as it is on disk.
+void stage(git_repository* repo, const char* path) {
+    git_index* index = nullptr;
+    ASSERT_EQ(git_repository_index(&index, repo), 0);
+    ASSERT_EQ(git_index_add_bypath(index, path), 0);
+    ASSERT_EQ(git_index_write(index), 0);
+    git_index_free(index);
+}
+
+/// The index of the first line of `kind`.
+std::uint32_t firstOf(const gity::git::FileDiff& diff, gity::git::DiffLineKind kind) {
+    for (std::uint32_t i = 0; i < diff.lines.size(); ++i) {
+        if (diff.lines[i].kind == kind) {
+            return i;
+        }
+    }
+    ADD_FAILURE() << "no line of that kind";
+    return 0;
+}
+
+constexpr const char* kFile = "Assets/Player.cs";
+
+} // namespace
+
+TEST(PartialPatch, AHunkEndingInContextWithoutANewlineStages) {
+    // Both versions end without a newline and the last line is context, so
+    // the marker follows a context line. It was read as a context line of its
+    // own, and the patch then expected a line the file does not have.
+    Repo repo;
+    repo.write(kFile, "1\n2\n3\n4\n5");
+    repo.commitAll();
+    repo.write(kFile, "1\n2\nX\n4\n5");
+
+    const auto diff =
+        gity::git::loadWorkingDiff(repo.get(), kFile, gity::git::DiffSide::Unstaged, {});
+    ASSERT_EQ(diff.hunks.size(), 1u);
+    EXPECT_EQ(diff.lines.back().kind, gity::git::DiffLineKind::NoNewlineMarker);
+    const std::string patch =
+        gity::git::buildPartialPatch(diff, gity::git::linesOfHunk(diff, 0), false);
+    EXPECT_EQ(indexAfterApplying(repo.get(), patch, kFile), "1\n2\nX\n4\n5") << patch;
+}
+
+TEST(PartialPatch, StagingOnlyANewLastLineKeepsTheOldOneAndGivesItANewline) {
+    // The unselected deletion of "last" stays as context, followed by the
+    // added line: "last" is no longer the end of the file, so it cannot keep
+    // its "no newline" marker where it was.
+    Repo repo;
+    repo.write(kFile, "1\n2\nlast");
+    repo.commitAll();
+    repo.write(kFile, "1\n2\nnew last");
+
+    const auto diff =
+        gity::git::loadWorkingDiff(repo.get(), kFile, gity::git::DiffSide::Unstaged, {});
+    const std::string patch = gity::git::buildPartialPatch(
+        diff, {firstOf(diff, gity::git::DiffLineKind::Addition)}, false);
+    EXPECT_EQ(indexAfterApplying(repo.get(), patch, kFile), "1\n2\nlast\nnew last") << patch;
+}
+
+TEST(PartialPatch, StagingOnlyTheRemovalOfALastLineLeavesANewlineBefore) {
+    Repo repo;
+    repo.write(kFile, "1\n2\nlast");
+    repo.commitAll();
+    repo.write(kFile, "1\n2\nnew last");
+
+    const auto diff =
+        gity::git::loadWorkingDiff(repo.get(), kFile, gity::git::DiffSide::Unstaged, {});
+    const std::string patch = gity::git::buildPartialPatch(
+        diff, {firstOf(diff, gity::git::DiffLineKind::Deletion)}, false);
+    EXPECT_EQ(indexAfterApplying(repo.get(), patch, kFile), "1\n2\n") << patch;
+}
+
+TEST(PartialPatch, UnstagingPartOfAChangedLastLine) {
+    // The reverse direction: the patch applies to the index and puts back
+    // only what was selected.
+    for (const auto kind : {gity::git::DiffLineKind::Deletion, gity::git::DiffLineKind::Addition}) {
+        Repo repo;
+        repo.write(kFile, "1\n2\nlast");
+        repo.commitAll();
+        repo.write(kFile, "1\n2\nnew last");
+        stage(repo.get(), kFile);
+
+        const auto diff =
+            gity::git::loadWorkingDiff(repo.get(), kFile, gity::git::DiffSide::Staged, {});
+        const std::string patch = gity::git::buildPartialPatch(diff, {firstOf(diff, kind)}, true);
+        // Unstaging the removal of "last" brings it back before the new line;
+        // unstaging the new line leaves the removal staged.
+        const char* expected =
+            kind == gity::git::DiffLineKind::Deletion ? "1\n2\nlast\nnew last" : "1\n2\n";
+        EXPECT_EQ(indexAfterApplying(repo.get(), patch, kFile), expected) << patch;
+    }
+}
+
+TEST(PartialPatch, StagingEveryLineOfADeletedFileStagesTheDeletion) {
+    // Without "deleted file mode" and "+++ /dev/null" git empties the file
+    // in the index rather than removing it.
+    Repo repo;
+    repo.write(kFile, "a\nb\n");
+    repo.write("Assets/Other.cs", "other\n");
+    repo.commitAll();
+    fs::remove(fs::path(git_repository_workdir(repo.get())) / kFile);
+
+    const auto diff =
+        gity::git::loadWorkingDiff(repo.get(), kFile, gity::git::DiffSide::Unstaged, {});
+    const std::string all =
+        gity::git::buildPartialPatch(diff, gity::git::linesOfHunk(diff, 0), false);
+    EXPECT_NE(all.find("deleted file mode 100644\n--- a/Assets/Player.cs\n+++ /dev/null\n"),
+              std::string::npos)
+        << all;
+
+    // Some of the lines are only an edit.
+    const std::string some = gity::git::buildPartialPatch(diff, {0}, false);
+    EXPECT_EQ(some.find("deleted file mode"), std::string::npos) << some;
+    EXPECT_EQ(indexAfterApplying(repo.get(), all, kFile), kAbsent) << all;
+}
+
+TEST(PartialPatch, UnstagingEveryLineOfAnAddedFileTakesItOutOfTheIndex) {
+    Repo repo;
+    repo.write("Assets/Other.cs", "other\n");
+    repo.commitAll();
+    repo.write(kFile, "a\nb\n");
+    stage(repo.get(), kFile);
+
+    const auto diff =
+        gity::git::loadWorkingDiff(repo.get(), kFile, gity::git::DiffSide::Staged, {});
+    const std::string patch =
+        gity::git::buildPartialPatch(diff, gity::git::linesOfHunk(diff, 0), true);
+    EXPECT_EQ(indexAfterApplying(repo.get(), patch, kFile), kAbsent) << patch;
+}
+
+#ifndef _WIN32
+TEST(PartialPatch, APathGitHasToQuoteStages) {
+    // A tab ends an unquoted name in a patch header, and a newline ends the
+    // line. git quotes such names in C style, and reads them back the same.
+    // Not on Windows, which allows neither character in a file name.
+    Repo repo;
+    const std::string path = "Assets/tab\there \"quoted\" back\\slash.cs";
+    repo.write(path, "one\n");
+    repo.commitAll();
+    repo.write(path, "one\ntwo\n");
+
+    const auto diff =
+        gity::git::loadWorkingDiff(repo.get(), path, gity::git::DiffSide::Unstaged, {});
+    ASSERT_EQ(diff.hunks.size(), 1u);
+    const std::string patch =
+        gity::git::buildPartialPatch(diff, gity::git::linesOfHunk(diff, 0), false);
+    EXPECT_NE(patch.find("diff --git \"a/Assets/tab\\there \\\"quoted\\\" back\\\\slash.cs\" "
+                         "\"b/Assets/tab\\there \\\"quoted\\\" back\\\\slash.cs\"\n"),
+              std::string::npos)
+        << patch;
+    EXPECT_EQ(indexAfterApplying(repo.get(), patch, path), "one\ntwo\n") << patch;
+}
+#endif

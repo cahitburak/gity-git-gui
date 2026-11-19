@@ -55,7 +55,10 @@ using LineSelection = std::unordered_set<std::uint32_t>;
 /// dropped. Hunk headers are recomputed from what survives, and a hunk with
 /// nothing selected is omitted entirely — the same transformation `git add -p`
 /// performs. Lines keep their CR LF endings, and a patch against a side that
-/// does not exist yet says it creates the file.
+/// does not exist yet says it creates the file — or, when every line of a file
+/// whose result side does not exist is selected, that it deletes it. A
+/// "\ No newline at end of file" goes after whichever line ends each side once
+/// the selection is made, and a path git would quote is quoted.
 [[nodiscard]] std::string buildPartialPatch(const FileDiff& diff, const LineSelection& selected,
                                             bool reverse);
 
