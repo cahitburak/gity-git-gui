@@ -12,8 +12,11 @@
 #include <QShortcut>
 #include <QSplitter>
 #include <QStackedWidget>
+#include <QTextDocument>
 #include <QToolButton>
 #include <QVBoxLayout>
+
+#include <algorithm>
 
 namespace gity::ui {
 namespace {
@@ -133,10 +136,17 @@ ConflictEditor::ConflictEditor(QWidget* parent) : QWidget(parent) {
 
     connect(previous_, &QPushButton::clicked, this, [this] { goToConflict(-1); });
     connect(next_, &QPushButton::clicked, this, [this] { goToConflict(1); });
-    connect(allOurs_, &QPushButton::clicked, this,
-            [this] { document_->pickAllConflicts(Pick::Ours); });
-    connect(allTheirs_, &QPushButton::clicked, this,
-            [this] { document_->pickAllConflicts(Pick::Theirs); });
+    // An edit still open is finished before anything else moves the rows
+    // under it — or, finished later by a click elsewhere, it would land on
+    // top of the change.
+    connect(allOurs_, &QPushButton::clicked, this, [this] {
+        result_.pane->finishEditing();
+        document_->pickAllConflicts(Pick::Ours);
+    });
+    connect(allTheirs_, &QPushButton::clicked, this, [this] {
+        result_.pane->finishEditing();
+        document_->pickAllConflicts(Pick::Theirs);
+    });
     connect(reset_, &QPushButton::clicked, this, [this] {
         result_.pane->finishEditing();
         document_->reset();
@@ -161,6 +171,8 @@ ConflictEditor::ConflictEditor(QWidget* parent) : QWidget(parent) {
     shortcut(QKeySequence(Qt::ALT | Qt::Key_Down), [this] { goToConflict(1); });
     shortcut(QKeySequence(Qt::ALT | Qt::Key_Up), [this] { goToConflict(-1); });
     shortcut(QKeySequence::Save, [this] {
+        // What is being typed counts: finished first, it is what is saved.
+        result_.pane->finishEditing();
         if (save_->isEnabled() && pages_->currentWidget() == columnsPage_) {
             save(false);
         }
@@ -179,19 +191,29 @@ ConflictEditor::ConflictEditor(QWidget* parent) : QWidget(parent) {
     pages_->addWidget(columnsPage_);
 
     // One scroll position for every column: their rows are laid out level.
+    // Each column scrolls as far as the furthest does — a column with a scroll
+    // bar under it, or the result below the others, is shorter — and passes
+    // its position on once, so a column clamped short could not pull the
+    // others back to it.
     for (MergePane* pane : {ours_.pane, result_.pane, theirs_.pane}) {
-        for (MergePane* other : {ours_.pane, result_.pane, theirs_.pane}) {
-            if (other != pane) {
-                connect(pane->verticalScrollBar(), &QScrollBar::valueChanged,
-                        other->verticalScrollBar(), &QScrollBar::setValue);
+        connect(pane->verticalScrollBar(), &QScrollBar::valueChanged, this, [this](int value) {
+            if (syncingScroll_) {
+                return;
             }
-        }
+            syncingScroll_ = true;
+            for (MergePane* other : {ours_.pane, result_.pane, theirs_.pane}) {
+                other->verticalScrollBar()->setValue(value);
+            }
+            syncingScroll_ = false;
+        });
+        connect(pane, &MergePane::reachChanged, this, &ConflictEditor::shareReach);
         connect(pane, &MergePane::regionActivated, this,
                 [this](std::size_t region) { setCurrent(region); });
         connect(pane, &MergePane::editRequested, this,
                 [this](std::size_t region) { result_.pane->editRegion(region); });
     }
     connect(document_, &ConflictDocument::changed, this, [this] { updateState(); });
+    connect(result_.pane, &MergePane::editChanged, this, [this] { updateState(); });
 
     wholePage_ = new QWidget(pages_);
     auto* whole = new QVBoxLayout(wholePage_);
@@ -425,7 +447,7 @@ QString ConflictEditor::path() const {
 }
 
 bool ConflictEditor::dirty() const {
-    return document_->file() && document_->dirty();
+    return document_->file() && (document_->dirty() || result_.pane->editPending());
 }
 
 std::optional<git::MergeResolution> ConflictEditor::resolution() const {
@@ -472,7 +494,9 @@ void ConflictEditor::updateTitles() {
     }
     const auto titled = [](QLabel* label, const QString& role, const QString& commit) {
         label->setText(commit.isEmpty() ? role : QStringLiteral("%1   ·   %2").arg(role, commit));
-        label->setToolTip(label->text());
+        // Escaped into rich text: given as it is, a commit summary that
+        // looks like markup would be rendered as markup.
+        label->setToolTip(Qt::convertFromPlainText(label->text()));
     };
     titled(ours_.title, oursRole, commitLine(file->head));
     titled(theirs_.title, theirsRole, commitLine(file->incoming));
@@ -493,7 +517,8 @@ void ConflictEditor::updateState() {
     } else {
         text = tr("%1 of %n conflict(s) left", nullptr, static_cast<int>(total)).arg(open);
     }
-    if (document_->dirty()) {
+    const bool unsaved = dirty();
+    if (unsaved) {
         text += tr("  ·  not saved");
     }
     status_->setText(text);
@@ -501,8 +526,8 @@ void ConflictEditor::updateState() {
     next_->setEnabled(total > 0);
     allOurs_->setEnabled(total > 0);
     allTheirs_->setEnabled(total > 0);
-    reset_->setEnabled(document_->dirty() || open < total);
-    save_->setEnabled(document_->dirty());
+    reset_->setEnabled(unsaved || open < total);
+    save_->setEnabled(unsaved);
     resolve_->setEnabled(open == 0);
     resolve_->setToolTip(open == 0 ? tr("Write the result and stage it, which tells git the "
                                         "conflict is resolved.\n\ngit add -- <file>")
@@ -517,11 +542,29 @@ void ConflictEditor::setCurrent(std::optional<std::size_t> region) {
     }
 }
 
+void ConflictEditor::shareReach() {
+    if (sharingReach_) {
+        return;
+    }
+    sharingReach_ = true;
+    int reach = 0;
+    for (const MergePane* pane : {ours_.pane, result_.pane, theirs_.pane}) {
+        reach = std::max(reach, pane->verticalReach());
+    }
+    for (MergePane* pane : {ours_.pane, result_.pane, theirs_.pane}) {
+        pane->setSharedReach(reach);
+    }
+    sharingReach_ = false;
+}
+
 void ConflictEditor::goToConflict(int step) {
     const auto& conflicts = document_->conflicts();
     if (conflicts.empty()) {
         return;
     }
+    // Scrolled away from, an edit still open would stay where it was typed
+    // and the conflict it is of out of sight.
+    result_.pane->finishEditing();
     std::optional<std::size_t> target;
     const std::size_t from = current_.value_or(step > 0 ? conflicts.back() : conflicts.front());
     if (step > 0) {

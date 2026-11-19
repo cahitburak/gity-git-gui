@@ -47,7 +47,7 @@ MergePane::MergePane(ConflictDocument* document, ConflictDocument::Column column
     connect(document_, &ConflictDocument::changed, this, [this] {
         // Ours and theirs change only with the file; the result with every
         // choice made.
-        if (column_ == Column::Result || document_->file().get() != spansFile_) {
+        if (column_ == Column::Result || document_->file() != spansFile_.lock()) {
             spansReady_ = false;
         }
         longestLine_ = 0;
@@ -79,7 +79,7 @@ void MergePane::highlight() {
     }
     spansReady_ = true;
     spansKey_ = key;
-    spansFile_ = document_->file().get();
+    spansFile_ = document_->file();
     spans_.reset();
     if (key.isEmpty() || !document_->file()) {
         return;
@@ -116,12 +116,28 @@ void MergePane::changeEvent(QEvent* event) {
     QAbstractScrollArea::changeEvent(event);
 }
 
+int MergePane::verticalReach() const {
+    // A little room under the last line, so the end of the file does not sit
+    // flush against the bottom edge.
+    return std::max(0, (document_->rowCount() + 2) * rowHeight() - viewport()->height());
+}
+
+void MergePane::setSharedReach(int reach) {
+    if (reach == sharedReach_) {
+        return;
+    }
+    sharedReach_ = reach;
+    updateScrollBars();
+}
+
 void MergePane::updateScrollBars() {
     const int h = rowHeight();
     const int page = viewport()->height();
-    // A little room under the last line, so the end of the file does not sit
-    // flush against the bottom edge.
-    verticalScrollBar()->setRange(0, std::max(0, (document_->rowCount() + 2) * h - page));
+    // As far as its own height needs, or as the furthest pane beside it does:
+    // a pane with a scroll bar under it, or the result below the others, is
+    // shorter, and must not stop short of where the others scroll to.
+    const int reach = verticalReach();
+    verticalScrollBar()->setRange(0, std::max(reach, sharedReach_));
     verticalScrollBar()->setPageStep(page);
     verticalScrollBar()->setSingleStep(h);
     const int textRoom = viewport()->width() - gutterWidth();
@@ -129,6 +145,7 @@ void MergePane::updateScrollBars() {
     horizontalScrollBar()->setPageStep(std::max(1, textRoom));
     horizontalScrollBar()->setSingleStep(charWidth() * 4);
     placeEditor();
+    emit reachChanged();
 }
 
 void MergePane::resizeEvent(QResizeEvent* event) {
@@ -272,7 +289,6 @@ void MergePane::paintEvent(QPaintEvent* event) {
     const Theme& theme = Theme::current();
     QPainter painter(viewport());
     painter.fillRect(event->rect(), theme.background);
-    chips_.clear();
     if (document_->rowCount() == 0) {
         return;
     }
@@ -353,23 +369,22 @@ void MergePane::paintEvent(QPaintEvent* event) {
     painter.drawLine(gutter - 1, 0, gutter - 1, viewport()->height());
 }
 
-void MergePane::paintHeader(QPainter& painter, std::size_t index, int y) {
-    const Theme& theme = Theme::current();
-    const int h = rowHeight();
+MergePane::Header MergePane::header(std::size_t index, int y) const {
     const int gutter = gutterWidth();
     const QFontMetrics fm(font());
-    painter.setFont(font());
+    Header made;
 
     // Which conflict, and in the result, what it holds now.
-    QString label = tr("Conflict %1 of %2")
-                        .arg(document_->conflictNumber(index))
-                        .arg(document_->conflicts().size());
-    QColor tone = theme.textMuted;
+    QString& label = made.label;
+    label = tr("Conflict %1 of %2")
+                .arg(document_->conflictNumber(index))
+                .arg(document_->conflicts().size());
+    made.tone = Theme::current().textMuted;
     if (column_ == Column::Result) {
         switch (document_->pick(index)) {
         case Pick::Unresolved:
             label += tr(" · unresolved");
-            tone = tokens::semanticWarn;
+            made.tone = tokens::semanticWarn;
             break;
         case Pick::Ours:
             label += tr(" · ours");
@@ -400,12 +415,23 @@ void MergePane::paintHeader(QPainter& painter, std::size_t index, int y) {
     if (gutter + 8 + fm.horizontalAdvance(label) + 12 + buttons > viewport()->width() - 8) {
         label = QStringLiteral("#%1").arg(document_->conflictNumber(index));
     }
-    painter.setPen(tone);
-    const int labelWidth = fm.horizontalAdvance(label);
-    painter.drawText(QRect(gutter + 8, y, labelWidth + 4, h), Qt::AlignLeft | Qt::AlignVCenter,
-                     label);
+    made.chips = chipsFor(index, y, gutter + 8 + fm.horizontalAdvance(label) + 12);
+    return made;
+}
 
-    for (const Chip& chip : chipsFor(index, y, gutter + 8 + labelWidth + 12)) {
+void MergePane::paintHeader(QPainter& painter, std::size_t index, int y) {
+    const Theme& theme = Theme::current();
+    const int h = rowHeight();
+    const int gutter = gutterWidth();
+    const QFontMetrics fm(font());
+    painter.setFont(font());
+
+    const Header shown = header(index, y);
+    painter.setPen(shown.tone);
+    painter.drawText(QRect(gutter + 8, y, fm.horizontalAdvance(shown.label) + 4, h),
+                     Qt::AlignLeft | Qt::AlignVCenter, shown.label);
+
+    for (const Chip& chip : shown.chips) {
         const bool ours = chip.pick == Pick::Ours;
         const bool theirs = chip.pick == Pick::Theirs;
         const QColor fill = chip.taken ? (ours     ? tokens::fillInfoChip
@@ -423,17 +449,27 @@ void MergePane::paintHeader(QPainter& painter, std::size_t index, int y) {
         painter.setBrush(Qt::NoBrush);
         painter.setPen(ours ? tokens::semanticInfo : theirs ? tokens::semanticMeta : theme.text);
         painter.drawText(chip.rect, Qt::AlignCenter, chip.label);
-        chips_.push_back(chip);
     }
 }
 
-const MergePane::Chip* MergePane::chipAt(const QPoint& point) const {
-    for (const Chip& chip : chips_) {
+std::optional<MergePane::Chip> MergePane::chipAt(const QPoint& point) const {
+    const int h = rowHeight();
+    const int scroll = verticalScrollBar()->value();
+    const int row = (point.y() + scroll) / h;
+    if (point.y() < 0 || row >= document_->rowCount()) {
+        return std::nullopt;
+    }
+    // Only a conflict's first row, its header, carries chips.
+    const ConflictDocument::Place place = document_->placeAt(row);
+    if (place.offset != 0 || document_->headerRows(place.region) == 0) {
+        return std::nullopt;
+    }
+    for (const Chip& chip : header(place.region, row * h - scroll).chips) {
         if (chip.rect.contains(point)) {
-            return &chip;
+            return chip;
         }
     }
-    return nullptr;
+    return std::nullopt;
 }
 
 void MergePane::mousePressEvent(QMouseEvent* event) {
@@ -442,8 +478,8 @@ void MergePane::mousePressEvent(QMouseEvent* event) {
         return;
     }
     const QPoint point = event->position().toPoint();
-    if (const Chip* chip = chipAt(point); chip != nullptr) {
-        const Chip chosen = *chip; // the document repaints, and chips_ with it
+    if (const auto chip = chipAt(point); chip) {
+        const Chip chosen = *chip;
         emit regionActivated(chosen.region);
         if (chosen.action == Action::Edit) {
             if (column_ == Column::Result) {
@@ -464,14 +500,14 @@ void MergePane::mousePressEvent(QMouseEvent* event) {
 }
 
 void MergePane::mouseMoveEvent(QMouseEvent* event) {
-    viewport()->setCursor(chipAt(event->position().toPoint()) != nullptr ? Qt::PointingHandCursor
-                                                                         : Qt::ArrowCursor);
+    viewport()->setCursor(chipAt(event->position().toPoint()) ? Qt::PointingHandCursor
+                                                              : Qt::ArrowCursor);
     QAbstractScrollArea::mouseMoveEvent(event);
 }
 
 void MergePane::mouseDoubleClickEvent(QMouseEvent* event) {
     const QPoint point = event->position().toPoint();
-    if (column_ != Column::Result || chipAt(point) != nullptr) {
+    if (column_ != Column::Result || chipAt(point)) {
         return;
     }
     if (const auto region = regionAt(point.y()); region) {
@@ -486,18 +522,28 @@ void MergePane::contextMenuEvent(QContextMenuEvent* event) {
         return;
     }
     const std::size_t index = *region;
-    const git::MergeRegion& found = document_->region(index);
+    const Kind kind = document_->region(index).kind;
     emit regionActivated(index);
+    // The menu runs its own event loop: by the time a choice is made another
+    // file may be shown, or this one read again after Start Over. A choice
+    // acts only on the file it was offered for.
+    const session::ConflictPtr file = document_->file();
+    const auto stillShown = [this, file, index] {
+        return document_->file() == file && index < document_->regionCount();
+    };
     QMenu menu(this);
     const auto add = [&](const QString& text, Pick pick) {
         QAction* action = menu.addAction(text);
         action->setCheckable(true);
         action->setChecked(document_->pick(index) == pick);
-        connect(action, &QAction::triggered, this,
-                [this, index, pick] { document_->setPick(index, pick); });
+        connect(action, &QAction::triggered, this, [this, index, pick, stillShown] {
+            if (stillShown()) {
+                document_->setPick(index, pick);
+            }
+        });
         return action;
     };
-    if (found.kind != Kind::Same) {
+    if (kind != Kind::Same) {
         add(tr("Take Ours"), Pick::Ours);
         add(tr("Take Theirs"), Pick::Theirs);
         add(tr("Take Both, Ours First"), Pick::OursThenTheirs);
@@ -506,18 +552,24 @@ void MergePane::contextMenuEvent(QContextMenuEvent* event) {
         menu.addSeparator();
     }
     QAction* edit = menu.addAction(tr("Edit Result…"));
-    connect(edit, &QAction::triggered, this, [this, index] {
+    connect(edit, &QAction::triggered, this, [this, index, stillShown] {
+        if (!stillShown()) {
+            return;
+        }
         if (column_ == Column::Result) {
             editRegion(index);
         } else {
             emit editRequested(index);
         }
     });
-    if (found.kind == Kind::Conflict) {
+    if (kind == Kind::Conflict) {
         QAction* unresolve = menu.addAction(tr("Mark Unresolved"));
         unresolve->setEnabled(document_->pick(index) != Pick::Unresolved);
-        connect(unresolve, &QAction::triggered, this,
-                [this, index] { document_->setPick(index, Pick::Unresolved); });
+        connect(unresolve, &QAction::triggered, this, [this, index, stillShown] {
+            if (stillShown()) {
+                document_->setPick(index, Pick::Unresolved);
+            }
+        });
     }
     menu.exec(event->globalPos());
 }
@@ -549,6 +601,7 @@ void MergePane::editRegion(std::size_t region) {
     editor->setPlainText(editStart_);
     editor->setToolTip(tr("Ctrl+Enter or click away to keep, Esc to cancel"));
     editor->installEventFilter(this);
+    connect(editor, &QPlainTextEdit::textChanged, this, &MergePane::editChanged);
     editor_ = editor;
     // Where it stands, before it is shown, so it never flashes elsewhere.
     const int top = document_->regionRow(region) * rowHeight();
@@ -577,6 +630,10 @@ void MergePane::finishEditing() {
     stopEditing(true);
 }
 
+bool MergePane::editPending() const {
+    return editor_ && editor_->toPlainText() != editStart_;
+}
+
 void MergePane::stopEditing(bool keep) {
     if (!editor_) {
         return;
@@ -584,6 +641,11 @@ void MergePane::stopEditing(bool keep) {
     QPlainTextEdit* editor = editor_;
     editor_ = nullptr; // first: the focus-out below comes back here
     const QString text = editor->toPlainText();
+    // Where the keyboard was: closed from inside — Esc, Ctrl+Enter, a
+    // shortcut — the pane keeps it; closed by a click on another widget,
+    // that widget has it and keeps it.
+    const bool hadFocus = editor->hasFocus();
+    editor->disconnect(this);
     editor->removeEventFilter(this);
     editor->hide();
     editor->deleteLater();
@@ -592,7 +654,10 @@ void MergePane::stopEditing(bool keep) {
     if (keep && text != editStart_) {
         document_->setEdited(editing_, text);
     }
-    viewport()->setFocus();
+    if (hadFocus) {
+        viewport()->setFocus();
+    }
+    emit editChanged();
 }
 
 bool MergePane::eventFilter(QObject* watched, QEvent* event) {
@@ -609,7 +674,12 @@ bool MergePane::eventFilter(QObject* watched, QEvent* event) {
                 return true;
             }
         } else if (event->type() == QEvent::FocusOut) {
-            stopEditing(true);
+            // Not for the editor's own context menu, nor for another window
+            // brought forward: the edit is still under way when they go.
+            const Qt::FocusReason reason = static_cast<QFocusEvent*>(event)->reason();
+            if (reason != Qt::PopupFocusReason && reason != Qt::ActiveWindowFocusReason) {
+                stopEditing(true);
+            }
         }
     }
     return QAbstractScrollArea::eventFilter(watched, event);

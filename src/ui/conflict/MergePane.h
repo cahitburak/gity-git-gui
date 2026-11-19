@@ -37,14 +37,27 @@ public:
     void editRegion(std::size_t region);
     /// Ends an edit in progress, keeping what was typed.
     void finishEditing();
+    /// An edit is open and its text is not what it opened with: finishing it
+    /// would change the result.
+    [[nodiscard]] bool editPending() const;
 
     [[nodiscard]] int rowHeight() const;
+    /// How far down this pane scrolls, for its own height, to show its last
+    /// row with a little room under it.
+    [[nodiscard]] int verticalReach() const;
+    /// Lets it scroll at least as far as `reach`: the panes beside it scroll
+    /// with it, and one that stopped short would hold the others back.
+    void setSharedReach(int reach);
 
 signals:
     /// A region was clicked: it becomes the current one.
     void regionActivated(std::size_t region);
     /// "Edit Result…" chosen where there is no result column to edit in.
     void editRequested(std::size_t region);
+    /// The text of an open edit changed.
+    void editChanged();
+    /// verticalReach() may have changed.
+    void reachChanged();
 
 protected:
     void changeEvent(QEvent* event) override;
@@ -69,6 +82,13 @@ private:
         bool taken = false;
     };
 
+    /// A conflict's first row as painted: which one it is, and its buttons.
+    struct Header {
+        QString label;
+        QColor tone;
+        std::vector<Chip> chips;
+    };
+
     void updateScrollBars();
     void placeEditor();
     void stopEditing(bool keep);
@@ -76,10 +96,13 @@ private:
     [[nodiscard]] int gutterWidth() const;
     [[nodiscard]] int charWidth() const;
     [[nodiscard]] std::optional<std::size_t> regionAt(int viewportY) const;
-    [[nodiscard]] const Chip* chipAt(const QPoint& point) const;
+    /// Worked out from the rows where the point is, not from what the last
+    /// paint drew: a paint of part of the view draws only some of them.
+    [[nodiscard]] std::optional<Chip> chipAt(const QPoint& point) const;
     /// The chips a region's first row carries in this column.
     [[nodiscard]] std::vector<Chip> chipsFor(std::size_t region, int y, int left) const;
-    /// A conflict's first row: which one it is, and its buttons.
+    /// The header of `region` on the row at `y`, laid out to the pane's width.
+    [[nodiscard]] Header header(std::size_t region, int y) const;
     void paintHeader(QPainter& painter, std::size_t region, int y);
     [[nodiscard]] QColor bandFor(std::size_t region) const;
     [[nodiscard]] bool dimmed(std::size_t region) const;
@@ -89,14 +112,16 @@ private:
     void highlight();
     FileSpansPtr spans_;
     QString spansKey_;
-    const void* spansFile_ = nullptr;
+    /// Which file they are of. Weak, not a raw address: a file freed and
+    /// another made where it was would pass for it.
+    session::ConflictPtr::weak_type spansFile_;
     bool spansReady_ = false;
 
     ConflictDocument* document_;
     ConflictDocument::Column column_;
     std::optional<std::size_t> current_;
-    std::vector<Chip> chips_;
     int longestLine_ = 0;
+    int sharedReach_ = 0;
 
     QPointer<QPlainTextEdit> editor_;
     std::size_t editing_ = 0;

@@ -78,6 +78,8 @@ private:
     void updateState();
     void goToConflict(int step);
     void setCurrent(std::optional<std::size_t> region);
+    /// Gives every column the scroll range of the one that scrolls furthest.
+    void shareReach();
     void save(bool markResolved);
     void showWholeFile(const session::ConflictPtr& file);
     [[nodiscard]] QString oursMarker() const;
@@ -87,6 +89,10 @@ private:
     git::Operation operation_ = git::Operation::None;
     Layout layout_ = Layout::ThreeColumns;
     std::optional<std::size_t> current_;
+    /// Set while one column's scroll position, or range, is passed to the
+    /// others, so their answers do not come back to it.
+    bool syncingScroll_ = false;
+    bool sharingReach_ = false;
 
     QLabel* path_ = nullptr;
     QLabel* status_ = nullptr;
