@@ -826,7 +826,13 @@ void WorkingCopyPanel::rebuild() {
     // unstage, discard and lock refreshes, and landing back on the first file
     // each time made working down a long list mean scrolling back to your
     // place after every click.
-    QTreeWidget* focusList = staged_->selectedItems().isEmpty() ? unstaged_ : staged_;
+    // The list whose file the diff is showing, not whichever list still holds
+    // a selection: both can, and preferring Staged pulled the diff away from
+    // Working copy after staging a hunk there.
+    QTreeWidget* focusList = viewingStaged_ ? staged_ : unstaged_;
+    if (focusList->selectedItems().isEmpty()) {
+        focusList = focusList == staged_ ? unstaged_ : staged_;
+    }
     const QStringList wasSelected = selectionOf(focusList);
     int wasRow = -1;
     if (QTreeWidgetItem* current = focusList->currentItem(); current != nullptr) {
