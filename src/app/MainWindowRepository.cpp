@@ -19,6 +19,7 @@
 #include "ui/panels/WorkingCopyPanel.h"
 
 #include <QAction>
+#include <QApplication>
 #include <QCloseEvent>
 #include <QDir>
 #include <QFileDialog>
@@ -536,6 +537,22 @@ void MainWindow::reportBackgroundNetwork(const QString& path, const QString& ver
 
 QString MainWindow::sessionPathFor(const QString& path) const {
     return sessionPaths_.value(gity::ui::RepositoryTabs::canonical(path), path);
+}
+
+void MainWindow::openClone(const QString& path) {
+    // Not under a dialog or a menu: each is asking about the repository on
+    // screen, and switching to the clone while one is open carried its answer
+    // — a reset, a branch deleted — to the clone instead.
+    if (QApplication::activeModalWidget() != nullptr ||
+        QApplication::activePopupWidget() != nullptr) {
+        QTimer::singleShot(250, this, [this, path] { openClone(path); });
+        return;
+    }
+    openRepository(path);
+}
+
+bool MainWindow::stillShowing(const QString& workdir) const {
+    return !workdir.isEmpty() && workdir == currentWorkdir_;
 }
 
 void MainWindow::activateSession(const QString& path) {

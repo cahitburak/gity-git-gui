@@ -107,6 +107,10 @@ void MainWindow::onCommitContextMenu(qsizetype row, const QPoint& globalPos) {
         return;
     }
     const QString shortId = oid.left(8);
+    // Read now: the menu runs its own event loop, and a refresh while it is
+    // open empties the model this row is in.
+    const QString subject = model_.summary(static_cast<std::size_t>(row));
+    const QString askedAbout = currentWorkdir_;
 
     using gity::ui::icons::Glyph;
     // Menu text, so the icons sit at the same weight as the words beside them.
@@ -141,7 +145,7 @@ void MainWindow::onCommitContextMenu(qsizetype row, const QPoint& globalPos) {
                     QStringLiteral("reset --soft|--mixed|--hard %1").arg(shortId));
 
     QAction* chosen = menu.exec(globalPos);
-    if (chosen == nullptr) {
+    if (chosen == nullptr || !stillShowing(askedAbout)) {
         return;
     }
     if (chosen == copy) {
@@ -161,7 +165,7 @@ void MainWindow::onCommitContextMenu(qsizetype row, const QPoint& globalPos) {
         return;
     }
     if (chosen == rebase) {
-        startRebase(oid, model_.summary(static_cast<std::size_t>(row)));
+        startRebase(oid, subject);
         return;
     }
     if (chosen == tagHere) {
@@ -170,7 +174,7 @@ void MainWindow::onCommitContextMenu(qsizetype row, const QPoint& globalPos) {
         return;
     }
     if (chosen == reset) {
-        confirmReset(oid, model_.summary(static_cast<std::size_t>(row)));
+        confirmReset(oid, subject);
     }
 }
 
@@ -269,7 +273,8 @@ void MainWindow::confirmReset(const QString& oid, const QString& subject) {
     connect(buttons, &QDialogButtonBox::accepted, &dialog, &QDialog::accept);
     connect(buttons, &QDialogButtonBox::rejected, &dialog, &QDialog::reject);
 
-    if (dialog.exec() != QDialog::Accepted) {
+    const QString askedAbout = currentWorkdir_;
+    if (dialog.exec() != QDialog::Accepted || !stillShowing(askedAbout)) {
         return;
     }
     session()->requestReset(oid, soft->isChecked()   ? QStringLiteral("soft")
@@ -278,8 +283,9 @@ void MainWindow::confirmReset(const QString& oid, const QString& subject) {
 }
 
 void MainWindow::startRebase(const QString& baseOid, const QString& baseSubject) {
+    const QString askedAbout = currentWorkdir_;
     gity::ui::RebaseDialog dialog(*session(), baseOid, baseSubject, this);
-    if (dialog.exec() != QDialog::Accepted) {
+    if (dialog.exec() != QDialog::Accepted || !stillShowing(askedAbout)) {
         return;
     }
     // Rebase rewrites commits, unlike every other verb offered here. It gets a
@@ -293,7 +299,7 @@ void MainWindow::startRebase(const QString& baseOid, const QString& baseSubject)
            "Nothing is lost either way — the old commits stay reachable through the reflog.")
             .arg(baseOid.left(8)),
         QMessageBox::Yes | QMessageBox::No, QMessageBox::No);
-    if (answer != QMessageBox::Yes) {
+    if (answer != QMessageBox::Yes || !stillShowing(askedAbout)) {
         return;
     }
     session()->requestInteractiveRebase(dialog.baseOid(), dialog.steps());
@@ -322,7 +328,8 @@ void MainWindow::confirmCheckout(const QString& ref) {
     gity::ui::CheckoutDialog dialog(
         ref, context, changedFiles_,
         currentRefs_ ? QString::fromStdString(currentRefs_->headName) : QString(), this);
-    if (dialog.exec() == QDialog::Accepted) {
+    const QString askedAbout = currentWorkdir_;
+    if (dialog.exec() == QDialog::Accepted && stillShowing(askedAbout)) {
         session()->requestCheckout(ref, context.kind, dialog.changes(), dialog.updateSubmodules());
     }
 }
@@ -339,7 +346,8 @@ void MainWindow::openNewBranchDialog(const QString& base) {
         }
     }
     gity::ui::NewBranchDialog dialog(base, context, changedFiles_, existing, this);
-    if (dialog.exec() == QDialog::Accepted) {
+    const QString askedAbout = currentWorkdir_;
+    if (dialog.exec() == QDialog::Accepted && stillShowing(askedAbout)) {
         session()->requestCreateBranch(dialog.name(), base, context.kind, dialog.switchesTo(),
                                        dialog.changes(), dialog.updateSubmodules());
     }
@@ -635,7 +643,12 @@ void MainWindow::showPreview(gity::session::PreviewPtr preview) {
         return;
     }
     const auto& p = *preview;
-    switch (gity::ui::choosePreviewAction(p, this)) {
+    const QString askedAbout = currentWorkdir_;
+    const gity::ui::PreviewChoice choice = gity::ui::choosePreviewAction(p, this);
+    if (!stillShowing(askedAbout)) {
+        return;
+    }
+    switch (choice) {
     case PreviewChoice::Go:
         if (p.kind == Kind::Pull) {
             session()->requestPull();
@@ -687,13 +700,15 @@ void MainWindow::onHistoryEditFinished(const QString& verb, bool ok, bool confli
         const QString name = pendingBranchDelete_;
         pendingBranchDelete_.clear();
 
+        const QString askedAbout = currentWorkdir_;
         if (gity::ui::confirmDestructive(
                 this, tr("Delete anyway?"),
                 tr("\"%1\" holds commits that are not on any other branch.").arg(name),
                 tr("Deleting it leaves those commits reachable only through the reflog, "
                    "which expires — after that they are gone. If you meant to keep the "
                    "work, merge it somewhere first."),
-                tr("Delete Anyway"))) {
+                tr("Delete Anyway")) &&
+            stillShowing(askedAbout)) {
             session()->requestDeleteBranch(name, true);
         }
         return;

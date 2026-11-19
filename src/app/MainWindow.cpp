@@ -367,7 +367,7 @@ void MainWindow::connectSession() {
     connect(sessions_.relay(), &gity::session::RepoSession::externalChange, this,
             &MainWindow::onExternalChange);
     connect(sessions_.relay(), &gity::session::RepoSession::cloneFinished, this,
-            [this](const QString& path) { openRepository(path); });
+            &MainWindow::openClone);
     connect(sessions_.relay(), &gity::session::RepoSession::networkFinished, this,
             &MainWindow::onNetworkFinished);
     connect(sessions_.relay(), &gity::session::RepoSession::workingDiffReady, this,
@@ -476,11 +476,13 @@ void MainWindow::connectSidebar() {
             &MainWindow::confirmCheckout);
     connect(refs_, &gity::ui::RefsSidebar::deleteTagRequested, this, [this](const QString& name) {
         // The button says what it does, and Cancel is the default.
+        const QString askedAbout = currentWorkdir_;
         if (gity::ui::confirmDestructive(
                 this, tr("Delete tag?"), tr("Delete \"%1\" locally?").arg(name),
                 tr("A tag already pushed stays on the remote until it is deleted "
                    "there too. Edit ▸ Undo brings the local one back."),
-                tr("Delete Tag"))) {
+                tr("Delete Tag")) &&
+            stillShowing(askedAbout)) {
             session()->requestDeleteTag(name);
         }
     });
@@ -499,11 +501,13 @@ void MainWindow::connectSidebar() {
         session()->requestStashApply(std::forward<decltype(args)>(args)...);
     });
     connect(refs_, &gity::ui::RefsSidebar::stashDropRequested, this, [this](const QString& ref) {
+        const QString askedAbout = currentWorkdir_;
         if (gity::ui::confirmDestructive(
                 this, tr("Drop stash?"), tr("Discard %1?").arg(ref),
                 tr("Its changes leave the stash list. Edit ▸ Undo puts it back, for "
                    "as long as git keeps unreachable objects (30 days by default)."),
-                tr("Drop Stash"))) {
+                tr("Drop Stash")) &&
+            stillShowing(askedAbout)) {
             session()->requestStashDrop(ref);
         }
     });
@@ -526,11 +530,12 @@ void MainWindow::connectSidebar() {
     connect(
         refs_, &gity::ui::RefsSidebar::deleteBranchRequested, this,
         [this](const QString& name, bool) {
+            const QString askedAbout = currentWorkdir_;
             const auto answer = gity::ui::showPlainMessage(
                 this, QMessageBox::Question, tr("Delete branch?"),
                 tr("Delete \"%1\"?\n\nCommits it shares with another branch are kept.").arg(name),
                 QMessageBox::Yes | QMessageBox::No, QMessageBox::No);
-            if (answer == QMessageBox::Yes) {
+            if (answer == QMessageBox::Yes && stillShowing(askedAbout)) {
                 pendingBranchDelete_ = name;
                 session()->requestDeleteBranch(name, false);
             }
@@ -546,12 +551,14 @@ void MainWindow::connectWorkingCopy() {
     connect(operationBanner_, &gity::ui::OperationBanner::continueRequested, this,
             [this] { session()->requestContinueOperation(changes_->draftMessage()); });
     connect(operationBanner_, &gity::ui::OperationBanner::abortRequested, this, [this] {
+        const QString askedAbout = currentWorkdir_;
         if (gity::ui::confirmDestructive(
                 this, tr("Abandon?"),
                 tr("Return the working copy to where it was before this operation started?"),
                 tr("Anything you have resolved since then is discarded. Commits already in "
                    "history are untouched."),
-                tr("Abandon"))) {
+                tr("Abandon")) &&
+            stillShowing(askedAbout)) {
             session()->requestAbortOperation();
         }
     });
@@ -628,7 +635,7 @@ void MainWindow::connectRepositoryTabs() {
     connect(&sessions_, &gity::session::SessionHub::backgroundNetworkFinished, this,
             &MainWindow::reportBackgroundNetwork);
     connect(&sessions_, &gity::session::SessionHub::backgroundCloneFinished, this,
-            [this](const QString& cloned) { openRepository(cloned); });
+            &MainWindow::openClone);
     connect(repoTabs_, &gity::ui::RepositoryTabs::repositoryActivated, this,
             [this](const QString& path) {
                 // Compared canonically, not as raw strings: the same

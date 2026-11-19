@@ -195,6 +195,11 @@ private:
 
     /// Makes `path`'s session the one on screen, creating it on first use.
     void activateSession(const QString& path);
+    /// Opens a repository a clone just made, once no dialog or menu is open.
+    void openClone(const QString& path);
+    /// Whether `workdir` — the repository on screen when a dialog or menu
+    /// opened — still is, now it has closed.
+    [[nodiscard]] bool stillShowing(const QString& workdir) const;
     /// Closes `path`'s session and forgets what its tab was showing.
     void retireSession(const QString& path);
     /// The path `path`'s session was made under: the spelling it was opened
