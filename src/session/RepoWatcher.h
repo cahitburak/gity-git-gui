@@ -87,7 +87,14 @@ private:
     int rescanMetadata();
     void watchRefs(const QString& directory);
 
+    /// Gity's own bookkeeping refs, under refs/gity, which must not look like
+    /// someone else moving a branch.
+    [[nodiscard]] bool isGityRef(const QString& path) const;
+
     void addTree(const QString& directory);
+    /// Stops watching `directory` and everything below it: moved out of the
+    /// tree, or become a repository of its own.
+    void unwatchTree(const QString& directory);
     void readWorktreeEvents(bool report);
 
     QString workdir_;

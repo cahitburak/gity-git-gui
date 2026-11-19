@@ -145,6 +145,71 @@ TEST(RepoWatcher, GitysOwnSnapshotsAreNotAChange) {
     EXPECT_EQ(waitForChange(*watcher, 800), 0);
 }
 
+TEST(RepoWatcher, ARepositoryInAFolderNamedLikeGitysRefsStillSeesItsBranches) {
+    // Gity's own refs were recognised by "/refs/gity" anywhere in the path,
+    // so a repository under ~/refs/gity-work had every branch ignored.
+    QTemporaryDir base;
+    ASSERT_TRUE(base.isValid());
+    const QString dir = base.path() + QStringLiteral("/refs/gity-work/repo");
+    ASSERT_TRUE(QDir().mkpath(dir));
+    const auto git = [&dir](const QStringList& args) {
+        const auto result = gity::session::GitProcess::run(dir, args);
+        EXPECT_TRUE(result.ok()) << result.errorOutput.toStdString();
+    };
+    git({"init", "-q", "-b", "main"});
+    git({"-c", "user.name=T", "-c", "user.email=t@invalid", "commit", "-q", "--allow-empty", "-m",
+         "base"});
+
+    RepoWatcher watcher(dir, dir + QStringLiteral("/.git"), dir + QStringLiteral("/.git"), {});
+    settle();
+    git({"branch", "other"});
+    EXPECT_NE(waitForChange(watcher) & RepoWatcher::Refs, 0);
+}
+
+TEST(RepoWatcher, AFolderMovedOutOfTheTreeIsNoLongerWatched) {
+    TempRepo repo;
+    repo.write("away/a.txt", "one\n");
+    repo.commitAll();
+    QTemporaryDir elsewhere;
+    ASSERT_TRUE(elsewhere.isValid());
+    auto watcher = watch(repo);
+    if (!watcher->watchesWorktree()) {
+        GTEST_SKIP() << "the working tree is watched natively on Linux only so far";
+    }
+    settle();
+
+    const QString moved = elsewhere.path() + QStringLiteral("/away");
+    ASSERT_TRUE(QDir().rename(repo.dir() + QStringLiteral("/away"), moved));
+    static_cast<void>(waitForChange(*watcher, 600)); // the move itself
+    QFile file(moved + QStringLiteral("/a.txt"));
+    ASSERT_TRUE(file.open(QIODevice::WriteOnly));
+    file.write("edited where it went\n");
+    file.close();
+    EXPECT_EQ(waitForChange(*watcher, 800), 0);
+}
+
+TEST(RepoWatcher, AFolderThatBecomesARepositoryIsLeftToIt) {
+    // An initialised submodule is skipped when watching starts; one
+    // initialised while watching was watched file by file.
+    TempRepo repo;
+    repo.write("a.txt", "one\n");
+    repo.commitAll();
+    QDir(repo.dir()).mkpath(QStringLiteral("sub"));
+    auto watcher = watch(repo);
+    if (!watcher->watchesWorktree()) {
+        GTEST_SKIP() << "the working tree is watched natively on Linux only so far";
+    }
+    settle();
+
+    ASSERT_TRUE(gity::session::GitProcess::run(repo.dir() + QStringLiteral("/sub"),
+                                               {"init", "-q", "-b", "main"})
+                    .ok());
+    settle(300);
+    watcher->absorb();
+    repo.write("sub/inside.txt", "the submodule's own\n");
+    EXPECT_EQ(waitForChange(*watcher, 800), 0);
+}
+
 TEST(RepoWatcher, AbsorbedChangesAreNotReportedAgain) {
     // Gity reads the repository itself after its own commands; what changed
     // before that read must not trigger a second one.

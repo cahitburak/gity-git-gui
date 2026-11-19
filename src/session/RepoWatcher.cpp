@@ -30,13 +30,27 @@ qint64 stampOf(const QString& path) {
     return info.exists() ? info.lastModified().toMSecsSinceEpoch() + info.size() : -1;
 }
 
-/// Gity's own bookkeeping — undo snapshots — lives under refs/gity and must
-/// not look like someone else moving a branch.
-bool isGityRef(const QString& path) {
-    return path.contains(QStringLiteral("/refs/gity"));
+/// Spreads one file's name and stamp over all 64 bits (splitmix64's
+/// finaliser), so that summing them is a fair fingerprint.
+quint64 mixed(quint64 value) {
+    value ^= value >> 30U;
+    value *= 0xbf58476d1ce4e5b9ULL;
+    value ^= value >> 27U;
+    value *= 0x94d049bb133111ebULL;
+    value ^= value >> 31U;
+    return value;
 }
 
 } // namespace
+
+bool RepoWatcher::isGityRef(const QString& path) const {
+    // Under this repository's refs only. Matched anywhere in the path, a
+    // repository that itself lives in a folder like ~/refs/gity-work had
+    // every ref taken for Gity's, and a branch moved in a terminal went
+    // unnoticed.
+    const QString gity = QDir(commonDir_).filePath(QStringLiteral("refs/gity"));
+    return path == gity || path.startsWith(gity + QChar('/'));
+}
 
 RepoWatcher::RepoWatcher(const QString& workdir, const QString& gitDir, const QString& commonDir,
                          IgnoreTest ignored, QObject* parent)
@@ -146,7 +160,10 @@ int RepoWatcher::rescanMetadata() {
         }
     }
     // Loose refs, as one fingerprint: every ref file's name, time and size.
-    qint64 refs = 0;
+    // Summed, so the order the directory happens to list them in does not
+    // matter, and in unsigned arithmetic, which wraps where the signed
+    // multiply it replaces overflowed after a handful of refs.
+    quint64 refs = 0;
     QDirIterator it(QDir(commonDir_).filePath(QStringLiteral("refs")), QDir::Files,
                     QDirIterator::Subdirectories);
     while (it.hasNext()) {
@@ -154,9 +171,10 @@ int RepoWatcher::rescanMetadata() {
         if (isGityRef(path)) {
             continue;
         }
-        refs = refs * 31 + static_cast<qint64>(qHash(path)) + stampOf(path);
+        refs += mixed(static_cast<quint64>(qHash(path)) ^
+                      (static_cast<quint64>(stampOf(path)) * 0x9e3779b97f4a7c15ULL));
     }
-    now.insert(kRefsKey, refs);
+    now.insert(kRefsKey, static_cast<qint64>(refs));
 
     int kinds = 0;
     for (auto it2 = now.cbegin(); it2 != now.cend(); ++it2) {
@@ -182,6 +200,12 @@ void RepoWatcher::addTree(const QString& root) {
     if (inotify_ < 0) {
         return;
     }
+    // A folder that is a repository of its own — a submodule initialised, or
+    // a clone moved in, since the watch began — is that repository's to
+    // watch, as at the start.
+    if (root != workdir_ && QFileInfo::exists(root + QStringLiteral("/.git"))) {
+        return;
+    }
     QStringList pending{root};
     while (!pending.isEmpty()) {
         const QString directory = pending.takeLast();
@@ -190,7 +214,9 @@ void RepoWatcher::addTree(const QString& root) {
                                        IN_DONT_FOLLOW | IN_EXCL_UNLINK;
         const int wd = inotify_add_watch(inotify_, QFile::encodeName(directory).constData(), mask);
         if (wd < 0) {
-            if (errno == ENOSPC && !warnedLimit_) {
+            // Kept: the warning below may set errno itself.
+            const int error = errno;
+            if (error == ENOSPC && !warnedLimit_) {
                 // Said once, plainly: past the system's limit, edits in the
                 // directories not reached are noticed only when the window is
                 // brought back to the front.
@@ -199,7 +225,7 @@ void RepoWatcher::addTree(const QString& root) {
                          "raise fs.inotify.max_user_watches to watch all of it",
                          qPrintable(workdir_));
             }
-            if (errno == ENOSPC) {
+            if (error == ENOSPC) {
                 return;
             }
             continue;
@@ -226,6 +252,22 @@ void RepoWatcher::addTree(const QString& root) {
     }
 #else
     Q_UNUSED(root)
+#endif
+}
+
+void RepoWatcher::unwatchTree(const QString& directory) {
+#ifdef Q_OS_LINUX
+    const QString below = directory + QChar('/');
+    for (auto it = watches_.begin(); it != watches_.end();) {
+        if (it.value() == directory || it.value().startsWith(below)) {
+            inotify_rm_watch(inotify_, it.key());
+            it = watches_.erase(it);
+        } else {
+            ++it;
+        }
+    }
+#else
+    Q_UNUSED(directory)
 #endif
 }
 
@@ -261,13 +303,30 @@ void RepoWatcher::readWorktreeEvents(bool report) {
             const QString full = directory + QChar('/') + name;
             const QString relative = QDir(workdir_).relativeFilePath(full);
             const bool isDirectory = (event->mask & IN_ISDIR) != 0;
-            if (name == QStringLiteral(".git") || (ignored_ && ignored_(relative, isDirectory))) {
+            const bool arrived = (event->mask & (IN_CREATE | IN_MOVED_TO)) != 0;
+            if (name == QStringLiteral(".git")) {
+                // A folder in the tree has just become a repository of its
+                // own: a submodule being initialised. Its files are its own
+                // business from here on, as for one there from the start.
+                if (arrived && directory != workdir_) {
+                    unwatchTree(directory);
+                }
                 continue;
+            }
+            if (ignored_ && ignored_(relative, isDirectory)) {
+                continue;
+            }
+            // A folder moved away keeps its watch — inotify follows the
+            // folder, not the name — and would go on reporting under a path
+            // that no longer exists, from wherever it went. Moved within the
+            // tree, it is watched again under its new name below.
+            if (isDirectory && (event->mask & IN_MOVED_FROM) != 0) {
+                unwatchTree(full);
             }
             // A directory that appears is watched at once — even while
             // absorbing, since the files about to land in it are not yet
             // anything Gity has read.
-            if (isDirectory && (event->mask & (IN_CREATE | IN_MOVED_TO)) != 0) {
+            if (isDirectory && arrived) {
                 addTree(full);
             }
             kinds |= Worktree;
