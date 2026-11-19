@@ -273,9 +273,12 @@ void CommitGraphView::paintRow(QPainter& painter, qsizetype row, int y) const {
 
     // In a renamed file's history, the rows from before the rename say what
     // it was called then.
-    if (const QString renamed = model_->renamedPath(index); !renamed.isEmpty()) {
+    // No wider than what the chips left of the message column: past its end
+    // it was painted over the author.
+    if (const QString renamed = model_->renamedPath(index);
+        !renamed.isEmpty() && messageEnd > textX) {
         const QString note = tr("as %1").arg(renamed);
-        const int room = columns.messageWidth * 2 / 5;
+        const int room = std::min(columns.messageWidth * 2 / 5, messageEnd - textX);
         const QString shown = fm.elidedText(note, Qt::ElideMiddle, room);
         painter.setPen(secondary);
         painter.drawText(QRect(textX, y, room, h), Qt::AlignVCenter | Qt::AlignLeft, shown);
@@ -466,7 +469,8 @@ void CommitGraphView::keyPressEvent(QKeyEvent* event) {
 
     switch (event->key()) {
     case Qt::Key_Down:
-        target = std::min(rows - 1, std::max<qsizetype>(0, selectedRow_) + 1);
+        // With nothing selected, the first row rather than the second.
+        target = selectedRow_ < 0 ? 0 : std::min(rows - 1, selectedRow_ + 1);
         break;
     case Qt::Key_Up:
         target = std::max<qsizetype>(0, selectedRow_ - 1);
