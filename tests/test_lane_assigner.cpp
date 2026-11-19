@@ -197,8 +197,8 @@ TEST(LaneAssigner, IncrementalAppendMatchesWholeTableAssignment) {
         ASSERT_EQ(streamed.rows.size(), batch.rows.size()) << "chunk " << chunkSize;
         ASSERT_EQ(streamed.edges.size(), batch.edges.size()) << "chunk " << chunkSize;
         for (std::size_t i = 0; i < batch.rows.size(); ++i) {
-            EXPECT_EQ(streamed.rows[i].lane, batch.rows[i].lane) << "chunk " << chunkSize
-                                                                 << " row " << i;
+            EXPECT_EQ(streamed.rows[i].lane, batch.rows[i].lane)
+                << "chunk " << chunkSize << " row " << i;
             EXPECT_EQ(streamed.rows[i].laneCount, batch.rows[i].laneCount);
             EXPECT_EQ(streamed.rows[i].flags, batch.rows[i].flags);
             EXPECT_EQ(streamed.rows[i].edgeCount, batch.rows[i].edgeCount);
@@ -223,7 +223,8 @@ TEST(LaneAssigner, ResetClearsSlotState) {
 
     // A fresh graph after reset matches a fresh assigner.
     Graph afterReset;
-    assigner.append(table.key[0], std::span<const CommitKey>(table.parentKey.data(), 2), afterReset);
+    assigner.append(table.key[0], std::span<const CommitKey>(table.parentKey.data(), 2),
+                    afterReset);
     EXPECT_EQ(afterReset.rows[0].lane, first.rows[0].lane);
     EXPECT_EQ(afterReset.edges.size(), first.edges.size());
 }

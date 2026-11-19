@@ -21,10 +21,15 @@ struct GraphColumns {
     int commitWidth = tokens::columnsCommit;
 
     [[nodiscard]] int graphX() const noexcept { return 0; }
+
     [[nodiscard]] int messageX() const noexcept { return graphWidth; }
+
     [[nodiscard]] int authorX() const noexcept { return messageX() + messageWidth; }
+
     [[nodiscard]] int dateX() const noexcept { return authorX() + authorWidth; }
+
     [[nodiscard]] int commitX() const noexcept { return dateX() + dateWidth; }
+
     [[nodiscard]] int totalWidth() const noexcept { return commitX() + commitWidth; }
 
     /// Message takes the slack; a secondary column at width 0 is not shown.
@@ -33,8 +38,8 @@ struct GraphColumns {
 
         // The graph column must be wide enough that ref chips clear the widest
         // lane — SPEC.md gives the formula exactly.
-        const int lanesWidth = tokens::firstLaneX + maxLanes * tokens::lanePitch +
-                               tokens::textGutterAfterLastLane;
+        const int lanesWidth =
+            tokens::firstLaneX + maxLanes * tokens::lanePitch + tokens::textGutterAfterLastLane;
         // Sized to the lanes, not to a 400px design column: ref chips now sit
         // inline before the subject, so the subject starts right after the
         // graph (2026-09 UI review, Refined Classic).

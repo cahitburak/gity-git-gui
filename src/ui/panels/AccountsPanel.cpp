@@ -1,5 +1,7 @@
 #include "AccountsPanel.h"
 
+#include "session/Background.h"
+
 #include "ui/panels/Confirm.h"
 
 #include "core/git/Provider.h"
@@ -8,19 +10,19 @@
 #include "ui/theme/Tokens.h"
 
 #include <QComboBox>
-#include <QDir>
 #include <QDialog>
 #include <QDialogButtonBox>
+#include <QDir>
 #include <QFormLayout>
 #include <QHBoxLayout>
 #include <QHeaderView>
 #include <QInputDialog>
-#include <QMessageBox>
-#include <QProgressDialog>
-#include <QSettings>
 #include <QLabel>
 #include <QLineEdit>
+#include <QMessageBox>
+#include <QProgressDialog>
 #include <QPushButton>
+#include <QSettings>
 #include <QTreeWidget>
 #include <QVBoxLayout>
 
@@ -29,6 +31,7 @@ namespace {
 
 constexpr int kHostRole = Qt::UserRole + 1;
 constexpr int kUserRole = Qt::UserRole + 2;
+constexpr int kProviderRole = Qt::UserRole + 3;
 
 QString providerLabel(git::Provider provider) {
     const std::string_view name = git::providerName(provider);
@@ -37,10 +40,10 @@ QString providerLabel(git::Provider provider) {
 
 /// What git is configured to remember credentials with, in the user's words.
 QString credentialHelperDescription(const QString& workdir) {
-    const gity::session::GitResult result = gity::session::GitProcess::run(
-        workdir.isEmpty() ? QDir::homePath() : workdir,
-        {QStringLiteral("config"), QStringLiteral("--get-all"),
-         QStringLiteral("credential.helper")});
+    const gity::session::GitResult result =
+        gity::session::GitProcess::run(workdir.isEmpty() ? QDir::homePath() : workdir,
+                                       {QStringLiteral("config"), QStringLiteral("--get-all"),
+                                        QStringLiteral("credential.helper")});
     const QString helper = result.output.trimmed();
     if (!result.ok() || helper.isEmpty()) {
         return AccountsPanel::tr("git has no credential helper configured, so it will ask "
@@ -86,7 +89,9 @@ AccountsPanel::AccountsPanel(QWidget* parent) : QWidget(parent) {
     buttons->addWidget(use_);
     layout->addLayout(buttons);
 
+    // Hosts from remote URLs, and what the configuration says.
     repositoryNote_ = new QLabel(this);
+    setPlainText(repositoryNote_);
     repositoryNote_->setWordWrap(true);
     applyRole(repositoryNote_, QStringLiteral("note"));
     layout->addWidget(repositoryNote_);
@@ -95,6 +100,7 @@ AccountsPanel::AccountsPanel(QWidget* parent) : QWidget(parent) {
     // screen is the obvious place to expect a password field, and its absence
     // needs explaining rather than leaving as a gap.
     storageNote_ = new QLabel(this);
+    setPlainText(storageNote_);
     storageNote_->setWordWrap(true);
     applyRole(storageNote_, QStringLiteral("note"));
     layout->addWidget(storageNote_);
@@ -115,9 +121,14 @@ AccountsPanel::AccountsPanel(QWidget* parent) : QWidget(parent) {
 
 void AccountsPanel::setRepository(const QString& workdir, const QString& originUrl) {
     originUrl_ = originUrl;
-    storageNote_->setText(
-        tr("Gity stores no passwords or tokens. %1")
-            .arg(credentialHelperDescription(workdir)));
+    storageNote_->setText(tr("Gity stores no passwords or tokens."));
+    // Asked off the UI thread: git reading its config can be slow on a
+    // network home directory, and Settings must open at once regardless.
+    session::runInBackground<QString>(
+        this, [workdir] { return credentialHelperDescription(workdir); },
+        [this](QString description) {
+            storageNote_->setText(tr("Gity stores no passwords or tokens. %1").arg(description));
+        });
     updateButtons();
 }
 
@@ -132,6 +143,7 @@ void AccountsPanel::reload() {
                              : tr("%1 (%2)").arg(account.username, account.label));
         item->setData(0, kHostRole, account.host);
         item->setData(0, kUserRole, account.username);
+        item->setData(0, kProviderRole, static_cast<int>(account.provider));
     }
     updateButtons();
 }
@@ -144,7 +156,10 @@ session::Account AccountsPanel::selectedAccount() const {
     session::Account account;
     account.host = selected.first()->data(0, kHostRole).toString();
     account.username = selected.first()->data(0, kUserRole).toString();
-    account.provider = git::providerForHost(account.host.toStdString());
+    // As saved, not guessed again from the host: a self-hosted GitHub
+    // Enterprise, GitLab or Gitea has a name that says nothing, and the
+    // guess made it Other and took browser sign-in away.
+    account.provider = static_cast<git::Provider>(selected.first()->data(0, kProviderRole).toInt());
     return account;
 }
 
@@ -154,12 +169,10 @@ void AccountsPanel::updateButtons() {
     // Only for providers whose device grant this client knows. Enabling it
     // everywhere and failing at the request would be the disabled-button
     // mistake in reverse.
-    signIn_->setEnabled(
-        account.valid() &&
-        git::endpointsFor(account.provider, account.host.toStdString()).valid());
+    signIn_->setEnabled(account.valid() &&
+                        git::endpointsFor(account.provider, account.host.toStdString()).valid());
 
-    const QString remoteHost =
-        QString::fromStdString(git::hostOfRemote(originUrl_.toStdString()));
+    const QString remoteHost = QString::fromStdString(git::hostOfRemote(originUrl_.toStdString()));
     const bool sameHost =
         account.valid() && account.host.compare(remoteHost, Qt::CaseInsensitive) == 0;
     use_->setEnabled(sameHost);
@@ -212,8 +225,7 @@ void AccountsPanel::addAccount() {
     applyRole(note, QStringLiteral("note"));
     layout->addWidget(note);
 
-    auto* buttons = new QDialogButtonBox(QDialogButtonBox::Ok | QDialogButtonBox::Cancel,
-                                         &dialog);
+    auto* buttons = new QDialogButtonBox(QDialogButtonBox::Ok | QDialogButtonBox::Cancel, &dialog);
     layout->addWidget(buttons);
     connect(buttons, &QDialogButtonBox::accepted, &dialog, &QDialog::accept);
     connect(buttons, &QDialogButtonBox::rejected, &dialog, &QDialog::reject);
@@ -227,8 +239,8 @@ void AccountsPanel::addAccount() {
         }
         const auto chosen = static_cast<git::Provider>(provider->currentData().toInt());
         const std::string_view suggested = git::defaultHost(chosen);
-        host->setText(QString::fromUtf8(suggested.data(),
-                                        static_cast<qsizetype>(suggested.size())));
+        host->setText(
+            QString::fromUtf8(suggested.data(), static_cast<qsizetype>(suggested.size())));
     };
     connect(provider, &QComboBox::currentIndexChanged, &dialog, syncHost);
     syncHost();
@@ -250,8 +262,8 @@ void AccountsPanel::addAccount() {
     // from it is the one that broke a submodule. Asked, not refused — a
     // self-hosted service may use emails.
     if (account.provider == git::Provider::GitHub && account.username.contains(QChar('@'))) {
-        const auto answer = QMessageBox::question(
-            this, tr("Use an email as the account name?"),
+        const auto answer = showPlainMessage(
+            this, QMessageBox::Question, tr("Use an email as the account name?"),
             tr("GitHub account names are never email addresses — use the login shown on your "
                "GitHub profile (for GitHub CLI, the name in gh auth status). Git sends this name "
                "to find your token, so an email finds nothing.\n\nKeep \u201c%1\u201d anyway?")
@@ -280,14 +292,13 @@ void AccountsPanel::signInSelected() {
     QString clientId = store.value(key).toString();
     if (clientId.isEmpty()) {
         bool accepted = false;
-        clientId = QInputDialog::getText(
-                       this, tr("Client ID for %1").arg(account.host),
-                       tr("Signing in through a browser needs an OAuth application "
-                          "registered on %1, and its client ID.\n\n"
-                          "On GitHub: Settings ▸ Developer settings ▸ OAuth Apps ▸ New OAuth "
-                          "App, then enable device flow. No client secret is needed.")
-                           .arg(account.host),
-                       QLineEdit::Normal, QString(), &accepted)
+        clientId = enterText(this, tr("Client ID for %1").arg(account.host),
+                             tr("Signing in through a browser needs an OAuth application "
+                                "registered on %1, and its client ID.\n\n"
+                                "On GitHub: Settings ▸ Developer settings ▸ OAuth Apps ▸ New OAuth "
+                                "App, then enable device flow. No client secret is needed.")
+                                 .arg(account.host),
+                             QString(), &accepted)
                        .trimmed();
         if (!accepted || clientId.isEmpty()) {
             return;
@@ -295,12 +306,14 @@ void AccountsPanel::signInSelected() {
         store.setValue(key, clientId);
     }
 
-    auto* dialog = new QProgressDialog(tr("Contacting %1…").arg(account.host), tr("Cancel"), 0,
-                                       0, this);
+    auto* dialog =
+        new QProgressDialog(tr("Contacting %1…").arg(account.host), tr("Cancel"), 0, 0, this);
     dialog->setWindowTitle(tr("Sign In"));
     dialog->setMinimumWidth(430);
     dialog->setAutoClose(false);
     dialog->setAutoReset(false);
+    // The code and the address come from the server.
+    setPlainLabels(dialog);
 
     auto* signIn = new session::BrowserSignIn(this);
     connect(signIn, &session::BrowserSignIn::codeReady, dialog,
@@ -318,9 +331,9 @@ void AccountsPanel::signInSelected() {
                 dialog->deleteLater();
                 signIn->deleteLater();
                 if (ok) {
-                    QMessageBox::information(this, tr("Signed in"), message);
+                    showPlainMessage(this, QMessageBox::Information, tr("Signed in"), message);
                 } else {
-                    QMessageBox::warning(this, tr("Sign-in failed"), message);
+                    showPlainMessage(this, QMessageBox::Warning, tr("Sign-in failed"), message);
                 }
             });
     // Cancel ends it: the flow stops listening, and both objects go rather

@@ -6,8 +6,8 @@
 // URL reliably carries.
 //
 // Self-hosted instances are the normal case, not the exception: a team is as
-// likely to run GitLab or Gitea on its own domain as to use the public service. So the guess is a convenience and never a constraint — every
-// provider can be chosen explicitly against any host.
+// likely to run GitLab or Gitea on its own domain as to use the public service. So the guess is a
+// convenience and never a constraint — every provider can be chosen explicitly against any host.
 #pragma once
 
 #include <string>

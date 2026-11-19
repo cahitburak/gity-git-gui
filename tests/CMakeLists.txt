@@ -9,9 +9,13 @@ endif()
 find_package(GTest REQUIRED)
 include(GoogleTest)
 
-# ADR-006 — test binaries link core only. If one ever needs QtWidgets, the
-# layering has been violated.
+# ADR-006 — this binary links core only, and builds without Qt (the
+# headless leg). The session tests below add QtCore and nothing more. If a
+# test ever needs QtWidgets, the layering has been violated.
 add_executable(gity_tests
+    test_blame.cpp
+    test_merge3.cpp
+    test_conflict.cpp
     test_blob_reader.cpp
     test_staging.cpp
     test_network_outcome.cpp
@@ -35,6 +39,8 @@ add_executable(gity_tests
     test_refs_default.cpp
     test_pull_request.cpp
     test_english_plural.cpp
+    test_history_stream.cpp
+    test_commit_store.cpp
 )
 
 target_link_libraries(gity_tests
@@ -44,3 +50,31 @@ target_link_libraries(gity_tests
 )
 
 gtest_discover_tests(gity_tests)
+
+# The session layer runs real git, so its tests need QtCore — and only QtCore
+# and the session library: QtWidgets here would still mean the layering broke.
+# Not built by the headless leg, which has no Qt.
+if(TARGET gity::session)
+    add_executable(gity_session_tests
+        session/main.cpp
+        session/TempRepo.h
+        session/test_index_writes.cpp
+        session/test_blame.cpp
+        session/test_conflicts.cpp
+        session/test_git_process.cpp
+        session/test_undo_log.cpp
+        session/test_repo_watcher.cpp
+        session/test_repository_reads.cpp
+        session/test_session_hub.cpp
+        session/test_session_commands.cpp
+        session/test_background.cpp
+        session/test_switch_context.cpp
+    )
+    target_include_directories(gity_session_tests PRIVATE ${PROJECT_SOURCE_DIR}/src)
+    target_link_libraries(gity_session_tests
+        PRIVATE gity::session
+        PRIVATE gity::warnings
+        PRIVATE GTest::gtest
+    )
+    gtest_discover_tests(gity_session_tests DISCOVERY_TIMEOUT 30)
+endif()

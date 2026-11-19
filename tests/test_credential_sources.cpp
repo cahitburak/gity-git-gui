@@ -5,11 +5,11 @@
 using namespace gity::git;
 
 TEST(CredentialSources, AStoreFileListsHostsAndUsersButNoPasswords) {
-    const auto entries = parseCredentialStore(
-        "https://alice:tok%3Den@github.com\n"
-        "\n"
-        "https://bob%40corp:pw@git.example.com:8443/team/repo.git\n"
-        "not a url\n");
+    const auto entries =
+        parseCredentialStore("https://alice:tok%3Den@github.com\n"
+                             "\n"
+                             "https://bob%40corp:pw@git.example.com:8443/team/repo.git\n"
+                             "not a url\n");
     ASSERT_EQ(entries.size(), 2u);
     EXPECT_EQ(entries[0].protocol, "https");
     EXPECT_EQ(entries[0].host, "github.com");
@@ -52,21 +52,25 @@ TEST(CredentialSources, ARemoteNamingANonGhUserIsCaught) {
     // password; GitHub refuses it.
     const std::vector<GhAccount> accounts{{"github.com", "alex-work", "file", true},
                                           {"github.com", "alex-personal", "keyring", false}};
-    const auto unknown = findAccountMismatch(
-        "https://alexdoe@github.com/acme-games/space-game.git", accounts);
+    const auto unknown =
+        findAccountMismatch("https://alexdoe@github.com/acme-games/space-game.git", accounts);
     EXPECT_EQ(unknown.kind, AccountMismatch::Kind::UnknownUser);
     EXPECT_EQ(unknown.urlUser, "alexdoe");
     EXPECT_EQ(unknown.activeAccount, "alex-work");
 
-    const auto inactive = findAccountMismatch("https://alex-personal@github.com/me/repo.git", accounts);
+    const auto inactive =
+        findAccountMismatch("https://alex-personal@github.com/me/repo.git", accounts);
     EXPECT_EQ(inactive.kind, AccountMismatch::Kind::InactiveUser);
 
     EXPECT_EQ(findAccountMismatch("https://github.com/me/repo.git", accounts).kind,
-              AccountMismatch::Kind::None) << "no user named: the active account answers";
+              AccountMismatch::Kind::None)
+        << "no user named: the active account answers";
     EXPECT_EQ(findAccountMismatch("https://alex-work@github.com/x/y.git", accounts).kind,
               AccountMismatch::Kind::None);
     EXPECT_EQ(findAccountMismatch("https://someone@gitlab.com/x/y.git", accounts).kind,
-              AccountMismatch::Kind::None) << "gh does not answer for other hosts";
+              AccountMismatch::Kind::None)
+        << "gh does not answer for other hosts";
     EXPECT_EQ(findAccountMismatch("git@github.com:x/y.git", accounts).kind,
-              AccountMismatch::Kind::None) << "ssh";
+              AccountMismatch::Kind::None)
+        << "ssh";
 }

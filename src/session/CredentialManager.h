@@ -47,8 +47,8 @@ public:
 
 signals:
     /// `found` false with an empty `problem` simply means nothing is stored.
-    void lookedUp(const QString& url, bool found, const QString& username,
-                  const QString& password, const QString& problem);
+    void lookedUp(const QString& url, bool found, const QString& username, const QString& password,
+                  const QString& problem);
     void finished(bool ok, const QString& message);
 };
 

@@ -5,11 +5,15 @@ find_package(Qt6 6.8 REQUIRED COMPONENTS Core Gui Widgets)
 add_library(gity_ui STATIC
     image/ImageDiffView.cpp
     image/ImageDiffView.h
+    diffview/BlameView.cpp
+    diffview/BlameView.h
     diffview/DiffView.cpp
     diffview/DiffView.h
     graphview/GraphColumns.h
     graphview/GraphHeader.cpp
     graphview/GraphHeader.h
+    graphview/HistoryFilterBar.cpp
+    graphview/HistoryFilterBar.h
     graphview/CommitGraphView.cpp
     graphview/CommitGraphView.h
     panels/WorkingCopyDelegate.cpp
@@ -22,6 +26,10 @@ add_library(gity_ui STATIC
     panels/WelcomePanel.cpp
     panels/CommandLogView.cpp
     panels/PreviewDialog.cpp
+    panels/BlamePanel.cpp
+    panels/BlamePanel.h
+    panels/PreviewPrompt.cpp
+    panels/PreviewPrompt.h
     panels/RemotesDialog.cpp
     panels/OperationBanner.cpp
     panels/RebaseDialog.cpp
@@ -30,10 +38,22 @@ add_library(gity_ui STATIC
     panels/AccountsPanel.cpp
     panels/Confirm.cpp
     panels/SettingsDialog.cpp
+    panels/SwitchDialogs.cpp
+    panels/SwitchDialogs.h
     panels/CommitDetailPanel.cpp
     panels/CommitDetailPanel.h
     panels/RefsSidebar.cpp
     panels/RefsSidebar.h
+    conflict/ConflictDocument.cpp
+    conflict/ConflictDocument.h
+    conflict/ConflictEditor.cpp
+    conflict/ConflictEditor.h
+    conflict/ConflictWindow.cpp
+    conflict/ConflictWindow.h
+    conflict/MergePane.cpp
+    conflict/MergePane.h
+    highlight/SyntaxHighlight.cpp
+    highlight/SyntaxHighlight.h
     model/HistoryModel.cpp
     model/HistoryModel.h
     theme/Theme.cpp
@@ -55,3 +75,19 @@ target_link_libraries(gity_ui
     PUBLIC Qt6::Widgets
     PRIVATE gity::warnings
 )
+
+# Syntax highlighting, when KDE's KSyntaxHighlighting is there to do it. Not
+# required: without it the code views draw plain text, as they always have,
+# so a platform without the library — the CI builds that install Qt alone —
+# still builds and works.
+option(GITY_SYNTAX_HIGHLIGHTING "Colour code with KSyntaxHighlighting when it is found" ON)
+if(GITY_SYNTAX_HIGHLIGHTING)
+    find_package(KF6SyntaxHighlighting QUIET)
+endif()
+if(GITY_SYNTAX_HIGHLIGHTING AND KF6SyntaxHighlighting_FOUND)
+    message(STATUS "Syntax highlighting: KSyntaxHighlighting ${KF6SyntaxHighlighting_VERSION}")
+    target_link_libraries(gity_ui PRIVATE KF6::SyntaxHighlighting)
+    target_compile_definitions(gity_ui PRIVATE GITY_HAVE_SYNTAX_HIGHLIGHTING)
+else()
+    message(STATUS "Syntax highlighting: off — code is drawn plain")
+endif()

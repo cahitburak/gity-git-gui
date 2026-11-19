@@ -50,8 +50,8 @@ struct NetworkOutcome {
 
 /// One step of a transfer, as git reports it while it works.
 struct NetworkProgress {
-    std::string phase;  ///< "Receiving objects", "Resolving deltas", ...
-    int percent = -1;   ///< -1 when the phase reports a count but no percentage.
+    std::string phase; ///< "Receiving objects", "Resolving deltas", ...
+    int percent = -1;  ///< -1 when the phase reports a count but no percentage.
 };
 
 /// Recognises a git progress line. Returns false for anything else, which is

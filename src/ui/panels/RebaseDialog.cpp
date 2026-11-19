@@ -8,11 +8,11 @@
 
 #include <QApplication>
 #include <QCoreApplication>
-#include <QKeyEvent>
 #include <QDialogButtonBox>
 #include <QFontDatabase>
 #include <QHBoxLayout>
 #include <QHeaderView>
+#include <QKeyEvent>
 #include <QLabel>
 #include <QPainter>
 #include <QPlainTextEdit>
@@ -167,6 +167,8 @@ RebaseDialog::RebaseDialog(session::RepoSession& session, const QString& baseOid
            "the commit shown below them.")
             .arg(baseOid.left(8), baseSubject),
         this);
+    // Commit subjects, which may hold "<".
+    setPlainText(intro);
     intro->setWordWrap(true);
     layout->addWidget(intro);
 
@@ -189,19 +191,19 @@ RebaseDialog::RebaseDialog(session::RepoSession& session, const QString& baseOid
     controls->addStretch(1);
     for (const ActionChoice& choice : kChoices) {
         const git::RebaseAction action = choice.action;
-        auto* button = new QPushButton(action == git::RebaseAction::Reword
-                                           ? tr("Reword…")
-                                           : QCoreApplication::translate(
-                                                 "gity::ui::RebaseDialog", choice.label),
-                                       this);
+        auto* button = new QPushButton(
+            action == git::RebaseAction::Reword
+                ? tr("Reword…")
+                : QCoreApplication::translate("gity::ui::RebaseDialog", choice.label),
+            this);
         // Styled by gity.qss from this property — the same chip colours as
         // the list, so the button says how much it changes before it is
         // pressed.
         button->setProperty("gityChip", chipKind(action));
         button->setToolTip(
-            QStringLiteral("%1  (%2)").arg(
-                QCoreApplication::translate("gity::ui::RebaseDialog", choice.explanation),
-                QString::fromLatin1(choice.key)));
+            QStringLiteral("%1  (%2)")
+                .arg(QCoreApplication::translate("gity::ui::RebaseDialog", choice.explanation),
+                     QString::fromLatin1(choice.key)));
         if (action == git::RebaseAction::Reword) {
             connect(button, &QPushButton::clicked, this, &RebaseDialog::reword);
         } else {
@@ -209,7 +211,6 @@ RebaseDialog::RebaseDialog(session::RepoSession& session, const QString& baseOid
                     [this, action] { applyActionToSelection(action); });
         }
         controls->addWidget(button);
-
     }
     // The letters `git rebase -i` uses — p, r, e, s, f, d — taken on the
     // list itself, before its type-to-search can claim the letter.
@@ -224,6 +225,7 @@ RebaseDialog::RebaseDialog(session::RepoSession& session, const QString& baseOid
     auto* changesLayout = new QVBoxLayout(changes);
     changesLayout->setContentsMargins(0, 6, 0, 0);
     changesTitle_ = new QLabel(tr("Select a commit to see its changes."), changes);
+    setPlainText(changesTitle_);
     applyRole(changesTitle_, QStringLiteral("muted"));
     changesLayout->addWidget(changesTitle_);
     auto* changesSplit = new QSplitter(Qt::Horizontal, changes);
@@ -253,11 +255,14 @@ RebaseDialog::RebaseDialog(session::RepoSession& session, const QString& baseOid
     layout->addWidget(split, 1);
 
     status_ = new QLabel(this);
+    setPlainText(status_);
     status_->setWordWrap(true);
     layout->addWidget(status_);
 
     auto* buttons = new QDialogButtonBox(QDialogButtonBox::Cancel, this);
     start_ = buttons->addButton(tr("Start rebase"), QDialogButtonBox::AcceptRole);
+    start_->setToolTip(tr("Rewrite these commits as listed. Edit ▸ Undo puts the branch "
+                          "back.\n\ngit rebase -i <base>"));
     applyRole(start_, QStringLiteral("primary"));
     layout->addWidget(buttons);
     connect(buttons, &QDialogButtonBox::accepted, this, &QDialog::accept);
@@ -350,15 +355,15 @@ void RebaseDialog::setCommits(const QStringList& oids, const QStringList& subjec
 
 void RebaseDialog::setAction(QTreeWidgetItem* item, git::RebaseAction action) {
     item->setData(0, kActionRole, static_cast<int>(action));
-    item->setText(0, QCoreApplication::translate("gity::ui::RebaseDialog",
-                                                 choiceFor(action).label));
+    item->setText(0,
+                  QCoreApplication::translate("gity::ui::RebaseDialog", choiceFor(action).label));
     // The subject shows what the commit will say afterwards: the new message
     // for a reword, the old one otherwise.
     const QString subject = item->data(0, kSubjectRole).toString();
     const QString reworded = item->data(0, kMessageRole).toString().section(QChar('\n'), 0, 0);
     const bool showReworded = action == git::RebaseAction::Reword && !reworded.isEmpty();
     item->setText(2, showReworded ? reworded : subject);
-    item->setToolTip(2, showReworded ? tr("Was: %1").arg(subject) : QString());
+    item->setToolTip(2, showReworded ? plainToolTip(tr("Was: %1").arg(subject)) : QString());
 
     const QColor colour = action == git::RebaseAction::Drop ? tokens::textDim : tokens::textDefault;
     for (int column = 1; column < 3; ++column) {
@@ -397,8 +402,8 @@ void RebaseDialog::reword() {
     auto* edit = new QPlainTextEdit(message, &dialog);
     edit->setFont(QFontDatabase::systemFont(QFontDatabase::FixedFont));
     layout->addWidget(edit, 1);
-    auto* note = new QLabel(tr("The first line is the summary. The changes stay as they are."),
-                            &dialog);
+    auto* note =
+        new QLabel(tr("The first line is the summary. The changes stay as they are."), &dialog);
     applyRole(note, QStringLiteral("note"));
     layout->addWidget(note);
     auto* buttons = new QDialogButtonBox(QDialogButtonBox::Cancel, &dialog);
@@ -431,8 +436,8 @@ void RebaseDialog::showCurrentChanges() {
         return;
     }
     shownOid_ = item->data(0, kOidRole).toString();
-    changesTitle_->setText(tr("Changes in %1 — %2")
-                               .arg(shownOid_.left(8), item->data(0, kSubjectRole).toString()));
+    changesTitle_->setText(
+        tr("Changes in %1 — %2").arg(shownOid_.left(8), item->data(0, kSubjectRole).toString()));
     files_->setFiles({});
     diff_->clearDiff();
     diff_->setPlaceholder(tr("Loading…"));

@@ -1,5 +1,6 @@
 #include "OperationState.h"
 
+#include <cstdio>
 #include <filesystem>
 
 namespace gity::git {
@@ -20,7 +21,7 @@ Operation classifyOperation(const OperationMarkers& markers) {
         return Operation::RebaseInteractive;
     }
     if (markers.rebaseApplyDir) {
-        return Operation::RebaseApply;
+        return markers.rebaseApplyIsAm ? Operation::Am : Operation::RebaseApply;
     }
 
     // Then the sequencer operations. These are mutually exclusive in practice;
@@ -33,6 +34,12 @@ Operation classifyOperation(const OperationMarkers& markers) {
     }
     if (markers.mergeHead) {
         return Operation::Merge;
+    }
+    if (markers.sequencerPicks) {
+        return Operation::CherryPick;
+    }
+    if (markers.sequencerReverts) {
+        return Operation::Revert;
     }
 
     // Last: a bisect can be running underneath any of the above, and while it
@@ -56,6 +63,23 @@ Operation detectOperation(const std::string& gitDir) {
     markers.rebaseMergeDir = fs::is_directory(root / "rebase-merge", error);
     markers.rebaseApplyDir = fs::is_directory(root / "rebase-apply", error);
     markers.bisectLog = fs::exists(root / "BISECT_LOG", error);
+    markers.rebaseApplyIsAm = fs::exists(root / "rebase-apply" / "applying", error);
+
+    // The first step left in the sequencer's todo says which it is.
+    if (std::FILE* todo = std::fopen((root / "sequencer" / "todo").string().c_str(), "rb");
+        todo != nullptr) {
+        char line[256];
+        while (std::fgets(line, sizeof(line), todo) != nullptr) {
+            const std::string_view text(line);
+            if (text.empty() || text[0] == '#' || text[0] == '\n') {
+                continue;
+            }
+            markers.sequencerPicks = text.rfind("pick", 0) == 0 || text.rfind("p ", 0) == 0;
+            markers.sequencerReverts = text.rfind("revert", 0) == 0;
+            break;
+        }
+        std::fclose(todo);
+    }
     return classifyOperation(markers);
 }
 
@@ -72,6 +96,8 @@ std::string_view operationNoun(Operation operation) {
         return "a rebase";
     case Operation::Bisect:
         return "a bisect";
+    case Operation::Am:
+        return "applying patches";
     case Operation::None:
         break;
     }
@@ -89,6 +115,8 @@ std::string_view operationCommand(Operation operation) {
     case Operation::RebaseInteractive:
     case Operation::RebaseApply:
         return "rebase";
+    case Operation::Am:
+        return "am";
     case Operation::Bisect:
     case Operation::None:
         break;

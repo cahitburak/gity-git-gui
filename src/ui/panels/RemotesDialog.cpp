@@ -1,5 +1,7 @@
 #include "RemotesDialog.h"
 
+#include "core/git/RemoteUrl.h"
+
 #include "ui/panels/Confirm.h"
 
 #include "core/git/Remotes.h"
@@ -25,8 +27,7 @@ QString describe(gity::git::RemoteNameProblem problem) {
     case gity::git::RemoteNameProblem::Empty:
         return QCoreApplication::translate("RemotesDialog", "A remote needs a name.");
     case gity::git::RemoteNameProblem::Whitespace:
-        return QCoreApplication::translate("RemotesDialog",
-                                           "Remote names cannot contain spaces.");
+        return QCoreApplication::translate("RemotesDialog", "Remote names cannot contain spaces.");
     case gity::git::RemoteNameProblem::IllegalCharacter:
         return QCoreApplication::translate(
             "RemotesDialog", "git stores a remote as a ref namespace, and that name contains "
@@ -61,6 +62,8 @@ RemotesDialog::RemotesDialog(session::RepoSession& session, QWidget* parent)
     layout->addWidget(tree_, 1);
 
     error_ = new QLabel(this);
+    // git's own words.
+    setPlainText(error_);
     error_->setWordWrap(true);
     applyRole(error_, QStringLiteral("error"));
     error_->setVisible(false);
@@ -71,6 +74,10 @@ RemotesDialog::RemotesDialog(session::RepoSession& session, QWidget* parent)
     rename_ = new QPushButton(tr("Rename…"), this);
     editUrl_ = new QPushButton(tr("Change URL…"), this);
     remove_ = new QPushButton(tr("Remove"), this);
+    add->setToolTip(QStringLiteral("git remote add <name> <url>"));
+    rename_->setToolTip(QStringLiteral("git remote rename <old> <new>"));
+    editUrl_->setToolTip(QStringLiteral("git remote set-url <name> <url>"));
+    remove_->setToolTip(QStringLiteral("git remote remove <name>"));
     buttonRow->addWidget(add);
     buttonRow->addWidget(rename_);
     buttonRow->addWidget(editUrl_);
@@ -112,7 +119,8 @@ void RemotesDialog::setRemotes(session::RemoteListPtr remotes) {
     for (const auto& remote : *remotes_) {
         auto* item = new QTreeWidgetItem(tree_);
         item->setText(0, QString::fromStdString(remote.name));
-        item->setText(1, QString::fromStdString(remote.fetchUrl));
+        // Masked: a URL can carry a token, and this list is on screen.
+        item->setText(1, QString::fromStdString(git::maskUrlCredentials(remote.fetchUrl)));
         item->setFont(1, mono);
 
         if (remote.pushesElsewhere()) {
@@ -120,7 +128,7 @@ void RemotesDialog::setRemotes(session::RemoteListPtr remotes) {
             // worth noticing on this screen.
             auto* push = new QTreeWidgetItem(item);
             push->setText(0, tr("pushes to"));
-            push->setText(1, QString::fromStdString(remote.pushUrl));
+            push->setText(1, QString::fromStdString(git::maskUrlCredentials(remote.pushUrl)));
             push->setFont(1, mono);
             push->setForeground(0, tokens::semanticWarn);
             item->setExpanded(true);
@@ -156,8 +164,7 @@ QString RemotesDialog::askForName(const QString& title, const QString& initial) 
     QString name = initial;
     while (true) {
         bool accepted = false;
-        name = QInputDialog::getText(this, title, tr("Name"), QLineEdit::Normal, name,
-                                     &accepted)
+        name = QInputDialog::getText(this, title, tr("Name"), QLineEdit::Normal, name, &accepted)
                    .trimmed();
         if (!accepted) {
             return {};
@@ -181,10 +188,9 @@ void RemotesDialog::addRemote() {
         return;
     }
     bool accepted = false;
-    const QString url =
-        QInputDialog::getText(this, tr("Add Remote"), tr("URL"), QLineEdit::Normal,
-                              QString(), &accepted)
-            .trimmed();
+    const QString url = QInputDialog::getText(this, tr("Add Remote"), tr("URL"), QLineEdit::Normal,
+                                              QString(), &accepted)
+                            .trimmed();
     if (!accepted || url.isEmpty()) {
         return;
     }
@@ -212,20 +218,24 @@ void RemotesDialog::editUrlOfSelected() {
     if (name.isEmpty() || !remotes_) {
         return;
     }
-    QString current;
+    std::string current;
     for (const auto& remote : *remotes_) {
         if (QString::fromStdString(remote.name) == name) {
-            current = QString::fromStdString(remote.fetchUrl);
+            current = remote.fetchUrl;
             break;
         }
     }
+    // The field shows the URL masked, and a secret left as *** is put back
+    // afterwards — editing the path must not save "***" over the token.
+    const QString shown = QString::fromStdString(git::maskUrlCredentials(current));
     bool accepted = false;
-    const QString url = QInputDialog::getText(this, tr("Change URL"), tr("URL for %1").arg(name),
-                                              QLineEdit::Normal, current, &accepted)
-                            .trimmed();
-    if (!accepted || url.isEmpty() || url == current) {
+    const QString edited =
+        enterText(this, tr("Change URL"), tr("URL for %1").arg(name), shown, &accepted).trimmed();
+    if (!accepted || edited.isEmpty() || edited == shown) {
         return;
     }
+    const QString url =
+        QString::fromStdString(git::unmaskUrlCredentials(edited.toStdString(), current));
     changed_ = true;
     session_.requestSetRemoteUrl(name, url);
 }
@@ -238,13 +248,10 @@ void RemotesDialog::removeSelected() {
     }
     // Confirmed, because it takes the remote's tracking refs with it — the
     // commits survive, but the branches you were reading them through do not.
-    const auto answer = QMessageBox::question(
-        this, tr("Remove Remote"),
-        tr("Remove \"%1\"?\n\nIts remote-tracking branches go with it. Nothing is deleted on "
-           "the server, and no commit of yours is lost.")
-            .arg(name),
-        QMessageBox::Yes | QMessageBox::No, QMessageBox::No);
-    if (answer != QMessageBox::Yes) {
+    if (!confirmDestructive(this, tr("Remove remote?"), tr("Remove \"%1\"?").arg(name),
+                            tr("Its remote-tracking branches go with it. Nothing is deleted on "
+                               "the server, and no commit of yours is lost."),
+                            tr("Remove Remote"))) {
         return;
     }
     changed_ = true;

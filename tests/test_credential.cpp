@@ -23,8 +23,8 @@ TEST(Credential, ThePathIsIncludedOnlyWhenAskedFor) {
 
 TEST(Credential, AUsernameInTheUrlSelectsTheAccountButAPasswordIsNotCarried) {
     Credential c;
-    ASSERT_TRUE(credentialForUrl("https://someone:secret@GitLab.example.com:8443/g/r.git", false,
-                                 &c));
+    ASSERT_TRUE(
+        credentialForUrl("https://someone:secret@GitLab.example.com:8443/g/r.git", false, &c));
     EXPECT_EQ(c.username, "someone");
     EXPECT_TRUE(c.password.empty());
     EXPECT_EQ(c.host, "gitlab.example.com:8443");
@@ -68,4 +68,34 @@ TEST(Credential, ANewlineCannotBeWritten) {
     EXPECT_FALSE(isWritable(c));
     c.password = "fine";
     EXPECT_TRUE(isWritable(c));
+}
+
+TEST(Credential, AnEncodedNewlineInTheUrlCannotAddAField) {
+    // Decoded, the username would be three lines, and `git credential fill`
+    // would read the second and third as the host and user to answer for.
+    const std::string url = "https://x%0Ahost=github.com%0Ausername=victim@evil.example/repo.git";
+    Credential c;
+    EXPECT_FALSE(credentialForUrl(url, false, &c));
+    EXPECT_FALSE(credentialForUrl(url, false, nullptr));
+    EXPECT_FALSE(credentialForUrl("https://x%0D@host/r", false, nullptr));
+    EXPECT_FALSE(credentialForUrl("https://x%00y@host/r", false, nullptr));
+    EXPECT_FALSE(credentialForUrl("https://host/a\nhost=other/r", true, nullptr));
+}
+
+TEST(Credential, AnUnwritableRecordSerializesToNothingGitWillAct) {
+    // Written anyway, the smuggled line would be a field; the blank line on
+    // its own is a request without a host, which git refuses.
+    Credential c;
+    c.protocol = "https";
+    c.host = "evil.example";
+    c.username = "x\nhost=github.com";
+    EXPECT_EQ(serializeCredential(c), "\n");
+}
+
+TEST(Credential, AnEmailUsernameIsDecodedAsGitDecodesIt) {
+    // remoteUrlWithUser writes me%40corp.com; git stores and asks for the
+    // credential under me@corp.com.
+    Credential c;
+    ASSERT_TRUE(credentialForUrl("https://me%40corp.com@github.com/o/r.git", false, &c));
+    EXPECT_EQ(c.username, "me@corp.com");
 }

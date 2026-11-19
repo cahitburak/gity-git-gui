@@ -46,8 +46,8 @@ AskpassRequest parseAskpassPrompt(std::string_view prompt) {
             if (start != std::string::npos) {
                 const std::size_t from = start + 5;
                 const std::size_t end = text.find(' ', from);
-                request.subject = std::string(prompt.substr(
-                    from, end == std::string::npos ? std::string::npos : end - from));
+                request.subject = std::string(
+                    prompt.substr(from, end == std::string::npos ? std::string::npos : end - from));
             }
         }
         return request;
@@ -64,8 +64,7 @@ AskpassRequest parseAskpassPrompt(std::string_view prompt) {
         request.kind = AskpassKind::Password;
         return request;
     }
-    if (text.find("username") != std::string::npos ||
-        text.find("login") != std::string::npos) {
+    if (text.find("username") != std::string::npos || text.find("login") != std::string::npos) {
         request.kind = AskpassKind::Username;
         return request;
     }

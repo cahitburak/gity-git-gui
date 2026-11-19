@@ -32,11 +32,12 @@ class RebaseDialog : public QDialog {
     Q_OBJECT
 
 public:
-    RebaseDialog(session::RepoSession& session, const QString& baseOid,
-                 const QString& baseSubject, QWidget* parent = nullptr);
+    RebaseDialog(session::RepoSession& session, const QString& baseOid, const QString& baseSubject,
+                 QWidget* parent = nullptr);
 
     /// The instruction list, newest first. Empty until the dialog is accepted.
     [[nodiscard]] std::vector<git::RebaseStep> steps() const;
+
     [[nodiscard]] QString baseOid() const { return baseOid_; }
 
 protected:

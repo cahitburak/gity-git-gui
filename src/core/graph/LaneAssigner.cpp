@@ -95,8 +95,7 @@ void LaneAssigner::append(CommitKey key, std::span<const CommitKey> parents, Gra
     // 5. Band width is whatever this row's own dot and edges touch.
     auto laneCount = static_cast<std::uint16_t>(myLane + 1);
     for (std::size_t e = edgeBegin; e < out.edges.size(); ++e) {
-        laneCount = std::max({laneCount,
-                              static_cast<std::uint16_t>(out.edges[e].from + 1),
+        laneCount = std::max({laneCount, static_cast<std::uint16_t>(out.edges[e].from + 1),
                               static_cast<std::uint16_t>(out.edges[e].to + 1)});
     }
 

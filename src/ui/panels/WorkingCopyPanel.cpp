@@ -7,35 +7,59 @@
 #include "ui/diffview/DiffView.h"
 #include "ui/panels/WorkingCopyDelegate.h"
 #include "ui/theme/Theme.h"
-#include "ui/theme/ToolbarIcons.h"
 #include "ui/theme/Tokens.h"
+#include "ui/theme/ToolbarIcons.h"
 
 #include <QApplication>
-#include <algorithm>
+#include <QCheckBox>
 #include <QClipboard>
 #include <QDesktopServices>
 #include <QDir>
-#include <QHBoxLayout>
-#include <QMouseEvent>
-#include <QUrl>
-#include <QHeaderView>
 #include <QFileInfo>
-#include <QMenu>
+#include <QHBoxLayout>
+#include <QHeaderView>
 #include <QLabel>
-#include <QCheckBox>
+#include <QMenu>
 #include <QMessageBox>
+#include <QMouseEvent>
 #include <QPlainTextEdit>
 #include <QPushButton>
 #include <QSignalBlocker>
 #include <QSplitter>
 #include <QTreeWidget>
+#include <QUrl>
 #include <QVBoxLayout>
+#include <algorithm>
 
 namespace gity::ui {
 namespace {
 
 QChar letterFor(const git::StatusEntry& entry, bool staged) {
     return QChar(git::stateLetter(staged ? entry.staged : entry.unstaged));
+}
+
+/// The state as a word, for a screen reader: the painted row shows a letter
+/// and a coloured chip, which say nothing read aloud.
+QString stateWord(git::FileState state) {
+    switch (state) {
+    case git::FileState::Added:
+        return WorkingCopyPanel::tr("added");
+    case git::FileState::Modified:
+        return WorkingCopyPanel::tr("modified");
+    case git::FileState::Deleted:
+        return WorkingCopyPanel::tr("deleted");
+    case git::FileState::Renamed:
+        return WorkingCopyPanel::tr("renamed");
+    case git::FileState::TypeChanged:
+        return WorkingCopyPanel::tr("type changed");
+    case git::FileState::Untracked:
+        return WorkingCopyPanel::tr("new, untracked");
+    case git::FileState::Ignored:
+        return WorkingCopyPanel::tr("ignored");
+    case git::FileState::Unchanged:
+        break;
+    }
+    return {};
 }
 
 } // namespace
@@ -134,6 +158,8 @@ WorkingCopyPanel::WorkingCopyPanel(QWidget* parent) : QWidget(parent) {
     amend_ = new QCheckBox(tr("Amend"), this);
 
     notice_ = new QLabel(this);
+    // A commit's summary and git's own errors are shown here.
+    setPlainText(notice_);
     notice_->setWordWrap(true);
     notice_->setVisible(false);
 
@@ -184,8 +210,8 @@ WorkingCopyPanel::WorkingCopyPanel(QWidget* parent) : QWidget(parent) {
     split->addWidget(rightColumn);
     split->setStretchFactor(0, 0);
     split->setStretchFactor(1, 1);
-    split->setSizes({tokens::panesWorkingCopyList,
-                     tokens::windowWidth - tokens::panesWorkingCopyList});
+    split->setSizes(
+        {tokens::panesWorkingCopyList, tokens::windowWidth - tokens::panesWorkingCopyList});
     // Small floors, and no snapping shut (owner's request, 2026-09-28).
     leftColumn->setMinimumWidth(160);
     rightColumn->setMinimumWidth(120);
@@ -202,6 +228,18 @@ WorkingCopyPanel::WorkingCopyPanel(QWidget* parent) : QWidget(parent) {
         if (!selected.isEmpty()) {
             viewingStaged_ = staged;
             diff_->setShowingStaged(staged);
+            // A conflict has no diff to stage from; what it needs is the
+            // conflict editor, so the pane says how to get there.
+            const git::StatusEntry* entry =
+                status_ ? status_->find(selected.first().toStdString()) : nullptr;
+            if (entry != nullptr && entry->conflicted) {
+                diff_->clearDiff();
+                diff_->setPlaceholder(tr("%1 is conflicted. Double-click it to open the conflict "
+                                         "editor, or right-click it to keep one side whole.")
+                                          .arg(QFileInfo(selected.first()).fileName()));
+                return;
+            }
+            diff_->setPlaceholder(tr("Select a file to see its changes"));
             emit diffRequested(selected.first(), staged);
         }
     };
@@ -250,8 +288,17 @@ WorkingCopyPanel::WorkingCopyPanel(QWidget* parent) : QWidget(parent) {
             [this] { emit stageRequested(withRenameSources(selectionOf(unstaged_), false)); });
     connect(unstageButton_, &QPushButton::clicked, this,
             [this] { emit unstageRequested(withRenameSources(selectionOf(staged_), true)); });
-    connect(unstaged_, &QTreeWidget::itemDoubleClicked, this,
-            [this] { emit stageRequested(withRenameSources(selectionOf(unstaged_), false)); });
+    connect(unstaged_, &QTreeWidget::itemDoubleClicked, this, [this](QTreeWidgetItem* item) {
+        // A conflicted file opens in the conflict editor: staging it as it
+        // stands would mark it resolved with git's markers still inside.
+        const QString path = item != nullptr ? item->data(0, PathRole).toString() : QString();
+        const git::StatusEntry* entry = status_ ? status_->find(path.toStdString()) : nullptr;
+        if (entry != nullptr && entry->conflicted) {
+            emit resolveRequested(path);
+            return;
+        }
+        emit stageRequested(withRenameSources(selectionOf(unstaged_), false));
+    });
     connect(staged_, &QTreeWidget::itemDoubleClicked, this,
             [this] { emit unstageRequested(withRenameSources(selectionOf(staged_), true)); });
 
@@ -261,13 +308,12 @@ WorkingCopyPanel::WorkingCopyPanel(QWidget* parent) : QWidget(parent) {
             stageSelectionButton_->setText(viewingStaged_ ? tr("Unstage selected lines")
                                                           : tr("Stage selected lines"));
         } else {
-            stageSelectionButton_->setText(
-                viewingStaged_ ? tr("Unstage %n selected line(s)", nullptr, count)
-                               : tr("Stage %n selected line(s)", nullptr, count));
+            stageSelectionButton_->setText(viewingStaged_
+                                               ? tr("Unstage %n selected line(s)", nullptr, count)
+                                               : tr("Stage %n selected line(s)", nullptr, count));
         }
     });
-    connect(diff_, &DiffView::stageSelectionRequested, stageSelectionButton_,
-            &QPushButton::click);
+    connect(diff_, &DiffView::stageSelectionRequested, stageSelectionButton_, &QPushButton::click);
     stageSelectionButton_->setToolTip(
         tr("From the keyboard, in the diff: ↑/↓ move, Shift extends, Space selects a line, "
            "Enter stages the selection or the hunk, Delete discards the hunk."));
@@ -280,7 +326,7 @@ WorkingCopyPanel::WorkingCopyPanel(QWidget* parent) : QWidget(parent) {
         const std::string patch =
             git::buildPartialPatch(*current, diff_->selection(), viewingStaged_);
         if (!patch.empty()) {
-            emit applyPatchRequested(QString::fromStdString(patch));
+            emit applyPatchRequested(QByteArray::fromStdString(patch));
         }
     });
 
@@ -294,7 +340,7 @@ WorkingCopyPanel::WorkingCopyPanel(QWidget* parent) : QWidget(parent) {
         one.insert(lineIndex);
         const std::string patch = git::buildPartialPatch(*current, one, viewingStaged_);
         if (!patch.empty()) {
-            emit applyPatchRequested(QString::fromStdString(patch));
+            emit applyPatchRequested(QByteArray::fromStdString(patch));
         }
     });
 
@@ -303,10 +349,10 @@ WorkingCopyPanel::WorkingCopyPanel(QWidget* parent) : QWidget(parent) {
         if (current == nullptr) {
             return;
         }
-        const std::string patch = git::buildPartialPatch(
-            *current, git::linesOfHunk(*current, hunkIndex), viewingStaged_);
+        const std::string patch =
+            git::buildPartialPatch(*current, git::linesOfHunk(*current, hunkIndex), viewingStaged_);
         if (!patch.empty()) {
-            emit applyPatchRequested(QString::fromStdString(patch));
+            emit applyPatchRequested(QByteArray::fromStdString(patch));
         }
     });
 
@@ -315,31 +361,35 @@ WorkingCopyPanel::WorkingCopyPanel(QWidget* parent) : QWidget(parent) {
         if (current == nullptr) {
             return;
         }
-        // Discard throws away work with no reflog to recover it from, so it
-        // asks first. Staging never does — it is reversible.
-        if (!confirmDestructive(
-                this, tr("Discard hunk?"),
-                tr("Discard this hunk from %1?").arg(QString::fromStdString(current->path)),
-                tr("This rewrites the file on disk and cannot be undone — there is no reflog "
-                   "for an uncommitted edit."),
-                tr("Discard Hunk"))) {
+        // Everything the discard needs is taken from the diff *before* the
+        // dialog. The dialog runs an event loop, and a status refresh arriving
+        // meanwhile replaces the diff: the pointer would dangle, and the hunk
+        // index could name a different hunk.
+        const std::string patch =
+            git::buildPartialPatch(*current, git::linesOfHunk(*current, hunkIndex), true);
+        const QString path = QString::fromStdString(current->path);
+        if (patch.empty()) {
             return;
         }
-        const std::string patch = git::buildPartialPatch(
-            *current, git::linesOfHunk(*current, hunkIndex), true);
-        if (!patch.empty()) {
-            emit discardHunkRequested(QString::fromStdString(patch));
+        // Discard rewrites the file on disk, so it asks first. Staging never
+        // does — it is reversible.
+        if (!confirmDestructive(this, tr("Discard hunk?"),
+                                tr("Discard this hunk from %1?").arg(path),
+                                tr("This rewrites the file on disk. Edit ▸ Undo puts it back."),
+                                tr("Discard Hunk"))) {
+            return;
         }
+        // Built from what was on screen; if the file changed meanwhile, git
+        // refuses the stale patch rather than discarding the wrong lines.
+        emit discardHunkRequested(QByteArray::fromStdString(patch));
     });
 
-    connect(message_, &QPlainTextEdit::textChanged, this,
-            &WorkingCopyPanel::updateCommitButton);
+    connect(message_, &QPlainTextEdit::textChanged, this, &WorkingCopyPanel::updateCommitButton);
     // Amending can be only a new message, so ticking it changes whether the
     // button needs anything staged.
     connect(amend_, &QCheckBox::toggled, this, &WorkingCopyPanel::updateCommitButton);
-    connect(commitButton_, &QPushButton::clicked, this, [this] {
-        emit commitRequested(message_->toPlainText(), amend_->isChecked());
-    });
+    connect(commitButton_, &QPushButton::clicked, this,
+            [this] { emit commitRequested(message_->toPlainText(), amend_->isChecked()); });
 }
 
 QTreeWidget* WorkingCopyPanel::buildList(const QString& title) {
@@ -456,6 +506,14 @@ void WorkingCopyPanel::fillList(QTreeWidget* list, bool staged) {
         if (!notes.isEmpty()) {
             item->setData(0, SubtitleRole, notes.join(QStringLiteral(" · ")));
         }
+        // Everything the painted row shows, in words, for assistive
+        // technology: the delegate paints from custom roles only.
+        QStringList spoken{path};
+        spoken << (primary->conflicted ? tr("conflicted")
+                                       : stateWord(staged ? primary->staged : primary->unstaged));
+        spoken += notes;
+        item->setData(0, Qt::AccessibleTextRole, spoken.join(QStringLiteral(", ")));
+        item->setData(0, Qt::ToolTipRole, plainToolTip(spoken.join(QStringLiteral(", "))));
     }
 
     QLabel* header = staged ? stagedHeader_ : unstagedHeader_;
@@ -485,8 +543,8 @@ bool WorkingCopyPanel::eventFilter(QObject* watched, QEvent* event) {
             return false;
         }
         // Generous: the box is 13px, and a click just beside it meant it.
-        const QRect box = WorkingCopyDelegate::checkboxRect(list->visualItemRect(item))
-                              .adjusted(-8, -8, 6, 8);
+        const QRect box =
+            WorkingCopyDelegate::checkboxRect(list->visualItemRect(item)).adjusted(-8, -8, 6, 8);
         if (!box.contains(mouse->position().toPoint())) {
             return false;
         }
@@ -536,8 +594,25 @@ void WorkingCopyPanel::showRowMenu(QTreeWidget* list, const QPoint& where) {
     const QStringList targets = selected.isEmpty() ? QStringList{path} : selected;
     const int count = static_cast<int>(targets.size());
     const bool single = count == 1;
-    const QString subject = single ? QFileInfo(targets.first()).fileName()
-                                   : tr("%n file(s)", nullptr, count);
+    const QString subject =
+        single ? QFileInfo(targets.first()).fileName() : tr("%n file(s)", nullptr, count);
+
+    // A conflict is resolved first, and the menu leads with it.
+    QAction* resolve = nullptr;
+    QAction* takeOurs = nullptr;
+    QAction* takeTheirs = nullptr;
+    if (single) {
+        const git::StatusEntry* entry = status_ ? status_->find(path.toStdString()) : nullptr;
+        if (entry != nullptr && entry->conflicted) {
+            resolve = menu.addAction(tr("Resolve in Conflict Editor…"));
+            QFont bold = resolve->font();
+            bold.setBold(true);
+            resolve->setFont(bold);
+            takeOurs = menu.addAction(tr("Resolve with Ours"));
+            takeTheirs = menu.addAction(tr("Resolve with Theirs"));
+            menu.addSeparator();
+        }
+    }
 
     QAction* stage = staged ? menu.addAction(tr("Unstage %1").arg(subject))
                             : menu.addAction(tr("Stage %1").arg(subject));
@@ -545,6 +620,22 @@ void WorkingCopyPanel::showRowMenu(QTreeWidget* list, const QPoint& where) {
     QAction* discard =
         menu.addAction(glyph(Glyph::Discard), tr("Discard Changes to %1…").arg(subject));
     menu.addSeparator();
+
+    // History and blame need the file to have a past: not one that is new,
+    // and not one deleted from the disk.
+    QAction* history = nullptr;
+    QAction* blame = nullptr;
+    if (single) {
+        const git::StatusEntry* entry = status_ ? status_->find(path.toStdString()) : nullptr;
+        const bool isNew =
+            entry != nullptr && (entry->isUntracked() || entry->staged == git::FileState::Added);
+        history = menu.addAction(tr("Show History of %1").arg(subject));
+        blame = menu.addAction(tr("Blame %1").arg(subject));
+        history->setEnabled(!isNew);
+        blame->setEnabled(!isNew && !workdir_.isEmpty() &&
+                          QFileInfo::exists(QDir(workdir_).filePath(path)));
+        menu.addSeparator();
+    }
 
     QAction* open = nullptr;
     QAction* reveal = nullptr;
@@ -554,8 +645,8 @@ void WorkingCopyPanel::showRowMenu(QTreeWidget* list, const QPoint& where) {
         // A deleted file has nothing to open.
         open->setEnabled(QFileInfo::exists(QDir(workdir_).filePath(path)));
     }
-    QAction* copyPath = menu.addAction(glyph(Glyph::Copy), single ? tr("Copy Path")
-                                                                  : tr("Copy Paths"));
+    QAction* copyPath =
+        menu.addAction(glyph(Glyph::Copy), single ? tr("Copy Path") : tr("Copy Paths"));
     QAction* copyFull = workdir_.isEmpty()
                             ? nullptr
                             : menu.addAction(single ? tr("Copy Full Path") : tr("Copy Full Paths"));
@@ -573,9 +664,9 @@ void WorkingCopyPanel::showRowMenu(QTreeWidget* list, const QPoint& where) {
         } else {
             const auto held = locks_ ? git::lockFor(*locks_, path.toStdString()) : std::nullopt;
             if (held) {
-                unlock = menu.addAction(glyph(Glyph::Unlock),
-                                        tr("Unlock — held by %1")
-                                            .arg(QString::fromStdString(held->owner)));
+                unlock = menu.addAction(
+                    glyph(Glyph::Unlock),
+                    tr("Unlock — held by %1").arg(QString::fromStdString(held->owner)));
             } else {
                 lock = menu.addAction(glyph(Glyph::Lock), tr("Lock %1").arg(subject));
             }
@@ -588,19 +679,49 @@ void WorkingCopyPanel::showRowMenu(QTreeWidget* list, const QPoint& where) {
                            : tr("Put these in the next commit."),
                     staged ? QStringLiteral("restore --staged -- <files>")
                            : QStringLiteral("add -- <files>"));
-    describeCommand(stash, tr("Set these files' changes aside, leaving the others. New files "
-                              "go too."),
+    describeCommand(stash,
+                    tr("Set these files' changes aside, leaving the others. New files "
+                       "go too."),
                     QStringLiteral("stash push --include-untracked -- <files>"));
-    describeCommand(discard, tr("Throw away uncommitted changes. New files are deleted. Edit ▸ "
-                                "Undo brings them back."),
+    describeCommand(discard,
+                    tr("Throw away uncommitted changes. New files are deleted. Edit ▸ "
+                       "Undo brings them back."),
                     QStringLiteral("restore --source=HEAD --staged --worktree -- <files>"));
     describeCommand(lock, tr("Tell the team you are editing this file."),
                     QStringLiteral("lfs lock -- %1").arg(path));
     describeCommand(unlock, tr("Release the lock so others can edit it."),
                     QStringLiteral("lfs unlock -- %1").arg(path));
 
+    if (resolve != nullptr) {
+        resolve->setToolTip(tr("Ours, theirs and the result side by side, conflict by conflict."));
+    }
+    describeCommand(takeOurs, tr("Keep our whole version of the file and mark it resolved."),
+                    QStringLiteral("checkout --ours -- %1 · add").arg(path));
+    describeCommand(takeTheirs, tr("Keep their whole version of the file and mark it resolved."),
+                    QStringLiteral("checkout --theirs -- %1 · add").arg(path));
+
     QAction* chosen = menu.exec(list->viewport()->mapToGlobal(where));
     if (chosen == nullptr) {
+        return;
+    }
+    if (chosen == resolve) {
+        emit resolveRequested(path);
+        return;
+    }
+    if (chosen == takeOurs || chosen == takeTheirs) {
+        // The whole file is replaced, and the undo history does not cover
+        // it mid-merge: anything resolved in it by hand would go.
+        const bool ours = chosen == takeOurs;
+        const QString name = QFileInfo(path).fileName();
+        if (confirmDestructive(this, ours ? tr("Resolve with ours?") : tr("Resolve with theirs?"),
+                               ours ? tr("Replace %1 with our whole version?").arg(name)
+                                    : tr("Replace %1 with their whole version?").arg(name),
+                               tr("What the file holds now — conflict markers, and anything "
+                                  "resolved in it by hand — is replaced, and it is marked "
+                                  "resolved. This cannot be undone."),
+                               ours ? tr("Use Ours") : tr("Use Theirs"))) {
+            emit takeSideRequested(path, ours);
+        }
         return;
     }
     if (chosen == stage) {
@@ -644,6 +765,14 @@ void WorkingCopyPanel::showRowMenu(QTreeWidget* list, const QPoint& where) {
         QApplication::clipboard()->setText(lines.join(QChar('\n')));
         return;
     }
+    if (chosen == history) {
+        emit historyRequested(path);
+        return;
+    }
+    if (chosen == blame) {
+        emit blameRequested(path);
+        return;
+    }
     if (chosen == open) {
         QDesktopServices::openUrl(QUrl::fromLocalFile(QDir(workdir_).filePath(path)));
         return;
@@ -661,12 +790,11 @@ void WorkingCopyPanel::showRowMenu(QTreeWidget* list, const QPoint& where) {
         // and it is right to: unlocking announces you are finished with a file
         // you are visibly still editing. Asked here rather than letting the
         // refusal arrive as an error with no offer of what to do about it.
-        const git::StatusEntry* entry =
-            status_ ? status_->find(path.toStdString()) : nullptr;
+        const git::StatusEntry* entry = status_ ? status_->find(path.toStdString()) : nullptr;
         const bool dirty = entry != nullptr && (entry->hasStaged() || entry->hasUnstaged());
         if (dirty) {
-            const auto answer = QMessageBox::question(
-                this, tr("Unlock anyway?"),
+            const auto answer = showPlainMessage(
+                this, QMessageBox::Question, tr("Unlock anyway?"),
                 tr("%1 still has uncommitted changes. Unlocking tells the rest of the team "
                    "you are finished with it, and they may start editing.\n\nCommit or "
                    "discard your changes first if you are not.")
@@ -698,7 +826,13 @@ void WorkingCopyPanel::rebuild() {
     // unstage, discard and lock refreshes, and landing back on the first file
     // each time made working down a long list mean scrolling back to your
     // place after every click.
-    QTreeWidget* focusList = staged_->selectedItems().isEmpty() ? unstaged_ : staged_;
+    // The list whose file the diff is showing, not whichever list still holds
+    // a selection: both can, and preferring Staged pulled the diff away from
+    // Working copy after staging a hunk there.
+    QTreeWidget* focusList = viewingStaged_ ? staged_ : unstaged_;
+    if (focusList->selectedItems().isEmpty()) {
+        focusList = focusList == staged_ ? unstaged_ : staged_;
+    }
     const QStringList wasSelected = selectionOf(focusList);
     int wasRow = -1;
     if (QTreeWidgetItem* current = focusList->currentItem(); current != nullptr) {
@@ -763,13 +897,13 @@ void WorkingCopyPanel::updateCommitButton() {
     // explains the cases known in advance (2026-09 UI review).
     QString reason;
     if (conflicts > 0) {
-        reason = tr("Resolve %n conflicted file(s) and stage the results first.", nullptr,
-                    conflicts);
+        reason =
+            tr("Resolve %n conflicted file(s) and stage the results first.", nullptr, conflicts);
     } else if (staged == 0 && !amending) {
         reason = tr("Stage the changes to include — select files and Stage, or Stage all.");
     } else if (!hasMessage) {
-        reason = amending ? tr("Write the amended commit's message.")
-                          : tr("Write a message to commit.");
+        reason =
+            amending ? tr("Write the amended commit's message.") : tr("Write a message to commit.");
     }
     commitReason_->setText(reason);
     commitReason_->setVisible(!reason.isEmpty() && status_ && !status_->entries.empty());
@@ -778,7 +912,7 @@ void WorkingCopyPanel::updateCommitButton() {
         commitButton_->setText(tr("Amend Last Commit"));
     } else {
         commitButton_->setText(staged > 0 ? tr("Commit %n file(s)", nullptr, staged)
-                                         : tr("Commit"));
+                                          : tr("Commit"));
     }
     commitButton_->setToolTip(staged > 0 || amending ? QString() : tr("Nothing is staged"));
 }

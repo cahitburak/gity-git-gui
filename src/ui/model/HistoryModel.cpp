@@ -42,13 +42,12 @@ void HistoryModel::setRefs(const session::RefSetPtr& refs) {
     // HEAD first, then locals, then the rest: the chip a person looks for
     // should not move as branches are added around it.
     for (auto& [key, labels] : refsByCommit_) {
-        std::stable_sort(labels.begin(), labels.end(),
-                         [](const RefLabel& a, const RefLabel& b) {
-                             if (a.isHead != b.isHead) {
-                                 return a.isHead;
-                             }
-                             return static_cast<int>(a.kind) < static_cast<int>(b.kind);
-                         });
+        std::stable_sort(labels.begin(), labels.end(), [](const RefLabel& a, const RefLabel& b) {
+            if (a.isHead != b.isHead) {
+                return a.isHead;
+            }
+            return static_cast<int>(a.kind) < static_cast<int>(b.kind);
+        });
     }
 }
 
@@ -97,6 +96,22 @@ RowView HistoryModel::at(std::size_t globalRow) const {
     return RowView{chunks_[index].get(), globalRow - firstRow_[index]};
 }
 
+QString HistoryModel::renamedPath(std::size_t globalRow) const {
+    const RowView view = at(globalRow);
+    if (!view.valid() || view.chunk->renamedPaths.empty()) {
+        return {};
+    }
+    const auto& renamed = view.chunk->renamedPaths;
+    const auto local = static_cast<model::CommitIndex>(view.localRow);
+    const auto found = std::lower_bound(
+        renamed.begin(), renamed.end(), local,
+        [](const auto& entry, model::CommitIndex row) { return entry.first < row; });
+    if (found == renamed.end() || found->first != local) {
+        return {};
+    }
+    return QString::fromStdString(found->second);
+}
+
 QString HistoryModel::summary(std::size_t globalRow) const {
     const RowView view = at(globalRow);
     if (!view.valid()) {
@@ -129,9 +144,8 @@ QString HistoryModel::fullId(std::size_t globalRow) const {
     if (!view.valid()) {
         return {};
     }
-    return QString::fromStdString(
-        view.chunk->commits.shortId(static_cast<model::CommitIndex>(view.localRow),
-                                    GIT_OID_SHA1_HEXSIZE));
+    return QString::fromStdString(view.chunk->commits.shortId(
+        static_cast<model::CommitIndex>(view.localRow), GIT_OID_SHA1_HEXSIZE));
 }
 
 QString HistoryModel::when(std::size_t globalRow) const {
@@ -157,8 +171,7 @@ QString HistoryModel::when(std::size_t globalRow) const {
 
 qsizetype HistoryModel::rowForId(const QString& oidHex, std::size_t fromRow) const {
     git_oid wanted{};
-    if (oidHex.isEmpty() ||
-        git_oid_fromstr(&wanted, oidHex.toLatin1().constData()) != 0) {
+    if (oidHex.isEmpty() || git_oid_fromstr(&wanted, oidHex.toLatin1().constData()) != 0) {
         return -1;
     }
 
@@ -174,8 +187,8 @@ qsizetype HistoryModel::rowForId(const QString& oidHex, std::size_t fromRow) con
             continue;
         }
         for (std::size_t i = 0; i < count; ++i) {
-            if (git_oid_equal(&chunk->commits.oid(static_cast<model::CommitIndex>(i)),
-                              &wanted) != 0) {
+            if (git_oid_equal(&chunk->commits.oid(static_cast<model::CommitIndex>(i)), &wanted) !=
+                0) {
                 return static_cast<qsizetype>(firstRow_[chunkIndex] + i);
             }
         }

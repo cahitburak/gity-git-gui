@@ -12,8 +12,6 @@ endif()
 
 add_library(gity_core STATIC
     git/GitError.h
-    git/Stash.cpp
-    git/Stash.h
     git/Staging.cpp
     git/NetworkOutcome.cpp
     git/RemoteUrl.cpp
@@ -26,12 +24,19 @@ add_library(gity_core STATIC
     git/Provider.cpp
     git/PullRequest.cpp
     git/DeviceFlow.cpp
+    git/JsonScanner.h
     git/Remotes.cpp
     git/Staging.h
     git/WorkingCopy.cpp
     git/WorkingCopy.h
     git/FileDiff.cpp
     git/FileDiff.h
+    git/Blame.cpp
+    git/Blame.h
+    git/Conflict.cpp
+    git/Conflict.h
+    git/Merge3.cpp
+    git/Merge3.h
     git/BlobReader.cpp
     git/BlobReader.h
     git/CommitDetail.cpp

@@ -3,13 +3,13 @@
 #include "Tokens.h"
 
 #include <QApplication>
-#include <QWidget>
 #include <QFile>
-#include <cstring>
+#include <QFontMetrics>
 #include <QGuiApplication>
 #include <QSettings>
 #include <QStyleHints>
-#include <QFontMetrics>
+#include <QWidget>
+#include <cstring>
 
 /// Pulls the compiled stylesheet into the link.
 ///
@@ -569,10 +569,10 @@ void Theme::applySavedVariant(QApplication* app) {
         settings.value(QStringLiteral("appearance/density")).toString() == QLatin1String("compact")
             ? tokens::rowHeightDense
             : tokens::rowHeight;
-    setVariant(variantFromName(
-                   settings.value(QStringLiteral("appearance/variant"), QStringLiteral("dark"))
-                       .toString()),
-               app);
+    setVariant(
+        variantFromName(settings.value(QStringLiteral("appearance/variant"), QStringLiteral("dark"))
+                            .toString()),
+        app);
 }
 
 // The stored names stay as they were — "dark" and "light" are the Gity pair
@@ -622,10 +622,9 @@ QString Theme::displayName(Variant variant) {
 }
 
 const std::vector<Theme::Variant>& Theme::choices() {
-    static const std::vector<Variant> list{Variant::System,     Variant::NeutralDark,
-                                           Variant::NeutralLight, Variant::Dark,
-                                           Variant::Light,      Variant::Midnight,
-                                           Variant::EmberSteel, Variant::CrimsonSteel};
+    static const std::vector<Variant> list{
+        Variant::System, Variant::NeutralDark, Variant::NeutralLight, Variant::Dark,
+        Variant::Light,  Variant::Midnight,    Variant::EmberSteel,   Variant::CrimsonSteel};
     return list;
 }
 
@@ -804,8 +803,7 @@ void Theme::applyStyleSheet(QApplication* app) {
     }
 
     QStringList unknown;
-    const QString sheet =
-        resolveStyleSheet(QString::fromUtf8(file.readAll()), &unknown);
+    const QString sheet = resolveStyleSheet(QString::fromUtf8(file.readAll()), &unknown);
     if (!unknown.isEmpty()) {
         // Named rather than swallowed: a token that does not exist is a typo
         // in the sheet, and finding it by noticing a wrong colour is far worse

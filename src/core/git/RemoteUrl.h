@@ -25,4 +25,26 @@ namespace gity::git {
 /// rather than an account name, so rewriting it would break the remote.
 [[nodiscard]] std::string remoteUrlWithUser(std::string_view url, std::string_view username);
 
+/// `text` with the secret in every URL's userinfo replaced by `***`, for
+/// anything a person will see: the command log, an error message, a list of
+/// remotes. Handles both forms a secret takes in a remote URL:
+///
+///   * `https://user:secret@host/...` becomes `https://user:***@host/...`;
+///   * `https://ghp_xxxx@host/...` — a token as the username, which is how
+///     GitHub, GitLab and Bitbucket document cloning with one — becomes
+///     `https://***@host/...`, and `https://ghp_xxxx:x-oauth-basic@host/...`
+///     becomes `https://***:***@host/...`.
+///
+/// A plain username (`https://alice@host`) is not a secret and is kept.
+[[nodiscard]] std::string maskUrlCredentials(std::string_view text);
+
+/// Undoes maskUrlCredentials on a URL a person edited from its masked form,
+/// taking the secret back from `original`. Without it, accepting an edited
+/// URL would save the literal `***` over the real token.
+///
+/// Only while the edit still names the same host over the same scheme (or
+/// upgrades http to https): pointed anywhere else, the masked parts are
+/// dropped rather than the secret sent to a server it was not meant for.
+[[nodiscard]] std::string unmaskUrlCredentials(std::string_view edited, std::string_view original);
+
 } // namespace gity::git

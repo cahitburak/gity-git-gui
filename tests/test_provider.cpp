@@ -62,8 +62,8 @@ TEST(ProviderForHost, NothingIsOther) {
 }
 
 TEST(Provider, AnUnescapedEmailUserDoesNotBecomeTheHost) {
-    EXPECT_EQ(gity::git::hostOfRemote(
-                  "https://alex.doe@example.com@github.com/acme-games/shared.git"),
-              "github.com");
+    EXPECT_EQ(
+        gity::git::hostOfRemote("https://alex.doe@example.com@github.com/acme-games/shared.git"),
+        "github.com");
     EXPECT_EQ(gity::git::hostOfRemote("git@github.com:owner/repo.git"), "github.com");
 }

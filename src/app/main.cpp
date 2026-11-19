@@ -6,17 +6,17 @@
 // how that budget is met.
 
 #include "MainWindow.h"
+#include "core/model/EnglishPlural.h"
 #include "session/CommandLog.h"
 #include "session/GitProcess.h"
 #include "ui/theme/Theme.h"
-#include "core/model/EnglishPlural.h"
 
 #include <git2.h>
 
 #include <QApplication>
+#include <QCommandLineParser>
 #include <QIcon>
 #include <QMessageBox>
-#include <QCommandLineParser>
 #include <QTimer>
 #include <QTranslator>
 
@@ -27,7 +27,9 @@ namespace {
 class EnglishPlurals : public QTranslator {
 public:
     using QTranslator::QTranslator;
+
     [[nodiscard]] bool isEmpty() const override { return false; }
+
     QString translate(const char* /*context*/, const char* sourceText,
                       const char* /*disambiguation*/, int n) const override {
         if (n < 0 || sourceText == nullptr) {
@@ -52,8 +54,7 @@ int main(int argc, char** argv) {
     QCoreApplication::installTranslator(&plurals);
 
     QCommandLineParser parser;
-    parser.setApplicationDescription(
-        QCoreApplication::translate("main", "A Git client."));
+    parser.setApplicationDescription(QCoreApplication::translate("main", "A Git client."));
     parser.addHelpOption();
     parser.addVersionOption();
     parser.addPositionalArgument(
@@ -76,6 +77,27 @@ int main(int argc, char** argv) {
         QCoreApplication::translate("main", "Open on the Image tab for <path>."),
         QStringLiteral("path"));
     parser.addOption(imageTabOption);
+    const QCommandLineOption historyOfOption(
+        QStringList{QStringLiteral("history-of")},
+        QCoreApplication::translate("main", "Show the history of <path> once loaded."),
+        QStringLiteral("path"));
+    parser.addOption(historyOfOption);
+    const QCommandLineOption blameOption(
+        QStringList{QStringLiteral("blame")},
+        QCoreApplication::translate("main", "Blame <path> in the working copy once loaded."),
+        QStringLiteral("path"));
+    parser.addOption(blameOption);
+    const QCommandLineOption resolveOption(
+        QStringList{QStringLiteral("resolve")},
+        QCoreApplication::translate("main", "Open the conflict editor on <path> once loaded; a "
+                                            "screenshot is then of its window."),
+        QStringLiteral("path"));
+    parser.addOption(resolveOption);
+    const QCommandLineOption conflictLayoutOption(
+        QStringList{QStringLiteral("conflict-layout")},
+        QCoreApplication::translate("main", "The conflict editor's layout: three or two."),
+        QStringLiteral("layout"));
+    parser.addOption(conflictLayoutOption);
     parser.addOption(screenshotOption);
     parser.process(app);
 
@@ -133,10 +155,32 @@ int main(int argc, char** argv) {
         if (parser.isSet(imageTabOption)) {
             window.showImageTab(parser.value(imageTabOption));
         }
+        // Both need the repository open, which takes a moment.
+        if (parser.isSet(historyOfOption)) {
+            QTimer::singleShot(500, &window, [&window, path = parser.value(historyOfOption)] {
+                window.showFileHistory(path);
+            });
+        }
+        if (parser.isSet(blameOption)) {
+            QTimer::singleShot(700, &window, [&window, path = parser.value(blameOption)] {
+                window.blameFile(path, {});
+            });
+        }
+        if (parser.isSet(conflictLayoutOption)) {
+            const QString layout = parser.value(conflictLayoutOption);
+            window.setConflictLayout(layout == QLatin1String("two") ? 1 : 0);
+        }
+        const bool resolving = parser.isSet(resolveOption);
+        if (resolving) {
+            QTimer::singleShot(700, &window, [&window, path = parser.value(resolveOption)] {
+                window.openConflicts(path);
+            });
+        }
         if (parser.isSet(screenshotOption)) {
             const QString file = parser.value(screenshotOption);
-            QTimer::singleShot(2000, &window, [&window, file] {
-                if (!window.grab().save(file)) {
+            QTimer::singleShot(2000, &window, [&window, file, resolving] {
+                QWidget* shown = resolving ? window.conflictWindow() : &window;
+                if (!shown->grab().save(file)) {
                     qWarning("could not write %s", qPrintable(file));
                 }
                 QCoreApplication::quit();

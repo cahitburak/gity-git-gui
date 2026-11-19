@@ -52,6 +52,7 @@ void GraphHeader::paintEvent(QPaintEvent*) {
         const char* label;
         bool rightAligned;
     };
+
     const Column layout[] = {
         {columns.graphX(), columns.graphWidth, "Graph · Description", false},
         {columns.messageX(), columns.messageWidth, "Message", false},

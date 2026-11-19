@@ -25,9 +25,8 @@ MergePrediction parseMergeTree(int exitCode, std::string_view output) {
         std::string path(output.substr(start, end - start));
         // A file can be listed more than once (one entry per conflicted
         // stage); it is one file to the person reading the list.
-        if (!path.empty() &&
-            std::find(prediction.conflicts.begin(), prediction.conflicts.end(), path) ==
-                prediction.conflicts.end()) {
+        if (!path.empty() && std::find(prediction.conflicts.begin(), prediction.conflicts.end(),
+                                       path) == prediction.conflicts.end()) {
             prediction.conflicts.push_back(std::move(path));
         }
         start = end + 1;

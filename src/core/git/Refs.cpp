@@ -72,9 +72,7 @@ void fillUpstream(git_repository* repo, git_reference* branch, RefEntry& entry) 
 
 void loadBranches(git_repository* repo, git_branch_t which, RefSet& out) {
     BranchIteratorHandle iterator;
-    if (git_branch_iterator_new(iterator.receive(), repo, which) < 0) {
-        throwLastError(-1, "enumerate branches");
-    }
+    check(git_branch_iterator_new(iterator.receive(), repo, which), "enumerate branches");
 
     while (true) {
         git_reference* rawBranch = nullptr;
@@ -125,9 +123,9 @@ void loadBranches(git_repository* repo, git_branch_t which, RefSet& out) {
 
 void loadTags(git_repository* repo, RefSet& out) {
     git_strarray names{};
-    if (git_tag_list(&names, repo) < 0) {
-        throwLastError(-1, "list tags");
-    }
+    // The real code, not -1: GitError explains a lock, a missing file and a
+    // corrupt ref differently, and -1 made every one of them generic.
+    check(git_tag_list(&names, repo), "list tags");
 
     for (std::size_t i = 0; i < names.count; ++i) {
         const std::string shorthand = names.strings[i];
@@ -289,9 +287,8 @@ RefSet loadRefs(git_repository* repo) {
     // Tags are mostly versions: ordered by value, so `v1.10` follows `v1.9`
     // rather than landing between `v1.1` and `v1.2`, and newest first — the
     // release you are looking for is usually the latest one.
-    std::sort(out.tags.begin(), out.tags.end(), [](const RefEntry& a, const RefEntry& b) {
-        return versionLess(b.name, a.name);
-    });
+    std::sort(out.tags.begin(), out.tags.end(),
+              [](const RefEntry& a, const RefEntry& b) { return versionLess(b.name, a.name); });
 
     // The checked-out branch sorts first; everything else alphabetically. It is
     // the row the user looks for, so it should not move as branches are added.

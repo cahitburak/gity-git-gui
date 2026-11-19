@@ -61,9 +61,9 @@ struct RefSet {
     /// which clone sets and fetch can keep current.
     std::vector<std::string> remoteDefaults;
 
-    std::string headName;      ///< Branch shorthand, or a short OID when detached.
+    std::string headName; ///< Branch shorthand, or a short OID when detached.
     bool headDetached = false;
-    bool headUnborn = false;   ///< Fresh repository with no commits yet.
+    bool headUnborn = false; ///< Fresh repository with no commits yet.
 
     [[nodiscard]] std::size_t total() const noexcept {
         return localBranches.size() + remoteBranches.size() + tags.size() + stashes.size();

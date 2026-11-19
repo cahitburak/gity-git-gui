@@ -4,8 +4,8 @@
 #include "ui/theme/Theme.h"
 #include "ui/theme/Tokens.h"
 
-#include <QKeyEvent>
 #include <QContextMenuEvent>
+#include <QKeyEvent>
 #include <QMouseEvent>
 #include <QPainter>
 #include <QPainterPath>
@@ -20,8 +20,7 @@ constexpr int kMaxDrawnLanes = 24; ///< Past this the gutter is clamped; M0 saw 
 
 /// SPEC.md § Ref chips. Returns the width consumed so the caller can lay the
 /// next chip beside it.
-int paintRefChip(QPainter& painter, int x, int y, int height, const RefLabel& label,
-                 int maxWidth) {
+int paintRefChip(QPainter& painter, int x, int y, int height, const RefLabel& label, int maxWidth) {
     QColor text = tokens::textDim;
     QColor fill = tokens::fillNeutralChip;
     QColor border = tokens::fillNeutralChipBorder;
@@ -98,7 +97,6 @@ CommitGraphView::CommitGraphView(QWidget* parent) : QAbstractScrollArea(parent) 
     setAccessibleDescription(tr("Up and Down move between commits; Page Up, Page Down, Home "
                                 "and End jump."));
 
-
     horizontalScrollBar()->setEnabled(false);
 }
 
@@ -119,12 +117,6 @@ int CommitGraphView::laneX(int lane) const {
     return m.laneOriginX + lane * m.laneWidth;
 }
 
-int CommitGraphView::graphGutterWidth() const {
-    const auto& m = Theme::current().metrics;
-    const int lanes = model_ != nullptr ? std::min<int>(model_->maxLanes(), kMaxDrawnLanes) : 1;
-    return m.laneOriginX + lanes * m.laneWidth + m.gutterPadding;
-}
-
 void CommitGraphView::rowsAppended() {
     updateScrollBars();
     viewport()->update();
@@ -132,8 +124,8 @@ void CommitGraphView::rowsAppended() {
 
 void CommitGraphView::updateScrollBars() {
     const auto rows = static_cast<qsizetype>(model_ != nullptr ? model_->rowCount() : 0);
-    const int total = static_cast<int>(std::min<qsizetype>(rows, INT_MAX / rowHeight())) *
-                      rowHeight();
+    const int total =
+        static_cast<int>(std::min<qsizetype>(rows, INT_MAX / rowHeight())) * rowHeight();
     const int page = viewport()->height();
 
     verticalScrollBar()->setRange(0, std::max(0, total - page));
@@ -187,8 +179,7 @@ void CommitGraphView::paintEvent(QPaintEvent* event) {
     // Only the visible band is ever touched. This is the whole point of the
     // virtualized design: painting cost is independent of history length.
     const qsizetype first = std::max<qsizetype>(0, (scroll + event->rect().top()) / h);
-    const qsizetype last =
-        std::min<qsizetype>(rows - 1, (scroll + event->rect().bottom()) / h);
+    const qsizetype last = std::min<qsizetype>(rows - 1, (scroll + event->rect().bottom()) / h);
 
     for (qsizetype row = first; row <= last; ++row) {
         const int y = static_cast<int>(row * h) - scroll;
@@ -221,7 +212,10 @@ void CommitGraphView::paintRow(QPainter& painter, qsizetype row, int y) const {
 
     const graph::GraphRow& record = view.row();
     const QColor laneColor = theme.laneColor(record.lane);
-    const int cx = laneX(record.lane);
+    // Past the last drawn lane the column stops growing and edges are not
+    // drawn; the node sits at the edge of the column rather than floating out
+    // over the message.
+    const int cx = laneX(std::min<int>(record.lane, kMaxDrawnLanes - 1));
     const int cy = y + h / 2;
 
     // Node geometry is from the spec, not invented: a merge is a hollow ring
@@ -245,8 +239,8 @@ void CommitGraphView::paintRow(QPainter& painter, qsizetype row, int y) const {
     const QColor primary = selected ? theme.selectionText : theme.text;
     const QColor secondary = selected ? tokens::textSelectedDim : theme.textFaint;
 
-    const GraphColumns columns =
-        GraphColumns::forWidth(width, model_ != nullptr ? model_->maxLanes() : 1);
+    const GraphColumns columns = GraphColumns::forWidth(
+        width, model_ != nullptr ? std::min<int>(model_->maxLanes(), kMaxDrawnLanes) : 1);
     const auto index = static_cast<std::size_t>(row);
 
     // Ref chips sit inline, just before the subject (2026-09 UI review): the
@@ -277,19 +271,32 @@ void CommitGraphView::paintRow(QPainter& painter, qsizetype row, int y) const {
         painter.setFont(font());
     }
 
+    // In a renamed file's history, the rows from before the rename say what
+    // it was called then.
+    // No wider than what the chips left of the message column: past its end
+    // it was painted over the author.
+    if (const QString renamed = model_->renamedPath(index);
+        !renamed.isEmpty() && messageEnd > textX) {
+        const QString note = tr("as %1").arg(renamed);
+        const int room = std::min(columns.messageWidth * 2 / 5, messageEnd - textX);
+        const QString shown = fm.elidedText(note, Qt::ElideMiddle, room);
+        painter.setPen(secondary);
+        painter.drawText(QRect(textX, y, room, h), Qt::AlignVCenter | Qt::AlignLeft, shown);
+        textX += fm.horizontalAdvance(shown) + 10;
+    }
+
     painter.setPen(primary);
-    painter.drawText(QRect(textX, y, std::max(0, messageEnd - textX), h),
-                     Qt::AlignVCenter | Qt::AlignLeft,
-                     fm.elidedText(model_->summary(index), Qt::ElideRight,
-                                   std::max(0, messageEnd - textX)));
+    painter.drawText(
+        QRect(textX, y, std::max(0, messageEnd - textX), h), Qt::AlignVCenter | Qt::AlignLeft,
+        fm.elidedText(model_->summary(index), Qt::ElideRight, std::max(0, messageEnd - textX)));
 
     // Secondary columns a narrow window has dropped (width 0) are skipped.
     painter.setPen(secondary);
     if (columns.authorWidth > 0) {
-        painter.drawText(QRect(columns.authorX() + pad, y, columns.authorWidth - pad * 2, h),
-                         Qt::AlignVCenter | Qt::AlignLeft,
-                         fm.elidedText(model_->author(index), Qt::ElideRight,
-                                       columns.authorWidth - pad * 2));
+        painter.drawText(
+            QRect(columns.authorX() + pad, y, columns.authorWidth - pad * 2, h),
+            Qt::AlignVCenter | Qt::AlignLeft,
+            fm.elidedText(model_->author(index), Qt::ElideRight, columns.authorWidth - pad * 2));
     }
     if (columns.dateWidth > 0) {
         painter.drawText(QRect(columns.dateX() + pad, y, columns.dateWidth - pad * 2, h),
@@ -324,8 +331,8 @@ void CommitGraphView::paintEdges(QPainter& painter, const RowView& view, int y) 
         // below its child, so that is the destination lane in both directions —
         // colouring an incoming edge by its source is the intuitive mistake, and
         // it makes a merge's two legs disagree about which branch they belong to.
-        painter.setPen(QPen(theme.laneColor(edge.to), tokens::edgeStrokeWidth, Qt::SolidLine,
-                            Qt::RoundCap));
+        painter.setPen(
+            QPen(theme.laneColor(edge.to), tokens::edgeStrokeWidth, Qt::SolidLine, Qt::RoundCap));
 
         switch (edge.kind) {
         case graph::EdgeKind::PassThrough:
@@ -411,6 +418,21 @@ bool CommitGraphView::eventFilter(QObject* watched, QEvent* event) {
     return QAbstractScrollArea::eventFilter(watched, event);
 }
 
+bool CommitGraphView::event(QEvent* event) {
+    if (event->type() == QEvent::ContextMenu &&
+        static_cast<QContextMenuEvent*>(event)->reason() == QContextMenuEvent::Keyboard) {
+        if (selectedRow_ >= 0) {
+            scrollToRow(selectedRow_);
+            const int top =
+                static_cast<int>(selectedRow_ * rowHeight()) - verticalScrollBar()->value();
+            const QPoint anchor(laneX(0) + 24, top + rowHeight() / 2);
+            emit rowContextMenuRequested(selectedRow_, viewport()->mapToGlobal(anchor));
+        }
+        return true;
+    }
+    return QAbstractScrollArea::event(event);
+}
+
 void CommitGraphView::mousePressEvent(QMouseEvent* event) {
     const qsizetype row = rowAt(static_cast<int>(event->position().y()));
     if (row >= 0) {
@@ -418,7 +440,6 @@ void CommitGraphView::mousePressEvent(QMouseEvent* event) {
     }
     QAbstractScrollArea::mousePressEvent(event);
 }
-
 
 void CommitGraphView::mouseMoveEvent(QMouseEvent* event) {
     const qsizetype row = rowAt(static_cast<int>(event->position().y()));
@@ -447,12 +468,25 @@ void CommitGraphView::keyPressEvent(QKeyEvent* event) {
     qsizetype target = selectedRow_;
 
     switch (event->key()) {
-    case Qt::Key_Down: target = std::min(rows - 1, std::max<qsizetype>(0, selectedRow_) + 1); break;
-    case Qt::Key_Up:   target = std::max<qsizetype>(0, selectedRow_ - 1); break;
-    case Qt::Key_PageDown: target = std::min(rows - 1, std::max<qsizetype>(0, selectedRow_) + page); break;
-    case Qt::Key_PageUp:   target = std::max<qsizetype>(0, selectedRow_ - page); break;
-    case Qt::Key_Home: target = 0; break;
-    case Qt::Key_End:  target = rows - 1; break;
+    case Qt::Key_Down:
+        // With nothing selected, the first row rather than the second.
+        target = selectedRow_ < 0 ? 0 : std::min(rows - 1, selectedRow_ + 1);
+        break;
+    case Qt::Key_Up:
+        target = std::max<qsizetype>(0, selectedRow_ - 1);
+        break;
+    case Qt::Key_PageDown:
+        target = std::min(rows - 1, std::max<qsizetype>(0, selectedRow_) + page);
+        break;
+    case Qt::Key_PageUp:
+        target = std::max<qsizetype>(0, selectedRow_ - page);
+        break;
+    case Qt::Key_Home:
+        target = 0;
+        break;
+    case Qt::Key_End:
+        target = rows - 1;
+        break;
     default:
         QAbstractScrollArea::keyPressEvent(event);
         return;

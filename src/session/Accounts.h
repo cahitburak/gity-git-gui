@@ -54,8 +54,7 @@ public:
     /// `remoteUrl` with `username` as its userinfo, which is how a repository
     /// is bound to one account when several exist for a host. Returns the URL
     /// unchanged when it has no host to attach a username to.
-    [[nodiscard]] static QString remoteUrlAs(const QString& remoteUrl,
-                                             const QString& username);
+    [[nodiscard]] static QString remoteUrlAs(const QString& remoteUrl, const QString& username);
 };
 
 } // namespace gity::session

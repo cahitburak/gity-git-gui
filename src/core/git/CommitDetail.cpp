@@ -56,10 +56,15 @@ void fillMessage(git_commit* commit, CommitDetail& detail) {
     }
     // Everything after the first blank line is the body. Trailers stay in it —
     // Co-Authored-By and Signed-off-by are part of what a reviewer reads.
+    // A message written on Windows may use CR LF throughout, and has no
+    // "\n\n" at all; its body was shown as empty.
     std::string_view full(message);
-    const auto breakAt = full.find("\n\n");
-    if (breakAt != std::string_view::npos) {
-        detail.body = trimmed(full.substr(breakAt + 2));
+    const auto lf = full.find("\n\n");
+    const auto crlf = full.find("\r\n\r\n");
+    if (crlf != std::string_view::npos && (lf == std::string_view::npos || crlf < lf)) {
+        detail.body = trimmed(full.substr(crlf + 4));
+    } else if (lf != std::string_view::npos) {
+        detail.body = trimmed(full.substr(lf + 2));
     }
 }
 
@@ -80,8 +85,8 @@ void fillFiles(git_repository* repo, git_commit* commit, const CommitDetailOptio
             return;
         }
     }
-    detail.files = listChangedFiles(repo, parentTree.get(), tree.get(), options,
-                                    &detail.filesTruncated);
+    detail.files =
+        listChangedFiles(repo, parentTree.get(), tree.get(), options, &detail.filesTruncated);
 }
 
 } // namespace
@@ -93,16 +98,14 @@ std::vector<ChangedFile> listChangedFiles(git_repository* repo, git_tree* fromTr
     if (truncated != nullptr) {
         *truncated = false;
     }
+    // Thrown, not swallowed: an empty list reads as "this commit changed
+    // nothing", which is a claim about the repository, not an error report.
     git_diff_options diffOptions;
-    if (git_diff_options_init(&diffOptions, GIT_DIFF_OPTIONS_VERSION) < 0) {
-        return files;
-    }
+    check(git_diff_options_init(&diffOptions, GIT_DIFF_OPTIONS_VERSION), "initialize diff options");
 
     DiffHandle diff;
-    if (git_diff_tree_to_tree(diff.receive(), repo, fromTree, toTree, &diffOptions) <
-        0) {
-        return files;
-    }
+    check(git_diff_tree_to_tree(diff.receive(), repo, fromTree, toTree, &diffOptions),
+          "list the changed files");
 
     if (options.detectRenames) {
         git_diff_find_options findOptions;

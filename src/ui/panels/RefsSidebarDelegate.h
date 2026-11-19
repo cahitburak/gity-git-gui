@@ -12,11 +12,11 @@ namespace gity::ui {
 
 enum SidebarRole {
     GlyphRole = Qt::UserRole + 10,
-    BadgeRole,      ///< Right-aligned chip text. Empty hides it.
-    BadgeToneRole,  ///< SidebarTone for the badge.
-    CurrentRole,    ///< bool: the checked-out branch — tinted, ticked, heavier.
-    ToneRole,       ///< SidebarTone for the glyph and label.
-    TagRole,        ///< An outlined accent chip before the badge, e.g. "default".
+    BadgeRole,     ///< Right-aligned chip text. Empty hides it.
+    BadgeToneRole, ///< SidebarTone for the badge.
+    CurrentRole,   ///< bool: the checked-out branch — tinted, ticked, heavier.
+    ToneRole,      ///< SidebarTone for the glyph and label.
+    TagRole,       ///< An outlined accent chip before the badge, e.g. "default".
 };
 
 enum class SidebarTone { Default, Muted, Warn, Add };
@@ -29,8 +29,7 @@ public:
 
     void paint(QPainter* painter, const QStyleOptionViewItem& option,
                const QModelIndex& index) const override;
-    QSize sizeHint(const QStyleOptionViewItem& option,
-                   const QModelIndex& index) const override;
+    QSize sizeHint(const QStyleOptionViewItem& option, const QModelIndex& index) const override;
 };
 
 } // namespace gity::ui

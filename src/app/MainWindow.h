@@ -1,33 +1,38 @@
 #pragma once
 
+#include "SavedState.h"
 #include "session/RepoSession.h"
-#include "ui/panels/RefsSidebar.h"
+#include "session/SessionHub.h"
+#include "session/SwitchContext.h"
 #include "ui/model/HistoryModel.h"
+#include "ui/panels/RefsSidebar.h"
 
 #include <QElapsedTimer>
 
-#include <functional>
 #include <QHash>
-#include <QMainWindow>
-#include <QSettings>
+#include <functional>
 
-#include "core/git/Provider.h"
+#include <QMainWindow>
+#include <memory>
+
 #include "core/git/HistoryStream.h"
+#include "core/git/Provider.h"
 
 class QStackedWidget;
 class QTabWidget;
 class QToolButton;
-class QComboBox;
 class QSplitter;
-class QHBoxLayout;
 class QDockWidget;
 
 class QAction;
+class QCloseEvent;
 class QLabel;
 class QLineEdit;
 class QTimer;
 
 namespace gity::ui {
+class BlamePanel;
+class ConflictWindow;
 class ChangedFilesList;
 class WelcomePanel;
 class CommitDetailPanel;
@@ -38,8 +43,9 @@ class DiffView;
 class WorkingCopyPanel;
 class CommitGraphView;
 class GraphHeader;
+class HistoryFilterBar;
 class RefsSidebar;
-}
+} // namespace gity::ui
 
 namespace gity::app {
 
@@ -56,9 +62,10 @@ public:
 
 protected:
     bool eventFilter(QObject* watched, QEvent* event) override;
+    /// Asks before quitting while git is changing a repository.
+    void closeEvent(QCloseEvent* event) override;
 
 public:
-
     /// Reopens the tabs the previous session left. Only the
     /// current tab's repository is loaded; the others load when clicked.
     /// `openCurrent` false restores the tabs alone, for when a repository
@@ -69,6 +76,19 @@ public:
     void setSessionPersistence(bool enabled);
     void showChangesTab();
     void showImageTab(const QString& path);
+    /// Narrows the history to the commits that changed `path`, a file or a
+    /// folder, keeping the selected commit if it is one of them.
+    void showFileHistory(const QString& path);
+    /// Opens the Blame tab on `path` as of `revision`; empty is the working
+    /// copy as it is on disk.
+    void blameFile(const QString& path, const QString& revision);
+    /// Opens the conflict editor's window on `path`, or on the first file
+    /// still conflicted.
+    void openConflicts(const QString& path = {});
+    /// For a screenshot run: the conflict editor's layout, 0–2 as
+    /// ConflictEditor::Layout, and its window.
+    void setConflictLayout(int layout);
+    [[nodiscard]] QWidget* conflictWindow() const;
 
 private slots:
     void chooseRepository();
@@ -88,6 +108,7 @@ private slots:
     void chooseComparison();
     void chooseRebase();
     void chooseInteractiveRebase();
+    void offerInteractiveRebase(const QStringList& oids, const QStringList& subjects);
     void confirmReset(const QString& oid, const QString& subject);
     void chooseNewTag();
     void openSettings(gity::app::MainWindow::SettingsPage page = SettingsPage::General);
@@ -111,8 +132,7 @@ private slots:
     void onNetworkProgress(const QString& phase, int percent);
     void onNetworkFinished(const QString& verb, bool ok, const QString& summary,
                            const QString& detail);
-    void onWorkingDiffReady(gity::session::FileDiffPtr diff,
-                            gity::session::HunkStagingPtr staging);
+    void onWorkingDiffReady(gity::session::FileDiffPtr diff, gity::session::HunkStagingPtr staging);
     void onImageDiffReady(gity::session::ImageDiffPtr diff);
     void onChunkReady(gity::session::ChunkPtr chunk);
     void onFinished(quint64 commits, double firstChunkMs, double totalMs, bool cancelled);
@@ -120,24 +140,28 @@ private slots:
     void onRowSelected(qsizetype row);
     /// Shows what a pull, merge, rebase or push will do, and runs it if chosen.
     void showPreview(gity::session::PreviewPtr preview);
+    /// Something changed outside Gity: RepoWatcher::Change flags.
+    void onExternalChange(int kinds);
 
 private:
-    /// Repositories opened in their own right, most recent first.
-    [[nodiscard]] QStringList recentRepositories() const;
+    /// Screens, in the order they are added to the stack. Named because the
+    /// indices were literals, and deleting a screen quietly repointed every
+    /// literal after it at the wrong one.
+    enum Screen : int { ScreenHistory = 0, ScreenChanges = 1, ScreenWelcome = 2 };
+
+    /// The Changes and Blame tabs, under the graph.
+    static constexpr int kChangesTab = 1;
+    static constexpr int kBlameTab = 2;
+
+    /// Adds `path` to the recent repositories, when the session is saved.
     void rememberRepository(const QString& path);
     /// Asks the session for a preview; showPreview takes it from there.
     void askPreview(gity::session::Preview::Kind kind, const QString& target = {},
                     const QString& branch = {});
-    /// The history header's words for the filter in force.
+    /// The history header's and the graph's words for the filter in force.
     void showFilterState(const gity::git::CommitFilter& filter);
-    /// The filter the header's controls describe.
-    [[nodiscard]] gity::git::CommitFilter currentFilter() const;
-    /// Puts `filter` into the header's controls without walking.
-    void showFilterWidgets(const gity::git::CommitFilter& filter);
     /// Walks again with the header's filter, if it differs from the last walk.
     void applyCommitFilter();
-    void refreshDateFilterLabel();
-    void chooseDateRange();
     /// Fills the author list from the history just loaded.
     void refreshContributors();
     /// Empties the Commit and Changes tabs.
@@ -147,19 +171,75 @@ private:
     /// "Changes · N"; negative for plain "Changes" while unknown.
     void setChangesCount(int files);
     /// Shows two refs side by side in the Commit and Changes tabs.
-    void startComparison(const QString& fromName, const QString& fromOid,
-                         const QString& toName, const QString& toOid);
+    void startComparison(const QString& fromName, const QString& fromOid, const QString& toName,
+                         const QString& toOid);
     void endComparison();
+    /// The widgets, and the wiring among them that only layout needs.
+    void buildLayout();
     void buildMenus();
     void buildToolBar();
     void buildStatusBar();
+    void connectSession();
+    void connectHistory();
+    void connectSidebar();
+    void connectWorkingCopy();
+    void connectRepositoryTabs();
+    void connectFileHistory();
+    void connectConflicts();
 
-    gity::session::RepoSession session_;
+    /// Asks for a file or folder in the repository; its path from the top,
+    /// or empty if none was chosen.
+    [[nodiscard]] QString choosePath(bool folder);
+    /// Selects the commit `id` in the graph, or says why it cannot.
+    void selectCommit(const QString& id);
+
+    /// Makes `path`'s session the one on screen, creating it on first use.
+    void activateSession(const QString& path);
+    /// Opens a repository a clone just made, once no dialog or menu is open.
+    void openClone(const QString& path);
+    /// Whether `workdir` — the repository on screen when a dialog or menu
+    /// opened — still is, now it has closed.
+    [[nodiscard]] bool stillShowing(const QString& workdir) const;
+    /// Closes `path`'s session and forgets what its tab was showing.
+    void retireSession(const QString& path);
+    /// The path `path`'s session was made under: the spelling it was opened
+    /// by, which differs from its workdir when that was a subfolder or a
+    /// symlink.
+    [[nodiscard]] QString sessionPathFor(const QString& path) const;
+    /// The workdir whose tab `path` was first opened by, when it was a
+    /// subfolder or a symlink; empty otherwise. The inverse of
+    /// sessionPathFor.
+    [[nodiscard]] QString workdirOpenedAs(const QString& path) const;
+    /// The workdir of the session made under `sessionPath`, as far as it is
+    /// known: sessionPath itself unless it was a subfolder or a symlink.
+    [[nodiscard]] QString workdirOfSession(const QString& sessionPath) const;
+    /// The network actions and Cancel button, for the session on screen.
+    void syncNetworkState();
+    /// A repository not on screen finished a fetch, pull or push.
+    void reportBackgroundNetwork(const QString& path, const QString& verb, bool ok,
+                                 const QString& summary);
+
+    /// One session per open repository, and the relay the window is wired
+    /// to (ADR-004).
+    gity::session::SessionHub sessions_;
+
+    /// The session requests go to: the one on screen, or the relay.
+    [[nodiscard]] gity::session::RepoSession* session() const { return sessions_.current(); }
+
+    QToolButton* cancelNetwork_ = nullptr;
+    /// The Repository, Branch and Stash menus' entries, and the network ones
+    /// among them, enabled with the toolbar's.
+    QList<QAction*> repositoryMenuActions_;
+    QList<QAction*> networkMenuActions_;
     gity::ui::HistoryModel model_;
     gity::ui::CommitGraphView* graph_ = nullptr;
     gity::ui::GraphHeader* graphHeader_ = nullptr;
     gity::ui::RefsSidebar* refs_ = nullptr;
     gity::ui::CommitDetailPanel* detail_ = nullptr;
+    /// The Blame tab.
+    gity::ui::BlamePanel* blame_ = nullptr;
+    /// The conflict editor's window, made once and shown when asked for.
+    gity::ui::ConflictWindow* conflicts_ = nullptr;
     gity::ui::WelcomePanel* welcome_ = nullptr;
     /// The commit's files in the Changes tab, beside the diff.
     gity::ui::ChangedFilesList* commitFiles_ = nullptr;
@@ -180,6 +260,9 @@ private:
 
     /// The commit whose files the diff pane is showing.
     QString currentOid_;
+    /// In a renamed file's history: what the file was called in the commit
+    /// shown, when that is not the name the history is of.
+    QString currentRenamedPath_;
     /// Set while two refs are being compared; `currentOid_` is empty then.
     QString compareFrom_;
     QString compareTo_;
@@ -192,6 +275,7 @@ private:
     QLabel* countLabel_ = nullptr;
     QAction* undoAction_ = nullptr;
     QToolButton* accountStatus_ = nullptr;
+
     /// This repository's account, as last reported by the session.
     struct AccountChoice {
         QString host;
@@ -200,6 +284,7 @@ private:
         QString defaultAccount;
         QString chosen;
     };
+
     AccountChoice account_;
     QAction* redoAction_ = nullptr;
     QAction* fetchAction_ = nullptr;
@@ -212,20 +297,9 @@ private:
     gity::ui::OperationBanner* operationBanner_ = nullptr;
     gity::ui::RepositoryTabs* repoTabs_ = nullptr;
     QLineEdit* refFilter_ = nullptr;
-    QLineEdit* commitFilter_ = nullptr;
-    QComboBox* authorFilter_ = nullptr;
-    QToolButton* dateFilter_ = nullptr;
-    qint64 filterSince_ = 0;
-    qint64 filterUntil_ = 0;
+    gity::ui::HistoryFilterBar* filterBar_ = nullptr;
     /// What the history on screen was walked with.
     gity::git::CommitFilter walkedFilter_;
-    QHBoxLayout* historyHeaderLayout_ = nullptr;
-    QLabel* historyTitle_ = nullptr;
-    QLabel* historyNote_ = nullptr;
-    QTimer* filterDebounce_ = nullptr;
-    /// True while a tab switch is driving openRepository, so the tab bar is
-    /// not asked to reset itself half way through.
-    bool switchingRepository_ = false;
     /// Kept so the merge chooser can list branches without asking again.
     gity::session::RefSetPtr currentRefs_;
     gity::session::RemoteListPtr currentRemotes_;
@@ -236,6 +310,11 @@ private:
     QString pendingBranchDelete_;
 
     bool persistSession_ = false;
+    /// Interactive Rebase was chosen and its list of bases is on its way.
+    bool awaitingRebaseBases_ = false;
+    /// Saved tabs whose folder could not be found at start-up — a drive not
+    /// mounted — kept in the saved list so they are not forgotten.
+    QList<saved::Tab> unavailableTabs_;
 
     /// What a repository was showing, kept while another tab is on screen.
     struct ViewState {
@@ -246,25 +325,22 @@ private:
         int screen = 0;
         int lowerTab = 1;
     };
+
     QHash<QString, ViewState> viewStates_;
+    /// By workdir, canonically: the path its session was made under, where
+    /// the two differ (sessionPathFor).
+    QHash<QString, QString> sessionPaths_;
+    /// A quit was cancelled for conflict choices not saved in a repository
+    /// not on screen: the conflict window opens on them once that one has
+    /// opened. By workdir, as the conflict window names it.
+    QString openUnsavedConflictsIn_;
     /// The working copy as last reported, for questions a dialog must ask.
     gity::session::StatusPtr currentStatus_;
 
-    /// What switching to a ref involves, read from the loaded refs and status.
-    struct SwitchContext {
-        gity::session::RepoSession::RefKind kind = gity::session::RepoSession::RefKind::Detached;
-        bool hasSubmodules = false;
-        int submoduleChanges = 0;
-        /// The ref is at the commit already checked out (or is empty: HEAD).
-        bool sameCommit = false;
-    };
-    [[nodiscard]] SwitchContext switchContext(const QString& ref) const;
-    /// The branches pinned in `workdir`'s sidebar, as full ref names.
-    [[nodiscard]] static QStringList pinnedBranches(const QString& workdir);
+    /// What switching to `ref` involves, from the loaded refs and status.
+    [[nodiscard]] gity::session::SwitchContext switchContext(const QString& ref) const;
     /// The host's provider: by name, or else as chosen for an account on it.
     [[nodiscard]] static gity::git::Provider providerFor(const std::string& remoteUrl);
-    /// Every repository's pins, as stored: (working directory, full ref names).
-    [[nodiscard]] static QList<QPair<QString, QStringList>> readPinned(QSettings& settings);
     /// A commit to select once the streaming history reaches it.
     QString pendingSelectOid_;
     QElapsedTimer sinceOpen_;

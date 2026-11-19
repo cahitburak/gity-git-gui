@@ -1,5 +1,7 @@
 #include "WelcomePanel.h"
 
+#include <QKeyEvent>
+
 #include "ui/panels/Confirm.h"
 
 #include <QDir>
@@ -59,6 +61,22 @@ WelcomePanel::WelcomePanel(QWidget* parent) : QWidget(parent) {
             emit recentActivated(item->data(Qt::UserRole).toString());
         }
     });
+    // Not itemActivated: on desktops set to single-click activation it fires
+    // on the click as well, and the repository would open twice.
+    recent_->installEventFilter(this);
+}
+
+bool WelcomePanel::eventFilter(QObject* watched, QEvent* event) {
+    if (watched == recent_ && event->type() == QEvent::KeyPress) {
+        const auto* key = static_cast<QKeyEvent*>(event);
+        QListWidgetItem* item = recent_->currentItem();
+        if ((key->key() == Qt::Key_Return || key->key() == Qt::Key_Enter) && item != nullptr &&
+            (item->flags() & Qt::ItemIsEnabled) != 0) {
+            emit recentActivated(item->data(Qt::UserRole).toString());
+            return true;
+        }
+    }
+    return QWidget::eventFilter(watched, event);
 }
 
 void WelcomePanel::setRecent(const QStringList& paths) {
@@ -68,13 +86,14 @@ void WelcomePanel::setRecent(const QStringList& paths) {
             QStringLiteral("%1    %2").arg(QDir(path).dirName(), QDir::toNativeSeparators(path)),
             recent_);
         item->setData(Qt::UserRole, path);
-        item->setToolTip(QDir::toNativeSeparators(path));
+        item->setToolTip(plainToolTip(QDir::toNativeSeparators(path)));
         if (!QFileInfo::exists(path)) {
             // Said in words as well as by greying: a dimmed row alone reads
             // as a styling accident.
             item->setText(tr("%1    (not found)").arg(item->text()));
             item->setFlags(item->flags() & ~Qt::ItemIsEnabled);
-            item->setToolTip(tr("%1 — no longer on disk").arg(QDir::toNativeSeparators(path)));
+            item->setToolTip(
+                plainToolTip(tr("%1 — no longer on disk").arg(QDir::toNativeSeparators(path))));
         }
     }
     recentHeading_->setVisible(!paths.isEmpty());

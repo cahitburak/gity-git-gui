@@ -43,8 +43,7 @@ std::vector<RemoteEntry> listRemotes(git_repository* repo) {
     return remotes;
 }
 
-RemoteNameProblem checkRemoteName(std::string_view name,
-                                  const std::vector<RemoteEntry>& existing) {
+RemoteNameProblem checkRemoteName(std::string_view name, const std::vector<RemoteEntry>& existing) {
     if (name.empty()) {
         return RemoteNameProblem::Empty;
     }
@@ -58,13 +57,11 @@ RemoteNameProblem checkRemoteName(std::string_view name,
     // refs/remotes/<name>/…, so these are forbidden here for the same reason.
     constexpr std::string_view kIllegal = "~^:?*[\\\177";
     for (const char c : name) {
-        if (kIllegal.find(c) != std::string_view::npos ||
-            static_cast<unsigned char>(c) < 0x20) {
+        if (kIllegal.find(c) != std::string_view::npos || static_cast<unsigned char>(c) < 0x20) {
             return RemoteNameProblem::IllegalCharacter;
         }
     }
-    if (name.find("..") != std::string_view::npos ||
-        name.find("@{") != std::string_view::npos) {
+    if (name.find("..") != std::string_view::npos || name.find("@{") != std::string_view::npos) {
         return RemoteNameProblem::IllegalCharacter;
     }
     if (name.front() == '.' || name.back() == '.') {

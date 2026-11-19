@@ -23,7 +23,7 @@
 namespace gity::git {
 
 enum class RebaseAction {
-    Pick,   ///< Keep the commit as it is.
+    Pick, ///< Keep the commit as it is.
     /// Keep the changes, replace the message. git's own `reword` opens an
     /// editor Gity cannot show, so this is written as a pick followed by an
     /// amend of the message from a file (see serializeTodo).
@@ -53,6 +53,11 @@ struct RebaseStep {
 /// view holds it, and is reversed here — that inversion is the whole point of
 /// routing this through one function.
 [[nodiscard]] std::string serializeTodo(const std::vector<RebaseStep>& steps);
+
+/// `text` single-quoted for a POSIX shell, which is how git runs exec lines
+/// and $GIT_SEQUENCE_EDITOR. Every byte is literal inside the quotes; a quote
+/// itself is closed, escaped and reopened.
+[[nodiscard]] std::string shellQuote(std::string_view text);
 
 enum class TodoProblem {
     None,

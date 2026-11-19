@@ -1,12 +1,12 @@
 #include "FileDiff.h"
 
+#include "BlobReader.h"
+
 #include <algorithm>
 #include <cstring>
 
 namespace gity::git {
 namespace {
-
-
 
 DiffLineKind kindOf(char origin) noexcept {
     switch (origin) {
@@ -14,23 +14,15 @@ DiffLineKind kindOf(char origin) noexcept {
         return DiffLineKind::Addition;
     case GIT_DIFF_LINE_DELETION:
         return DiffLineKind::Deletion;
+    // After a context line too: both sides end without a newline, and the
+    // last line is the same in each.
+    case GIT_DIFF_LINE_CONTEXT_EOFNL:
     case GIT_DIFF_LINE_ADD_EOFNL:
     case GIT_DIFF_LINE_DEL_EOFNL:
         return DiffLineKind::NoNewlineMarker;
     default:
         return DiffLineKind::Context;
     }
-}
-
-/// libgit2 hands back line content with its trailing newline. The view draws
-/// one row per line and adds its own spacing, so the terminator is stripped
-/// here rather than at every paint.
-std::string_view withoutTerminator(const char* content, std::size_t length) noexcept {
-    std::string_view text(content, length);
-    while (!text.empty() && (text.back() == '\n' || text.back() == '\r')) {
-        text.remove_suffix(1);
-    }
-    return text;
 }
 
 ChangeStatus statusOf(git_delta_t delta) noexcept {
@@ -55,15 +47,15 @@ ChangeStatus statusOf(git_delta_t delta) noexcept {
 } // namespace
 
 std::size_t FileDiff::additions() const noexcept {
-    return static_cast<std::size_t>(std::count_if(
-        lines.begin(), lines.end(),
-        [](const DiffLine& line) { return line.kind == DiffLineKind::Addition; }));
+    return static_cast<std::size_t>(
+        std::count_if(lines.begin(), lines.end(),
+                      [](const DiffLine& line) { return line.kind == DiffLineKind::Addition; }));
 }
 
 std::size_t FileDiff::deletions() const noexcept {
-    return static_cast<std::size_t>(std::count_if(
-        lines.begin(), lines.end(),
-        [](const DiffLine& line) { return line.kind == DiffLineKind::Deletion; }));
+    return static_cast<std::size_t>(
+        std::count_if(lines.begin(), lines.end(),
+                      [](const DiffLine& line) { return line.kind == DiffLineKind::Deletion; }));
 }
 
 namespace {
@@ -84,8 +76,7 @@ FileDiff diffTrees(git_repository* repo, const TreeHandle& parentTree, const Tre
     out.path = path;
 
     git_diff_options diffOptions;
-    check(git_diff_options_init(&diffOptions, GIT_DIFF_OPTIONS_VERSION),
-          "initialize diff options");
+    check(git_diff_options_init(&diffOptions, GIT_DIFF_OPTIONS_VERSION), "initialize diff options");
     diffOptions.context_lines = static_cast<std::uint32_t>(options.contextLines);
 
     // Restrict to the one path. Diffing the whole tree and discarding the rest
@@ -137,25 +128,92 @@ FileDiff diffTrees(git_repository* repo, const TreeHandle& parentTree, const Tre
         }
     }
 
-    if (const git_diff_delta* delta = git_diff_get_delta(diff.get(), deltaIndex);
-        delta != nullptr) {
+    PatchHandle patch;
+    check(git_patch_from_diff(patch.receive(), diff.get(), deltaIndex), "build the patch");
+    readPatch(patch.get(), out, options.maxLines, options.readSources);
+    if (out.status != ChangeStatus::Renamed) {
+        out.oldPath.clear();
+    }
+
+    return out;
+}
+
+/// One side of the patch whole, or nothing when it cannot be had. A blob is
+/// read from the object database; the working copy's side usually has no blob
+/// there — its id is only a hash of the file — and is read from disk.
+bool readSide(git_repository* repo, const git_diff_file& file, std::string& out) {
+    out.clear();
+    if (file.mode == 0) {
+        return true; // the side does not exist: empty is the truth
+    }
+    if (file.mode == GIT_FILEMODE_COMMIT || file.mode == GIT_FILEMODE_LINK) {
+        return false;
+    }
+    if (file.size > kMaxSourceBytes) {
+        return false;
+    }
+    if (!git_oid_is_zero(&file.id)) {
+        BlobHandle blob;
+        if (git_blob_lookup(blob.receive(), repo, &file.id) == 0) {
+            const auto size = static_cast<std::size_t>(git_blob_rawsize(blob.get()));
+            if (size > kMaxSourceBytes) {
+                return false;
+            }
+            if (size > 0) { // an empty blob's content may be a null pointer
+                out.assign(static_cast<const char*>(git_blob_rawcontent(blob.get())), size);
+            }
+            return true;
+        }
+    }
+    const char* workdir = git_repository_workdir(repo);
+    if (workdir == nullptr || file.path == nullptr) {
+        return false;
+    }
+    const BlobContent disk = readWorktreeFile(workdir, file.path, kMaxSourceBytes);
+    if (!disk.found) {
+        return false; // an empty file is a side like any other
+    }
+    out.assign(disk.bytes.data(), disk.bytes.size());
+    return true;
+}
+
+void readSides(git_patch* patch, const git_diff_delta& delta, FileDiff& out) {
+    git_repository* repo = git_patch_owner(patch);
+    if (repo == nullptr || out.binary || out.tooLarge || out.lines.empty()) {
+        return;
+    }
+    out.hasSources = readSide(repo, delta.old_file, out.oldSource) &&
+                     readSide(repo, delta.new_file, out.newSource);
+    if (!out.hasSources) {
+        out.oldSource.clear();
+        out.newSource.clear();
+    }
+}
+
+} // namespace
+
+void readPatch(git_patch* patch, FileDiff& out, std::size_t maxLines, bool readSources) {
+    // The delta is read from the patch, not from the diff before it: libgit2
+    // only knows a file is binary once it has loaded the contents, which
+    // building the patch is what does. Read earlier, the flag is almost never
+    // set and a binary file shows as "no textual changes".
+    if (const git_diff_delta* delta = git_patch_get_delta(patch); delta != nullptr) {
         out.status = statusOf(delta->status);
         out.binary = (delta->flags & GIT_DIFF_FLAG_BINARY) != 0;
-        if (delta->old_file.path != nullptr && out.status == ChangeStatus::Renamed) {
+        out.oldMode = static_cast<std::uint32_t>(delta->old_file.mode);
+        out.newMode = static_cast<std::uint32_t>(delta->new_file.mode);
+        if (delta->old_file.path != nullptr) {
             out.oldPath = delta->old_file.path;
         }
     }
 
-    PatchHandle patch;
-    check(git_patch_from_diff(patch.receive(), diff.get(), deltaIndex), "build the patch");
-
-    const std::size_t hunkCount = git_patch_num_hunks(patch.get());
+    const std::size_t hunkCount = git_patch_num_hunks(patch);
     out.hunks.reserve(hunkCount);
 
     for (std::size_t h = 0; h < hunkCount; ++h) {
         const git_diff_hunk* hunk = nullptr;
         std::size_t linesInHunk = 0;
-        if (git_patch_get_hunk(&hunk, &linesInHunk, patch.get(), h) < 0 || hunk == nullptr) {
+        if (git_patch_get_hunk(&hunk, &linesInHunk, patch, h) < 0 || hunk == nullptr) {
             continue;
         }
 
@@ -172,23 +230,34 @@ FileDiff diffTrees(git_repository* repo, const TreeHandle& parentTree, const Tre
         outHunk.firstLine = static_cast<std::uint32_t>(out.lines.size());
 
         for (std::size_t l = 0; l < linesInHunk; ++l) {
-            if (out.lines.size() >= options.maxLines) {
+            if (out.lines.size() >= maxLines) {
                 out.tooLarge = true;
                 break;
             }
             const git_diff_line* line = nullptr;
-            if (git_patch_get_line_in_hunk(&line, patch.get(), h, l) < 0 || line == nullptr) {
+            if (git_patch_get_line_in_hunk(&line, patch, h, l) < 0 || line == nullptr) {
                 continue;
             }
 
-            const std::string_view content = withoutTerminator(line->content, line->content_len);
-
+            // The view draws one row per line, so the terminator is stripped
+            // here rather than at every paint — but whether it was CR LF is
+            // kept, because a patch rebuilt from this text has to match the
+            // file byte for byte.
+            std::string_view content(line->content, line->content_len);
             DiffLine outLine;
+            if (!content.empty() && content.back() == '\n') {
+                content.remove_suffix(1);
+            }
+            if (!content.empty() && content.back() == '\r') {
+                content.remove_suffix(1);
+                outLine.carriageReturn = true;
+            }
+
             outLine.kind = kindOf(line->origin);
-            outLine.oldLine = line->old_lineno > 0 ? static_cast<std::uint32_t>(line->old_lineno)
-                                                   : 0u;
-            outLine.newLine = line->new_lineno > 0 ? static_cast<std::uint32_t>(line->new_lineno)
-                                                   : 0u;
+            outLine.oldLine =
+                line->old_lineno > 0 ? static_cast<std::uint32_t>(line->old_lineno) : 0u;
+            outLine.newLine =
+                line->new_lineno > 0 ? static_cast<std::uint32_t>(line->new_lineno) : 0u;
             outLine.textOffset = static_cast<std::uint32_t>(out.text.size());
             outLine.textLength = static_cast<std::uint32_t>(content.size());
             out.text.append(content);
@@ -203,10 +272,10 @@ FileDiff diffTrees(git_repository* repo, const TreeHandle& parentTree, const Tre
         }
     }
 
-    return out;
+    if (const git_diff_delta* delta = git_patch_get_delta(patch); readSources && delta != nullptr) {
+        readSides(patch, *delta, out);
+    }
 }
-
-} // namespace
 
 FileDiff loadFileDiff(git_repository* repo, const git_oid& commitOid, const std::string& path,
                       const FileDiffOptions& options) {

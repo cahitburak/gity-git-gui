@@ -25,8 +25,8 @@ void throwLastError(int code, const char* what) {
 
 RepositoryHandle openRepository(const std::string& path) {
     RepositoryHandle repo;
-    check(git_repository_open_ext(repo.receive(), path.c_str(),
-                                  GIT_REPOSITORY_OPEN_CROSS_FS, nullptr),
+    check(git_repository_open_ext(repo.receive(), path.c_str(), GIT_REPOSITORY_OPEN_CROSS_FS,
+                                  nullptr),
           "open repository");
     return repo;
 }

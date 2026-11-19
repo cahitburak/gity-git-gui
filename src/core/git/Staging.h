@@ -1,13 +1,14 @@
-// M2 — moving changes into and out of the index.
+// M2 — reading the working copy's diffs, and turning a selection of lines into
+// a patch.
 //
-// Whole-file staging is a libgit2 index call. Hunk and line staging is not:
-// libgit2 can apply a patch to the index but has no notion of "these lines
-// only", so the selection is turned into a synthetic patch first. That
-// synthesis is pure string work, which is why it is exposed separately and
-// tested on its own — it is the part that can be subtly wrong.
+// Nothing here writes. Staging, unstaging and discarding go through the git
+// binary (session/IndexWrites), as ADR-003 requires: libgit2's index calls run
+// none of the user's external clean filters, so a file under LFS went into
+// the index whole and one under git-crypt in plaintext.
 //
-// ADR-003 still holds: the *commit* goes through the git binary so hooks,
-// signing and filters behave. Only index manipulation happens in-process.
+// Hunk and line staging is a patch built from the selection and handed to
+// `git apply`. Building it is pure string work, which is why it is exposed
+// separately and tested on its own — it is the part that can be subtly wrong.
 #pragma once
 
 #include "FileDiff.h"
@@ -33,16 +34,8 @@ enum class DiffSide {
 };
 
 /// Diffs one path in the working copy rather than in history.
-[[nodiscard]] FileDiff loadWorkingDiff(git_repository* repo, const std::string& path,
-                                       DiffSide side, const FileDiffOptions& options = {});
-
-// --- whole file ----------------------------------------------------------
-
-/// Stages several paths as one index write. Staging a selection one file at
-/// a time would leave the index briefly split, and a filesystem watcher can
-/// observe that.
-void stageFiles(git_repository* repo, const std::vector<std::string>& paths);
-void unstageFiles(git_repository* repo, const std::vector<std::string>& paths);
+[[nodiscard]] FileDiff loadWorkingDiff(git_repository* repo, const std::string& path, DiffSide side,
+                                       const FileDiffOptions& options = {});
 
 // --- hunks and lines -----------------------------------------------------
 
@@ -55,31 +48,18 @@ using LineSelection = std::unordered_set<std::uint32_t>;
 
 /// Builds a unified diff containing only the selected changes.
 ///
-/// Unselected additions are dropped — they are not in the result. Unselected
-/// deletions become context — the line stays. Hunk headers are recomputed
-/// from what survives, and a hunk with nothing selected is omitted entirely.
-/// This is the same transformation `git add -p` performs.
-///
-/// `reverse` swaps the direction, which is how unstaging works: the same
-/// selection applied backwards.
-[[nodiscard]] std::string buildPartialPatch(const FileDiff& diff,
-                                            const LineSelection& selected, bool reverse);
-
-/// Applies a patch to the index, leaving the worktree untouched.
-///
-/// Exposed because the UI builds the patch from the diff it is already showing
-/// and sends that, rather than sending a line selection for the worker to
-/// re-resolve. If the worktree moved in between, applying a stale patch fails
-/// cleanly; re-resolving stale indices would silently stage the wrong lines.
-void applyPatchToIndex(git_repository* repo, const std::string& patchText);
-
-/// Applies a patch to the worktree only — what discarding an unstaged hunk
-/// means. Separate from applyPatchToIndex because the two differ only in a
-/// location flag and confusing them silently rewrites the user's files.
-///
-/// The worktree and not both: the patch is the reverse of an index-to-worktree
-/// hunk, which the index never held, so applying it there as well can only
-/// fail.
-void applyPatchToWorktree(git_repository* repo, const std::string& patchText);
+/// Forward (staging) the patch applies to the diff's old side: unselected
+/// additions are dropped, and unselected deletions become context. Reversed
+/// (unstaging, discarding) it applies to the new side and undoes the selected
+/// changes: unselected additions become context, and unselected deletions are
+/// dropped. Hunk headers are recomputed from what survives, and a hunk with
+/// nothing selected is omitted entirely — the same transformation `git add -p`
+/// performs. Lines keep their CR LF endings, and a patch against a side that
+/// does not exist yet says it creates the file — or, when every line of a file
+/// whose result side does not exist is selected, that it deletes it. A
+/// "\ No newline at end of file" goes after whichever line ends each side once
+/// the selection is made, and a path git would quote is quoted.
+[[nodiscard]] std::string buildPartialPatch(const FileDiff& diff, const LineSelection& selected,
+                                            bool reverse);
 
 } // namespace gity::git

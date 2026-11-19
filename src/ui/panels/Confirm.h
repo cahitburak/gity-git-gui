@@ -11,9 +11,13 @@
 // a colour-only warning tells them nothing.
 #pragma once
 
+#include <QMessageBox>
 #include <QString>
 
 class QAction;
+class QInputDialog;
+class QLabel;
+class QProgressDialog;
 class QWidget;
 
 namespace gity::ui {
@@ -36,8 +40,41 @@ void describeCommand(QAction* action, const QString& what, const QString& comman
 /// `action` is the label on the destructive button — "Discard", "Delete
 /// Anyway" — never "Yes". Cancel is the default, so return does the safe
 /// thing.
-[[nodiscard]] bool confirmDestructive(QWidget* parent, const QString& title,
-                                      const QString& text, const QString& consequence,
-                                      const QString& action);
+[[nodiscard]] bool confirmDestructive(QWidget* parent, const QString& title, const QString& text,
+                                      const QString& consequence, const QString& action);
+
+// Text shown as written. Qt guesses whether a label's or a message box's text
+// is markup, and branch, tag and file names — and what a server says back —
+// may hold "<" and ">": a branch named "<b>x" would be shown in bold, and
+// worse can be written. Anything carrying names or git's own words goes
+// through one of these rather than the default guess.
+
+/// A message box with its text and informative text as plain text: the
+/// static QMessageBox functions, which guess. Returns the button pressed.
+QMessageBox::StandardButton
+showPlainMessage(QWidget* parent, QMessageBox::Icon icon, const QString& title, const QString& text,
+                 QMessageBox::StandardButtons buttons = QMessageBox::Ok,
+                 QMessageBox::StandardButton defaultButton = QMessageBox::NoButton,
+                 const QString& detail = {});
+
+/// A label that shows its text as written.
+void setPlainText(QLabel* label);
+
+/// A tooltip that shows `text` as written. Tooltips have no text format of
+/// their own, so text that would be taken for markup is escaped into it;
+/// anything else is returned unchanged and looks as it always has.
+[[nodiscard]] QString plainToolTip(const QString& text);
+
+/// The prompt of an input or progress dialog, as written. Those dialogs make
+/// their label themselves, so this finds it.
+void setPlainLabels(QInputDialog* dialog);
+void setPlainLabels(QProgressDialog* dialog);
+
+/// QInputDialog::getItem with its prompt as written.
+[[nodiscard]] QString chooseItem(QWidget* parent, const QString& title, const QString& label,
+                                 const QStringList& items, bool* accepted);
+/// QInputDialog::getText with its prompt as written.
+[[nodiscard]] QString enterText(QWidget* parent, const QString& title, const QString& label,
+                                const QString& text, bool* accepted);
 
 } // namespace gity::ui

@@ -1,10 +1,44 @@
 #include "DeviceFlow.h"
 
+#include "JsonScanner.h"
+
 #include <algorithm>
 #include <cctype>
 
 namespace gity::git {
 namespace {
+
+int hexValue(char c) {
+    if (c >= '0' && c <= '9') {
+        return c - '0';
+    }
+    if (c >= 'a' && c <= 'f') {
+        return c - 'a' + 10;
+    }
+    if (c >= 'A' && c <= 'F') {
+        return c - 'A' + 10;
+    }
+    return -1;
+}
+
+/// application/x-www-form-urlencoded: '+' is a space and %XX a byte. GitHub's
+/// form reply encodes the verification URL as https%3A%2F%2F…
+std::string formDecode(std::string_view text) {
+    std::string out;
+    out.reserve(text.size());
+    for (std::size_t i = 0; i < text.size(); ++i) {
+        if (text[i] == '+') {
+            out += ' ';
+        } else if (text[i] == '%' && i + 2 < text.size() && hexValue(text[i + 1]) >= 0 &&
+                   hexValue(text[i + 2]) >= 0) {
+            out += static_cast<char>(hexValue(text[i + 1]) * 16 + hexValue(text[i + 2]));
+            i += 2;
+        } else {
+            out += text[i];
+        }
+    }
+    return out;
+}
 
 /// A value from either JSON or form encoding.
 ///
@@ -12,46 +46,57 @@ namespace {
 /// `application/x-www-form-urlencoded` unless asked for JSON, and returns JSON
 /// elsewhere. Accepting both means the flow does not break on a provider that
 /// ignores the Accept header — which GitHub historically did.
-std::string valueOf(std::string_view body, std::string_view key) {
-    // JSON: "key":"value" or "key":123
-    std::string quoted = "\"";
-    quoted += key;
-    quoted += "\"";
-    std::size_t at = body.find(quoted);
-    if (at != std::string_view::npos) {
-        at = body.find(':', at + quoted.size());
-        if (at == std::string_view::npos) {
+///
+/// In JSON, a value that is not a string — false, a number, an object — is
+/// none, unless `number` asks for a number: "access_token": false was read as
+/// the token "false", and the flow ended as if granted.
+std::string valueOf(std::string_view body, std::string_view key, bool number = false) {
+    // JSON: a member of the top-level object, read with a scanner rather than
+    // found by searching for "key": a string value that happens to read
+    // "access_token", or a URL in an error description holding
+    // ?access_token=, was taken for the token itself.
+    std::size_t first = 0;
+    while (first < body.size() && std::isspace(static_cast<unsigned char>(body[first])) != 0) {
+        ++first;
+    }
+    if (first < body.size() && body[first] == '{') {
+        JsonScanner scanner(body);
+        if (!scanner.take('{') || scanner.take('}')) {
             return {};
         }
-        ++at;
-        while (at < body.size() && (body[at] == ' ' || body[at] == '\t')) {
-            ++at;
-        }
-        if (at < body.size() && body[at] == '"') {
-            const std::size_t end = body.find('"', at + 1);
-            if (end == std::string_view::npos) {
+        while (true) {
+            std::string name;
+            if (!scanner.readString(&name) || !scanner.take(':')) {
                 return {};
             }
-            return std::string(body.substr(at + 1, end - at - 1));
+            if (name == key) {
+                // Strings come with their escapes decoded — a provider may
+                // write the verification URL as "https:\/\/github.com\/…",
+                // or an '&' as \u0026. JSON's null is no value, not the
+                // four letters: an error reply with "access_token": null
+                // would otherwise be stored as the token "null".
+                std::string value;
+                const bool read =
+                    number ? scanner.readScalar(&value) && value != "true" && value != "false"
+                           : scanner.readString(&value);
+                return read ? value : std::string();
+            }
+            if (!scanner.skipValue() || !scanner.take(',')) {
+                return {};
+            }
         }
-        const std::size_t end = body.find_first_of(",}", at);
-        std::string number(body.substr(at, end == std::string_view::npos ? end : end - at));
-        while (!number.empty() && std::isspace(static_cast<unsigned char>(number.back())) != 0) {
-            number.pop_back();
-        }
-        return number;
     }
 
     // Form encoding: key=value&…
+    std::size_t at = 0;
     std::size_t search = 0;
     while ((at = body.find(key, search)) != std::string_view::npos) {
         const bool atStart = at == 0 || body[at - 1] == '&' || body[at - 1] == '?';
         const std::size_t after = at + key.size();
         if (atStart && after < body.size() && body[after] == '=') {
             const std::size_t end = body.find('&', after + 1);
-            return std::string(body.substr(after + 1, end == std::string_view::npos
-                                                          ? end
-                                                          : end - after - 1));
+            return formDecode(
+                body.substr(after + 1, end == std::string_view::npos ? end : end - after - 1));
         }
         search = at + 1;
     }
@@ -59,7 +104,7 @@ std::string valueOf(std::string_view body, std::string_view key) {
 }
 
 int intValue(std::string_view body, std::string_view key, int fallback) {
-    const std::string text = valueOf(body, key);
+    const std::string text = valueOf(body, key, true);
     if (text.empty()) {
         return fallback;
     }

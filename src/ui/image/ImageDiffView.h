@@ -32,8 +32,7 @@ private:
     void setMode(Mode mode);
     void rebuildComposite();
     void paintPane(QPainter& painter, const QRect& area, const QString& label,
-                   const QString& metadata, const QColor& labelColour,
-                   const QImage& image) const;
+                   const QString& metadata, const QColor& labelColour, const QImage& image) const;
 
     session::ImageDiffPtr diff_;
     Mode mode_ = Mode::SideBySide;

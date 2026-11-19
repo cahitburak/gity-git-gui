@@ -62,7 +62,12 @@ AskpassDialog::AskpassDialog(const QString& prompt, QWidget* parent)
     // git's own words, verbatim: it names the host being authenticated to, and
     // rewording that would mean deciding for the user which host they are
     // looking at.
+    //
+    // Plain text, always: the prompt quotes a URL, and a URL from a remote or a
+    // submodule's .gitmodules is someone else's text. Read as rich text it
+    // could restyle the dialog — or show a different host from the one asking.
     auto* promptLabel = new QLabel(prompt.trimmed(), this);
+    promptLabel->setTextFormat(Qt::PlainText);
     promptLabel->setWordWrap(true);
     promptLabel->setTextInteractionFlags(Qt::TextSelectableByMouse);
     layout->addWidget(promptLabel);
@@ -83,8 +88,8 @@ AskpassDialog::AskpassDialog(const QString& prompt, QWidget* parent)
     // GitHub stopped accepting account passwords for git in 2021: a password
     // typed here can only fail. Said before it is typed, not after.
     if (request_.kind == git::AskpassKind::Password &&
-        QString::fromStdString(request_.subject).contains(QStringLiteral("github.com"),
-                                                          Qt::CaseInsensitive)) {
+        QString::fromStdString(request_.subject)
+            .contains(QStringLiteral("github.com"), Qt::CaseInsensitive)) {
         note = QCoreApplication::translate(
             "askpass", "GitHub does not accept your account password here — only a personal "
                        "access token. Usually this prompt means your sign-in did not answer for "

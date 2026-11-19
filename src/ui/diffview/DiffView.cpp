@@ -4,9 +4,9 @@
 #include "ui/theme/Tokens.h"
 
 #include <QFontDatabase>
-#include <QPainter>
 #include <QKeyEvent>
 #include <QMouseEvent>
+#include <QPainter>
 #include <QResizeEvent>
 #include <QScrollBar>
 
@@ -33,9 +33,20 @@ DiffView::DiffView(QWidget* parent) : QAbstractScrollArea(parent) {
 QFont DiffView::monoFont() const {
     // A diff is columnar: alignment carries meaning, so the platform's fixed
     // font is not a stylistic choice here.
-    QFont font = QFontDatabase::systemFont(QFontDatabase::FixedFont);
-    font.setPointSizeF(QFontInfo(this->font()).pointSizeF());
-    return font;
+    if (!monoFontValid_) {
+        monoFont_ = QFontDatabase::systemFont(QFontDatabase::FixedFont);
+        monoFont_.setPointSizeF(QFontInfo(this->font()).pointSizeF());
+        monoFontValid_ = true;
+    }
+    return monoFont_;
+}
+
+void DiffView::changeEvent(QEvent* event) {
+    if (event->type() == QEvent::FontChange || event->type() == QEvent::StyleChange) {
+        monoFontValid_ = false;
+        rebuildRows();
+    }
+    QAbstractScrollArea::changeEvent(event);
 }
 
 int DiffView::rowHeight() const {
@@ -276,20 +287,43 @@ void DiffView::keyPressEvent(QKeyEvent* event) {
 }
 
 void DiffView::setDiff(FileDiffPtr diff, session::HunkStagingPtr staging) {
+    // The same file again — re-read after staging a hunk of it — keeps its
+    // place. Jumping back to the top meant staging hunk 30 of a long file
+    // and then scrolling back down to find hunk 31.
+    const bool sameFile = diff_ && diff && diff_->path == diff->path;
+    const int keptTop = verticalScrollBar()->value();
+    const int keptLeft = horizontalScrollBar()->value();
+    const qsizetype keptCursor = cursorRow_;
+
     hunkStaging_ = std::move(staging);
     diff_ = std::move(diff);
+    spansReady_ = false;
     selection_.clear();
     anchorRow_ = -1;
     cursorRow_ = -1;
     emit selectionChanged(0);
     rebuildRows();
-    verticalScrollBar()->setValue(0);
-    horizontalScrollBar()->setValue(0);
+    if (sameFile) {
+        verticalScrollBar()->setValue(std::min(keptTop, verticalScrollBar()->maximum()));
+        horizontalScrollBar()->setValue(std::min(keptLeft, horizontalScrollBar()->maximum()));
+        if (keptCursor >= 0 && keptCursor < static_cast<qsizetype>(rows_.size())) {
+            cursorRow_ = keptCursor;
+        }
+    } else {
+        verticalScrollBar()->setValue(0);
+        horizontalScrollBar()->setValue(0);
+    }
     viewport()->update();
 }
 
 void DiffView::clearDiff() {
     diff_.reset();
+    // The colours go with the diff: kept, they held a large file's spans
+    // until the next diff was painted.
+    spansReady_ = false;
+    oldSpans_.reset();
+    newSpans_.reset();
+    lineSpans_.clear();
     selection_.clear();
     anchorRow_ = -1;
     cursorRow_ = -1;
@@ -303,6 +337,83 @@ void DiffView::clearDiff() {
 void DiffView::setPlaceholder(const QString& text) {
     placeholder_ = text;
     viewport()->update();
+}
+
+void DiffView::highlight() {
+    const QString key = syntax::themeKey();
+    if (spansReady_ && key == spansKey_) {
+        return;
+    }
+    spansReady_ = true;
+    spansKey_ = key;
+    oldSpans_.reset();
+    newSpans_.reset();
+    lineSpans_.assign(diff_ ? diff_->lines.size() : 0, nullptr);
+    if (!diff_ || diff_->binary || diff_->lines.empty() || key.isEmpty()) {
+        return;
+    }
+    const QString newName = QString::fromStdString(diff_->path);
+    const QString oldName =
+        diff_->oldPath.empty() ? newName : QString::fromStdString(diff_->oldPath);
+    const auto& lines = diff_->lines;
+    const auto fromOld = [](const git::DiffLine& line) {
+        return line.kind == git::DiffLineKind::Deletion;
+    };
+
+    if (diff_->hasSources) {
+        // Each side whole, as far as its last line shown: a hunk that opens
+        // inside a comment is coloured as one.
+        std::uint32_t lastOld = 0;
+        std::uint32_t lastNew = 0;
+        for (const auto& line : lines) {
+            lastOld = std::max(lastOld, line.oldLine);
+            lastNew = std::max(lastNew, line.newLine);
+        }
+        if (lastOld > 0) {
+            oldSpans_ = syntax::highlight(oldName, diff_->oldSource, lastOld);
+        }
+        if (lastNew > 0) {
+            newSpans_ = syntax::highlight(newName, diff_->newSource, lastNew);
+        }
+        for (std::size_t i = 0; i < lines.size(); ++i) {
+            const auto& line = lines[i];
+            if (line.kind == git::DiffLineKind::NoNewlineMarker) {
+                continue;
+            }
+            lineSpans_[i] = fromOld(line) ? syntax::lineSpans(oldSpans_, line.oldLine)
+                                          : syntax::lineSpans(newSpans_, line.newLine);
+        }
+        return;
+    }
+
+    // Without the files — too large, or unreadable — the diff's own lines
+    // stand in for them: each side's lines in order, context in both.
+    std::vector<QString> oldLines;
+    std::vector<QString> newLines;
+    std::vector<std::size_t> at(lines.size(), 0);
+    for (std::size_t i = 0; i < lines.size(); ++i) {
+        const auto& line = lines[i];
+        if (line.kind == git::DiffLineKind::NoNewlineMarker) {
+            continue;
+        }
+        const auto text = diff_->lineText(line);
+        const QString shown = QString::fromUtf8(text.data(), static_cast<qsizetype>(text.size()));
+        if (line.kind != git::DiffLineKind::Addition) {
+            oldLines.push_back(shown);
+            at[i] = oldLines.size();
+        }
+        if (line.kind != git::DiffLineKind::Deletion) {
+            newLines.push_back(shown);
+            at[i] = newLines.size();
+        }
+    }
+    oldSpans_ = syntax::highlightLines(oldName, oldLines);
+    newSpans_ = syntax::highlightLines(newName, newLines);
+    for (std::size_t i = 0; i < lines.size(); ++i) {
+        if (at[i] != 0) {
+            lineSpans_[i] = syntax::lineSpans(fromOld(lines[i]) ? oldSpans_ : newSpans_, at[i]);
+        }
+    }
 }
 
 void DiffView::rebuildRows() {
@@ -321,8 +432,10 @@ void DiffView::rebuildRows() {
         for (std::uint32_t l = 0; l < hunk.lineCount; ++l) {
             const std::uint32_t lineIndex = hunk.firstLine + l;
             rows_.push_back(Row{false, lineIndex});
-            longestLine_ = std::max<int>(
-                longestLine_, static_cast<int>(diff_->lines[lineIndex].textLength));
+            // In columns as drawn, not bytes: a tab-indented line is wider
+            // than its bytes, and was cut off at the end of the scroll.
+            longestLine_ =
+                std::max(longestLine_, codeLineColumns(diff_->lineText(diff_->lines[lineIndex])));
         }
     }
     updateScrollBars();
@@ -363,12 +476,14 @@ void DiffView::paintEvent(QPaintEvent* event) {
         } else if (diff_ && diff_->lines.empty()) {
             message = tr("No textual changes");
         }
-        painter.drawText(viewport()->rect(), Qt::AlignCenter, message);
+        painter.drawText(viewport()->rect().adjusted(24, 0, -24, 0),
+                         Qt::AlignCenter | Qt::TextWordWrap, message);
         paintFocus(painter);
         return;
     }
 
     painter.setFont(monoFont());
+    highlight();
 
     const int h = rowHeight();
     const int scroll = verticalScrollBar()->value();
@@ -390,8 +505,8 @@ void DiffView::paintEvent(QPaintEvent* event) {
     if (hasFocus() && cursorRow_ >= 0 && cursorRow_ < static_cast<qsizetype>(rows_.size())) {
         painter.setPen(QPen(tokens::selectionMarker, 1));
         painter.setBrush(Qt::NoBrush);
-        painter.drawRect(QRect(0, static_cast<int>(cursorRow_) * h - scroll,
-                               viewport()->width() - 1, h - 1));
+        painter.drawRect(
+            QRect(0, static_cast<int>(cursorRow_) * h - scroll, viewport()->width() - 1, h - 1));
     }
 
     painter.setPen(theme.separator);
@@ -410,10 +525,56 @@ void DiffView::paintRow(QPainter& painter, const Row& row, int y, int gutter) co
     if (row.isHunkHeader) {
         const git::DiffHunk& hunk = diff_->hunks[row.index];
         painter.fillRect(0, y, width, h, theme.hunkHeaderBg);
+
+        // The buttons are laid out first, so the header text can stop short
+        // of them: drawn over it, they let the text show through and neither
+        // could be read.
+        struct Button {
+            QRect box;
+            QString label;
+            QColor colour;
+        };
+
+        std::vector<Button> buttons;
+        if (staging_) {
+            const QFontMetrics buttonMetrics(font());
+            int right = width - 8;
+            const auto place = [&](const QString& label, const QColor& colour) {
+                const int buttonWidth = buttonMetrics.horizontalAdvance(label) + 16;
+                const QRect box(right - buttonWidth, y + (h - buttonMetrics.height() - 4) / 2,
+                                buttonWidth, buttonMetrics.height() + 4);
+                right = box.left() - 6;
+                buttons.push_back({box, label, colour});
+                return box;
+            };
+            if (hunkButtons_.size() <= row.index) {
+                hunkButtons_.resize(row.index + 1);
+            }
+            if (showingStaged_) {
+                hunkButtons_[row.index] = {place(tr("Unstage hunk"), tokens::semanticWarn),
+                                           QRect()};
+            } else {
+                const QRect discard = place(tr("Discard"), tokens::semanticRemove);
+                const QRect stage = place(tr("Stage hunk"), tokens::semanticAdd);
+                hunkButtons_[row.index] = {stage, discard};
+            }
+        }
+        const int textRight = buttons.empty() ? width : buttons.back().box.left() - 8;
+
+        // What does not fit is elided rather than run under the buttons; the
+        // line numbers come first in the header, so they are what stays.
+        int x = digit;
+        const auto drawFitted = [&](const QString& text) {
+            const int room = textRight - x;
+            if (room <= 0) {
+                return;
+            }
+            const QString shown = fm.elidedText(text, Qt::ElideRight, room);
+            painter.drawText(QRect(x, y, room, h), Qt::AlignVCenter | Qt::AlignLeft, shown);
+            x += fm.horizontalAdvance(shown);
+        };
         painter.setPen(theme.hunkHeaderText);
-        const QString headerText = QString::fromStdString(hunk.header);
-        painter.drawText(QRect(digit, y, width - digit, h), Qt::AlignVCenter | Qt::AlignLeft,
-                         headerText);
+        drawFitted(QString::fromStdString(hunk.header));
 
         // SPEC.md §2: "@@ -12,6 +12,9 @@  ·  2 of 4 lines staged". Shown only
         // when the region really is split across the index — "0 of 4" on a
@@ -421,45 +582,21 @@ void DiffView::paintRow(QPainter& painter, const Row& row, int y, int gutter) co
         if (hunkStaging_ != nullptr && row.index < hunkStaging_->size() &&
             hunkStaging_->at(row.index).partial()) {
             const git::HunkStaging& counts = hunkStaging_->at(row.index);
-            const QString note = tr("  ·  %1 of %2 lines staged")
-                                     .arg(counts.staged)
-                                     .arg(counts.total);
             painter.setPen(tokens::textLabelDim);
-            painter.drawText(QRect(digit + fm.horizontalAdvance(headerText), y,
-                                   width - digit, h),
-                             Qt::AlignVCenter | Qt::AlignLeft, note);
+            drawFitted(tr("  ·  %1 of %2 lines staged").arg(counts.staged).arg(counts.total));
         }
 
-        if (staging_) {
-            // Painted, not real buttons: child widgets inside a scrolling view
-            // are the usual cause of jank here (QT_MAPPING).
-            if (hunkButtons_.size() <= row.index) {
-                hunkButtons_.resize(row.index + 1);
+        // Painted, not real buttons: child widgets inside a scrolling view
+        // are the usual cause of jank here (QT_MAPPING).
+        if (!buttons.empty()) {
+            painter.setFont(font());
+            for (const Button& button : buttons) {
+                painter.setPen(QPen(button.colour, 1));
+                painter.setBrush(theme.hunkHeaderBg);
+                painter.drawRoundedRect(button.box, tokens::radiusChip, tokens::radiusChip);
+                painter.drawText(button.box, Qt::AlignCenter, button.label);
             }
-            const QFontMetrics buttonMetrics(font());
-            const auto paintButton = [&](int right, const QString& label,
-                                         const QColor& colour) {
-                const int buttonWidth = buttonMetrics.horizontalAdvance(label) + 16;
-                const QRect box(right - buttonWidth, y + (h - buttonMetrics.height() - 4) / 2,
-                                buttonWidth, buttonMetrics.height() + 4);
-                painter.setFont(font());
-                painter.setPen(QPen(colour, 1));
-                painter.setBrush(Qt::NoBrush);
-                painter.drawRoundedRect(box, tokens::radiusChip, tokens::radiusChip);
-                painter.drawText(box, Qt::AlignCenter, label);
-                return box;
-            };
-            if (showingStaged_) {
-                const QRect unstage =
-                    paintButton(width - 8, tr("Unstage hunk"), tokens::semanticWarn);
-                hunkButtons_[row.index] = {unstage, QRect()};
-            } else {
-                const QRect discard =
-                    paintButton(width - 8, tr("Discard"), tokens::semanticRemove);
-                const QRect stage =
-                    paintButton(discard.left() - 6, tr("Stage hunk"), tokens::semanticAdd);
-                hunkButtons_[row.index] = {stage, discard};
-            }
+            painter.setBrush(Qt::NoBrush);
             painter.setFont(monoFont());
         }
         return;
@@ -499,12 +636,11 @@ void DiffView::paintRow(QPainter& painter, const Row& row, int y, int gutter) co
     // The pick gutter: a dot on every stageable line, nothing on context. It
     // is the click target, so an empty cell means "nothing to do here".
     if (staging_) {
-        if (line.kind == git::DiffLineKind::Addition ||
-            line.kind == git::DiffLineKind::Deletion) {
+        if (line.kind == git::DiffLineKind::Addition || line.kind == git::DiffLineKind::Deletion) {
             painter.setPen(selection_.count(row.index) != 0 ? theme.diffAddMarker
                                                             : tokens::surfacePickDot);
-            painter.drawText(QRect(0, y, tokens::diffGutterStagePickWidth, h),
-                             Qt::AlignCenter, QStringLiteral("·"));
+            painter.drawText(QRect(0, y, tokens::diffGutterStagePickWidth, h), Qt::AlignCenter,
+                             QStringLiteral("·"));
         }
     }
 
@@ -530,17 +666,44 @@ void DiffView::paintRow(QPainter& painter, const Row& row, int y, int gutter) co
     painter.setPen(theme.text);
     // Only as much of the line as can reach the viewport. A minified file is
     // one line of a megabyte, and converting and laying out all of it for
-    // every repaint of every row made scrolling past it crawl. Bytes are an
-    // over-estimate of characters, so this never cuts short what is visible.
+    // every repaint of every row made scrolling past it crawl. A character
+    // takes up to four bytes, so four bytes a column are kept — a line of
+    // Cyrillic or CJK was cut off part way across the view — and the cut is
+    // made between characters, not inside one. A tab takes more columns
+    // than its byte, so it only ever keeps more.
     auto text = diff_->lineText(line);
-    const std::size_t reach =
-        static_cast<std::size_t>((xScroll + width) / std::max(1, digit)) + 64;
+    std::size_t reach = (static_cast<std::size_t>((xScroll + width) / std::max(1, digit)) + 64) * 4;
     if (text.size() > reach) {
+        while (reach > 0 && (static_cast<unsigned char>(text[reach]) & 0xC0) == 0x80) {
+            --reach;
+        }
         text = text.substr(0, reach);
     }
-    painter.drawText(QRect(gutter + digit - xScroll, y, xScroll + width, h),
-                     Qt::AlignVCenter | Qt::AlignLeft,
-                     QString::fromUtf8(text.data(), static_cast<qsizetype>(text.size())));
+    // Nor what is scrolled off to the left: far right in a minified line,
+    // every row converted the whole prefix on every paint. Skipped only when
+    // the prefix is plain ASCII with no tab, where one byte is exactly one
+    // column; anything else is drawn from the start, as before.
+    std::size_t skip = 0;
+    if (xScroll > 0) {
+        const std::size_t wanted =
+            std::min(text.size(), static_cast<std::size_t>(xScroll / std::max(1, digit)));
+        while (skip < wanted && static_cast<unsigned char>(text[skip]) < 0x80 &&
+               text[skip] != '\t') {
+            ++skip;
+        }
+        if (skip < wanted) {
+            skip = 0;
+        }
+        text.remove_prefix(skip);
+    }
+    const int skipped = static_cast<int>(skip) * digit;
+    const LineSpans* spans = row.index < lineSpans_.size() ? lineSpans_[row.index] : nullptr;
+    painter.save();
+    painter.setClipRect(gutter, y, width - gutter, h);
+    drawCodeLine(painter, gutter + digit - xScroll + skipped, y, h,
+                 QString::fromUtf8(text.data(), static_cast<qsizetype>(text.size())), spans,
+                 theme.text, static_cast<int>(skip), static_cast<int>(skip));
+    painter.restore();
 }
 
 void DiffView::focusInEvent(QFocusEvent* event) {

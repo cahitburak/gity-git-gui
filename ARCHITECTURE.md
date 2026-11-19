@@ -27,6 +27,8 @@ was built and then removed when Gity became a general Git client, and they are g
 - [ADR-007 — Packaging and distribution](#adr-007--packaging-and-distribution)
 - [ADR-010 — Signing in through a browser](#adr-010--signing-in-through-a-browser)
 - [ADR-011 — Safety net: undo, previews and a visible command log](#adr-011--safety-net-undo-previews-and-a-visible-command-log)
+- [ADR-012 — The conflict editor](#adr-012--the-conflict-editor)
+- [ADR-013 — Syntax highlighting](#adr-013--syntax-highlighting)
 - [Module boundaries](#module-boundaries)
 - [Licensing](#licensing)
 - [Risks](#risks)
@@ -132,6 +134,8 @@ repository is the one that counts.
 | 007 | Packaging | **AppImage, DMG, Windows installer; Flatpak deferred** | Signing and notarization cost money and time |
 | 010 | Account sign-in | **OAuth device flow; the token goes to git's credential helper, never to Gity** | Needs a registered OAuth app per provider |
 | 011 | Safety net | **Undo from snapshots in git objects; previews from trial merges; every command logged** | A working-copy hash before each destructive action |
+| 012 | Conflict editor | **Its own three-way split of the index's three versions, in a window of its own** | Conflicts grouped a little differently from git's markers |
+| 013 | Syntax highlighting | **KSyntaxHighlighting, optional; each file coloured whole** | A KDE Frameworks library; builds without it draw plain text |
 
 ---
 
@@ -247,8 +251,9 @@ flowchart TB
 
 | Backend | Operations | Why |
 |---|---|---|
-| **libgit2** | History walk and graph topology, commit details, diffs, status, refs, blob reads for the diff and image views | Called thousands of times per interaction: must be in-process and free of parsing |
-| **git** | Commit, merge, rebase (including interactive), cherry-pick, revert, stash, checkout, reset, discard, clone, fetch, pull, push, submodule update, LFS | Runs the user's hooks, credential helper, LFS filters, merge drivers, signing and config exactly as their terminal does |
+| **libgit2** | History walk and graph topology, commit details, diffs, status, refs, blob reads for the diff and image views, a conflicted file's three versions | Called thousands of times per interaction: must be in-process and free of parsing |
+| **git** | Staging and unstaging (whole file, hunk and line), commit, merge, rebase (including interactive), cherry-pick, revert, stash, checkout, reset, discard, resolving conflicts (`add`, `checkout --ours`/`--theirs`, `rm`, `checkout -m`), clone, fetch, pull, push, submodule update, LFS | Runs the user's hooks, credential helper, LFS filters, merge drivers, signing and config exactly as their terminal does |
+| **git**, for one read | Blame | libgit2's blame is many times slower on a file with a long history, and git's is the answer people check against. Asked for once per file, so parsing its porcelain output costs nothing that matters |
 
 ### The GitProcess contract
 
@@ -266,6 +271,11 @@ Running `git` is only safe if it is done the same way every time. One type, `Git
 - **Progress and cancellation.** `--progress` parsed into the progress bar; cancelling terminates
   the process.
 - **A command log.** Every invocation is reported, with passwords in URLs masked (ADR-011).
+
+> **Correction, from the November 2026 review.** Staging was first built on libgit2's index calls,
+> as "only index manipulation". It was not harmless: libgit2 runs no external clean filter, so a
+> file under LFS was staged whole and one under git-crypt in plaintext. Every index write now goes
+> through `git add`, `git reset` and `git apply` (`src/session/IndexWrites`).
 
 > **Consequence.** Two backends mean two error vocabularies. Both are turned into one
 > user-facing explanation at the session boundary — a failed fetch says "the credentials being used
@@ -288,18 +298,43 @@ repository handle and runs requests in order. The UI thread never touches libgit
   boundary.
 - **Transfer.** Results reach the UI as immutable values in `std::shared_ptr<const T>`, by queued
   signal. No shared mutable state, so no locks in the hot path.
-- **Superseding.** A request answered after a newer one of the same kind (the user clicked another
-  commit) is dropped, by generation number. A history walk is cancelled mid-flight when superseded.
+- **Superseding.** A request superseded by a newer one of the same kind (the user clicked another
+  commit) is skipped, by generation number, or its answer dropped if it was already running. A
+  history walk is cancelled mid-flight when superseded.
+- **One per repository, not per window.** Each tab's repository has its own session; the window
+  is wired once, to a relay that the session on screen forwards to, so a result from a repository
+  in another tab never reaches it. `SessionHub` keeps the sessions and the relay. (Corrected in
+  November 2026: the first version shared one session across every tab, and a preview asked for
+  in one repository could run in another.)
+- **Two halves.** `RepoSession` is the UI thread's side: it numbers requests and queues them.
+  `RepoWorker` is the thread's side: it owns the handle and runs them. The values crossing between
+  them are declared in `SessionTypes.h`, which is all a panel that only shows results includes.
+  The worker is one class, since every command shares its handle, undo log and cancel flag, but its
+  code is split by area: `RepoWorker.cpp` (opening, reads, undo) and `WorkerNetwork`,
+  `WorkerHistory`, `WorkerBranches`, `WorkerWorkingCopy`, `WorkerPreview` and `WorkerAccounts`.
+
+### Noticing changes made outside Gity
+
+Built in November 2026 (`src/session/RepoWatcher`), as this ADR planned, with one platform gap:
+
+- **The repository's metadata** — HEAD, the index, refs and the markers of a merge or rebase — is
+  watched on every platform with `QFileSystemWatcher`. It is a handful of directories, and git
+  writes each of these files by renaming a lock file over it, so every change shows up as a change
+  to a directory. Modification times decide what changed; Gity's own `refs/gity` is ignored.
+- **The working tree** is watched on Linux with inotify directly, skipping ignored directories and
+  nested repositories. On macOS and Windows the native recursive watchers (FSEvents,
+  `ReadDirectoryChangesW`) are still to come; until then the status is re-read whenever the window
+  is brought back to the front, which is when an edit made elsewhere is looked for.
+- Changes are debounced at 250 ms and reported as kinds: a saved file costs a status read, a moved
+  branch a history walk. A change is *absorbed* when the worker reads the repository itself, so
+  Gity's own commands do not trigger a second read.
+- The watcher lives on the repository's worker thread, because deciding whether a path is ignored
+  asks libgit2.
 
 ### Not built yet
 
-The first version of this ADR also planned a **pool of read threads**, each with its own handle, and
-a **file-system watcher** so changes made outside Gity refresh the view. Neither exists: one worker
-has been fast enough so far, and Gity re-reads the repository after its own operations. The watcher
-is on the [roadmap](ROADMAP.md). When it is built, it should use inotify, FSEvents and
-`ReadDirectoryChangesW` directly for the working tree — `QFileSystemWatcher`'s per-platform limits
-make it unusable on large trees — and debounce at about 250 ms, treating the index, HEAD and refs as
-separate things to invalidate.
+A **pool of read threads**, each with its own handle. One worker per repository has been fast
+enough so far.
 
 ---
 
@@ -380,6 +415,17 @@ A **filtered** view (by text, author or date) is a list of matches, not a graph:
 two matches are missing, so any lines drawn between them would describe a history that does not
 exist. Matches are shown on a single lane, and the view says it is showing matches.
 
+The **history of a file or folder** is a filter of the same kind. A commit is kept unless what the
+path names — a blob, or a folder's tree — has the same id in it as in one of its parents, which is
+how `git log -- path` decides; comparing two tree entries is far cheaper than a diff. A file is
+followed through renames, as `git log --follow` does: only where the file is new in a commit is
+that commit diffed against its parent, with rename detection, to find the name it had before.
+Unlike git, which follows one name for the whole walk, each commit is told its name by the first
+child to reach it — the walk is topological, so every child comes first — and a rename on one side
+of a merge is followed down that side only. Only the walk's frontier holds a name. Folders are not
+followed. One difference from git remains: the walk does not prune the side of a merge whose
+version of the path the merge discarded, so a change thrown away by a merge can be listed.
+
 ---
 
 ## ADR-006 — Build and dependencies
@@ -406,8 +452,9 @@ GCC and Clang on Linux — CI runs both, because they disagree about enough to b
 - Warnings are errors in the `ci` preset, on every compiler.
 - `dev-asan` adds address and undefined-behaviour sanitizers — invaluable against a C library.
 - `.clang-format` is the formatting authority.
-- **`src/core` builds and tests without Qt** (the `ci-headless` preset). Test binaries link `core`
-  only; if a test needs Qt Widgets, the layering has been broken.
+- **`src/core` builds and tests without Qt** (the `ci-headless` preset). `gity_tests` links `core`
+  only; `gity_session_tests` adds the session layer and drives real repositories through the
+  `git` binary. If a test needs Qt Widgets, the layering has been broken.
 
 ---
 
@@ -574,6 +621,78 @@ entries show the command behind them on hover.
 
 ---
 
+## ADR-012 — The conflict editor
+
+**Status:** Accepted, 2026-11-14.
+
+### Decision
+
+**Work from the three versions, not the markers.** A conflict leaves three entries for the path in
+the index: the common ancestor, ours and theirs. The editor reads those (libgit2, through the
+checkout filters, so line endings match the disk) and splits them itself with a three-way merge:
+each side is diffed against the ancestor, and the ancestor is walked from change to change. A
+change on one side only is merged; the same change on both is taken once; anything else is a
+conflict. Reading the markers instead would break on a file the user had already half edited, and
+would show "ours" as the merged file rather than our version.
+
+The split agrees with git where it matters. Against `git merge-file` on 3,000 random merges, taking
+one side for every conflict gives git's file in every case. The grouping differs on purpose: git
+joins conflicts separated by three or fewer unchanged lines into one, and the editor keeps them
+apart so each can be chosen on its own. Lines both sides agree on at the edge of a conflict are left
+out of it, as git's markers leave them out.
+
+**Rows, not lines.** Each region takes as many rows as the longest column showing, so a region
+starts on the same row in every column and the columns scroll as one. A conflict has one more row,
+its header, for its buttons, so they never cover a line.
+
+**Two layouts, chosen and remembered:** three columns (ours on the left, theirs on the right, the
+result between them) and two columns (ours and theirs side by side, the result in a row below them).
+**A window of its own**: three columns of code need a screen's width.
+
+**Writes.** The result is written to the file the way an editor writes one (replaced whole,
+permissions kept). Everything git must know goes through git: `add` marks it resolved,
+`checkout --ours`/`--theirs` takes a whole side, `rm` takes a deletion, and `checkout -m` puts the
+conflict back as the merge left it, even after it was staged — git keeps what it needs for that in
+the index. A conflict still open when the file is saved is written with git's markers, so the file
+can be finished in any editor.
+
+### Not doing
+
+* **An undo entry for each resolution.** Resolving is a step inside an operation the undo log
+  already covers: Start Over (`checkout -m`) is the way back for one file, and abandoning the
+  operation for all of it.
+* **Merging binary files.** Only a whole side can be kept.
+
+---
+
+## ADR-013 — Syntax highlighting
+
+**Status:** Accepted, 2026-11-15. Answers what was open question 1.
+
+### Decision
+
+**KSyntaxHighlighting, not tree-sitter.** It is a Qt library already, knows some three hundred
+languages by file name, and ships light and dark themes; tree-sitter would mean a grammar to bundle
+for every language and an integration to write. It colours a 50,000-line file in about a tenth of a
+second, so the views can afford to colour a file whole.
+
+**Optional.** CMake looks for it and, without it, the views draw plain text as before. The CI
+builds that install Qt alone still build and work; the Arch packages depend on it.
+
+**Whole files, not lines.** Whether line 400 is inside a comment depends on the lines above it, so a
+diff carries both sides of the file whole (`FileDiff::oldSource`, `newSource`, read when the patch
+is, up to 2 MB a side), and each line is coloured from its own side: a deletion from the old file,
+anything else from the new. Without them — too large, or unreadable — the diff's own lines stand in.
+Blame colours the file it shows; the conflict editor colours each column's file, and the result
+again after each choice.
+
+**Colours under the tints.** Text is coloured; backgrounds stay the views' own, so additions,
+deletions, ours and theirs read as before. The themes are GitHub Light and GitHub Dark, chosen by
+whether Gity's theme is light. A view colours a file on its first paint and keeps the answer until
+the file or the theme changes.
+
+---
+
 ## Module boundaries
 
 One rule governs the layering, and CI tests it: **`src/core` must build and run with no Qt at all.**
@@ -585,17 +704,22 @@ src/
 │   │            rebase todo, undo planning, merge prediction, LFS locks, remote URLs, device flow
 │   ├── graph/   streaming lane assignment (ADR-005)
 │   └── model/   commit metadata arena, history chunks
-├── session/     QtCore: the per-repository worker (ADR-004), GitProcess (ADR-003), undo log,
-│                command log, credentials and accounts
+├── session/     no widgets: the per-repository session and its worker (ADR-004), the sessions
+│                of a window (SessionHub), GitProcess (ADR-003), index writes, the watcher, undo
+│                log, command log, credentials and accounts
 ├── ui/          Qt Widgets
 │   ├── theme/   tokens, theme variants, gity.qss, painted icons
 │   ├── model/   the history model the graph paints from
-│   ├── graphview/ and diffview/   the two painted QAbstractScrollArea views
+│   ├── graphview/ and diffview/   the painted QAbstractScrollArea views — graph, diff,
+│   │            blame — and the history's filter bar
+│   ├── conflict/ the conflict editor and its window (ADR-012)
+│   ├── highlight/ syntax colours for the code views (ADR-013)
 │   ├── image/   image comparison
 │   └── panels/  sidebar, staging, commit detail, dialogs, repository tabs, settings
-├── app/         main() and the main window
+├── app/         main() and the main window — its layout and wiring, menus, repository handling
+│                and commands each in a file of their own — and what it saves between runs
 └── askpass/     gity-askpass, the credential-prompt helper git runs
-tests/           link core only
+tests/           core alone; tests/session adds QtCore, never Widgets
 ```
 
 `GitProcess` lives in `session/` rather than `core/` because it needs `QProcess`; keeping `core`
@@ -622,7 +746,7 @@ must include.
 | **Largely untested** outside one person's use, and macOS and Windows barely used at all | **High** | Said plainly in the README; testing is the first item on the [roadmap](ROADMAP.md) |
 | **Memory at 1M commits** is unsettled — libgit2's default object cache dominates, and capping it slows the cold walk | Medium | Profile on a truly large repository, then choose the cache size deliberately |
 | **libgit2's `status` is slower than git's** (33 ms against 13 ms on the real project) and scales the wrong way; a dirty working copy is unmeasured | Medium | Parallelize the status pass, or route bulk status through `git` |
-| **Changes made outside Gity are not noticed** until it next re-reads the repository | Medium | The file-system watcher planned in ADR-004 |
+| **Changes made outside Gity are noticed late on macOS and Windows** — only when the window is brought back to the front | Low | Native FSEvents and `ReadDirectoryChangesW` working-tree watchers (ADR-004) |
 | **Signing and notarization** lead time blocks the macOS and Windows releases | Medium | Apply early; open-source signing programmes exist |
 | **Three-platform drift** when development happens on Linux | Medium | CI builds macOS and Windows on demand; run them before every release |
 | HiDPI and mixed-DPI setups on Linux | Low | Qt 6 handles per-screen DPI; verify on real hardware |
@@ -631,13 +755,10 @@ must include.
 
 ## Open questions
 
-1. **Syntax highlighting: KSyntaxHighlighting or tree-sitter?** KSyntaxHighlighting is Qt-native
-   and drops straight in, but adds a KDE Frameworks dependency. tree-sitter is faster and more
-   accurate, but means bundling grammars and writing the integration.
-2. **Minimum OS versions, and Qt 6.8 as the floor?** Proposed: macOS 12, Windows 10 1809, glibc 2.31.
+1. **Minimum OS versions, and Qt 6.8 as the floor?** Proposed: macOS 12, Windows 10 1809, glibc 2.31.
    Since every artifact bundles Qt, the floor could rise — at the cost of distribution packages that
    use the system Qt.
-3. **An in-app updater?** Qt ships nothing for it: Sparkle on macOS, WinSparkle or a custom updater
+2. **An in-app updater?** Qt ships nothing for it: Sparkle on macOS, WinSparkle or a custom updater
    on Windows, and nothing on Linux, where the package manager or AppImageUpdate owns it.
 
 ---

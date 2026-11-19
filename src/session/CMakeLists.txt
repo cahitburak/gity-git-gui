@@ -6,6 +6,7 @@ find_package(Qt6 6.8 REQUIRED COMPONENTS Core Gui Network)
 
 add_library(gity_session STATIC
     ImageDiff.h
+    Background.h
     Accounts.cpp
     BrowserSignIn.cpp
     CredentialManager.cpp
@@ -14,8 +15,28 @@ add_library(gity_session STATIC
     UndoLog.cpp
     GitProcess.cpp
     GitProcess.h
+    IndexWrites.cpp
+    IndexWrites.h
     RepoSession.cpp
     RepoSession.h
+    RepoWatcher.cpp
+    RepoWatcher.h
+    RepoWorker.cpp
+    RepoWorker.h
+    SessionHub.cpp
+    SessionHub.h
+    SessionTypes.h
+    SwitchContext.cpp
+    SwitchContext.h
+    WorkerAccounts.cpp
+    WorkerBranches.cpp
+    WorkerConflicts.cpp
+    WorkerHistory.cpp
+    WorkerNetwork.cpp
+    WorkerPreview.cpp
+    WorkerWorkingCopy.cpp
+    WorkdirPaths.cpp
+    WorkdirPaths.h
 )
 add_library(gity::session ALIAS gity_session)
 

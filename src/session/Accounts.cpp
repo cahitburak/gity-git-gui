@@ -13,6 +13,17 @@ QSettings settings() {
     return QSettings(QStringLiteral("Gity"), QStringLiteral("Gity"));
 }
 
+/// The provider a stored name says, by providerName(); Other for none.
+git::Provider providerNamed(const QString& name) {
+    for (const git::Provider provider : git::allProviders()) {
+        const std::string_view known = git::providerName(provider);
+        if (name == QLatin1String(known.data(), static_cast<qsizetype>(known.size()))) {
+            return provider;
+        }
+    }
+    return git::Provider::Other;
+}
+
 } // namespace
 
 QList<Account> Accounts::load() {
@@ -25,9 +36,14 @@ QList<Account> Accounts::load() {
         account.host = store.value(QStringLiteral("host")).toString();
         account.username = store.value(QStringLiteral("username")).toString();
         account.label = store.value(QStringLiteral("label")).toString();
-        // The provider is re-derived rather than read back: it is a label, and
-        // a stored one would go stale if the recognition rules improve.
+        // Re-derived from the host where the host says, so better recognition
+        // later still applies. Where it cannot — a self-hosted GitHub
+        // Enterprise or Gitea on a plain name — the service chosen when the
+        // account was added stands; without it browser sign-in was lost.
         account.provider = git::providerForHost(account.host.toStdString());
+        if (account.provider == git::Provider::Other) {
+            account.provider = providerNamed(store.value(QStringLiteral("provider")).toString());
+        }
         if (account.valid()) {
             accounts.push_back(account);
         }
@@ -47,6 +63,10 @@ void Accounts::save(const QList<Account>& accounts) {
         store.setValue(QStringLiteral("host"), accounts.at(i).host);
         store.setValue(QStringLiteral("username"), accounts.at(i).username);
         store.setValue(QStringLiteral("label"), accounts.at(i).label);
+        const std::string_view provider = git::providerName(accounts.at(i).provider);
+        store.setValue(
+            QStringLiteral("provider"),
+            QString::fromLatin1(provider.data(), static_cast<qsizetype>(provider.size())));
     }
     store.endArray();
     store.sync();

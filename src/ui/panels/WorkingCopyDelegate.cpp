@@ -56,6 +56,26 @@ QFont monoFont(const QFont& base, int delta) {
     return font;
 }
 
+/// Where the two lines of a row go, from the fonts in use rather than fixed
+/// pixels: at a large font size the fixed 18 and 16 px boxes cut the text in
+/// half. The design's 46 px row is the floor, not the size.
+struct RowLayout {
+    int firstTop = 5;
+    int firstHeight = 18;
+    int secondTop = 24;
+    int secondHeight = 16;
+    int height = kRowHeight;
+};
+
+RowLayout layoutFor(const QFont& font) {
+    RowLayout layout;
+    layout.firstHeight = std::max(18, QFontMetrics(font).height() + 2);
+    layout.secondHeight = std::max(16, QFontMetrics(monoFont(font, -2)).height() + 2);
+    layout.secondTop = layout.firstTop + layout.firstHeight + 1;
+    layout.height = std::max(kRowHeight, layout.secondTop + layout.secondHeight + 6);
+    return layout;
+}
+
 } // namespace
 
 WorkingCopyDelegate::WorkingCopyDelegate(bool staged, QObject* parent)
@@ -65,8 +85,8 @@ QRect WorkingCopyDelegate::checkboxRect(const QRect& row) {
     return QRect(row.x() + kPaddingX, row.y() + 8, kCheckboxSize, kCheckboxSize);
 }
 
-QSize WorkingCopyDelegate::sizeHint(const QStyleOptionViewItem&, const QModelIndex&) const {
-    return {0, kRowHeight};
+QSize WorkingCopyDelegate::sizeHint(const QStyleOptionViewItem& option, const QModelIndex&) const {
+    return {0, layoutFor(option.font).height};
 }
 
 void WorkingCopyDelegate::paint(QPainter* painter, const QStyleOptionViewItem& option,
@@ -75,6 +95,7 @@ void WorkingCopyDelegate::paint(QPainter* painter, const QStyleOptionViewItem& o
     painter->setRenderHint(QPainter::Antialiasing, true);
 
     const QRect row = option.rect;
+    const RowLayout layout = layoutFor(option.font);
     const bool selected = (option.state & QStyle::State_Selected) != 0;
     const bool hovered = (option.state & QStyle::State_MouseOver) != 0;
 
@@ -96,10 +117,8 @@ void WorkingCopyDelegate::paint(QPainter* painter, const QStyleOptionViewItem& o
         painter->drawRoundedRect(box, 3, 3);
 
         painter->setPen(QPen(tokens::surfaceWindow, 1.8));
-        painter->drawLine(box.left() + 3, box.center().y(), box.center().x() - 1,
-                          box.bottom() - 3);
-        painter->drawLine(box.center().x() - 1, box.bottom() - 3, box.right() - 2,
-                          box.top() + 3);
+        painter->drawLine(box.left() + 3, box.center().y(), box.center().x() - 1, box.bottom() - 3);
+        painter->drawLine(box.center().x() - 1, box.bottom() - 3, box.right() - 2, box.top() + 3);
     } else {
         painter->setPen(QPen(tokens::borderCheckbox, 1));
         painter->setBrush(tokens::surfaceCheckbox);
@@ -113,7 +132,7 @@ void WorkingCopyDelegate::paint(QPainter* painter, const QStyleOptionViewItem& o
     if (!status.isEmpty()) {
         painter->setFont(monoFont(option.font, 0));
         painter->setPen(statusColour(status.at(0)));
-        painter->drawText(QRect(x, row.y() + 5, kStatusBox, 18),
+        painter->drawText(QRect(x, row.y() + layout.firstTop, kStatusBox, layout.firstHeight),
                           Qt::AlignVCenter | Qt::AlignLeft, status);
     }
     x += kStatusBox + kGap;
@@ -127,19 +146,19 @@ void WorkingCopyDelegate::paint(QPainter* painter, const QStyleOptionViewItem& o
         chipFont.setPointSize(std::max(7, option.font.pointSize() - 2));
         const QFontMetrics fm(chipFont);
         chipWidth = fm.horizontalAdvance(chip) + 12;
-        chipRect = QRect(row.right() - kPaddingX - chipWidth, row.y() + 6, chipWidth,
-                         fm.height() + 3);
+        chipRect =
+            QRect(row.right() - kPaddingX - chipWidth, row.y() + 6, chipWidth, fm.height() + 3);
     }
 
     // --- name -----------------------------------------------------------
-    const int nameWidth =
-        row.right() - kPaddingX - x - (chipWidth > 0 ? chipWidth + kGap : 0);
+    const int nameWidth = row.right() - kPaddingX - x - (chipWidth > 0 ? chipWidth + kGap : 0);
     const QFontMetrics nameMetrics(option.font);
     painter->setFont(option.font);
     painter->setPen(selected ? tokens::textSelectedPrimary : tokens::textDefault);
-    painter->drawText(QRect(x, row.y() + 5, nameWidth, 18), Qt::AlignVCenter | Qt::AlignLeft,
-                      nameMetrics.elidedText(index.data(NameRole).toString(), Qt::ElideMiddle,
-                                             nameWidth));
+    painter->drawText(
+        QRect(x, row.y() + layout.firstTop, nameWidth, layout.firstHeight),
+        Qt::AlignVCenter | Qt::AlignLeft,
+        nameMetrics.elidedText(index.data(NameRole).toString(), Qt::ElideMiddle, nameWidth));
 
     if (!chip.isEmpty()) {
         const ChipPalette palette =
@@ -169,9 +188,10 @@ void WorkingCopyDelegate::paint(QPainter* painter, const QStyleOptionViewItem& o
                                                          : tokens::textLabel);
         const QFontMetrics subMetrics(painter->font());
         const int subWidth = row.right() - kPaddingX - (row.x() + kSubIndent);
-        painter->drawText(QRect(row.x() + kSubIndent, row.y() + 24, subWidth, 16),
-                          Qt::AlignVCenter | Qt::AlignLeft,
-                          subMetrics.elidedText(second, Qt::ElideMiddle, subWidth));
+        painter->drawText(
+            QRect(row.x() + kSubIndent, row.y() + layout.secondTop, subWidth, layout.secondHeight),
+            Qt::AlignVCenter | Qt::AlignLeft,
+            subMetrics.elidedText(second, Qt::ElideMiddle, subWidth));
     }
 
     // The row the keyboard is on, when the list has focus: an outline, so it

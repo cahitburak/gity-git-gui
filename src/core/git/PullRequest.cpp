@@ -60,8 +60,7 @@ std::string repositoryWebUrl(std::string_view remoteUrl) {
         }
         https = protocol == "https" || protocol == "http";
         text = text.substr(scheme + 3);
-    } else if (text.front() == '/' || text.front() == '.' ||
-               (text.size() > 1 && text[1] == ':')) {
+    } else if (text.front() == '/' || text.front() == '.' || (text.size() > 1 && text[1] == ':')) {
         return {}; // a local path
     }
 
@@ -143,8 +142,8 @@ std::optional<std::string> newPullRequestUrl(Provider provider, std::string_view
                (target.empty() ? std::string() : encode(target, true) + "...") +
                encode(source, true);
     case Provider::GitLab:
-        return base + "/-/merge_requests/new?merge_request%5Bsource_branch%5D=" +
-               encode(source, false) +
+        return base +
+               "/-/merge_requests/new?merge_request%5Bsource_branch%5D=" + encode(source, false) +
                (target.empty() ? std::string()
                                : "&merge_request%5Btarget_branch%5D=" + encode(target, false));
     case Provider::Bitbucket:

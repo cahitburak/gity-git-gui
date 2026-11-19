@@ -1,37 +1,38 @@
 #include "CredentialsPanel.h"
 
+#include "session/Background.h"
+
+#include "core/git/RemoteUrl.h"
+
+#include "core/git/RepoAccount.h"
 #include "session/CredentialInventory.h"
 #include "session/CredentialManager.h"
-#include "core/git/RepoAccount.h"
 #include "ui/panels/Confirm.h"
 
 #include <QComboBox>
 #include <QFormLayout>
 #include <QHBoxLayout>
+#include <QHeaderView>
 #include <QLabel>
 #include <QLineEdit>
 #include <QPushButton>
-#include <QUrl>
-#include <QHeaderView>
 #include <QSignalBlocker>
+#include <QUrl>
 
-#include <algorithm>
 #include <QInputDialog>
 #include <QMessageBox>
 #include <QTreeWidget>
 #include <QVBoxLayout>
+#include <algorithm>
 
 namespace gity::ui {
 namespace {
 
-/// The address with any password in it blanked, for showing. A URL can carry
-/// `user:secret@`, and this page must not print a secret it was not asked for.
+/// The address with any secret in it masked, for showing. A URL can carry
+/// `user:secret@` or a token as its username, and this page must not print a
+/// secret it was not asked for.
 QString displayUrl(const QString& url) {
-    const QUrl parsed(url);
-    if (parsed.isValid() && !parsed.password().isEmpty()) {
-        return parsed.toDisplayString(QUrl::RemovePassword);
-    }
-    return url;
+    return QString::fromStdString(git::maskUrlCredentials(url.toStdString()));
 }
 
 } // namespace
@@ -52,6 +53,7 @@ CredentialsPanel::CredentialsPanel(QWidget* parent) : QWidget(parent) {
     layout->addWidget(repoTitle);
     auto* repoRow = new QHBoxLayout;
     repoAccountLabel_ = new QLabel(this);
+    setPlainText(repoAccountLabel_);
     repoAccount_ = new QComboBox(this);
     repoAccount_->setMinimumContentsLength(24);
     repoAccountApply_ = new QPushButton(tr("Apply"), this);
@@ -61,6 +63,7 @@ CredentialsPanel::CredentialsPanel(QWidget* parent) : QWidget(parent) {
     repoRow->addWidget(repoAccountApply_);
     layout->addLayout(repoRow);
     repoAccountNote_ = new QLabel(this);
+    setPlainText(repoAccountNote_);
     repoAccountNote_->setWordWrap(true);
     applyRole(repoAccountNote_, QStringLiteral("note"));
     layout->addWidget(repoAccountNote_);
@@ -112,6 +115,7 @@ CredentialsPanel::CredentialsPanel(QWidget* parent) : QWidget(parent) {
     layout->addLayout(form);
 
     status_ = new QLabel(this);
+    setPlainText(status_);
     status_->setWordWrap(true);
     applyRole(status_, QStringLiteral("muted"));
     layout->addWidget(status_);
@@ -120,6 +124,9 @@ CredentialsPanel::CredentialsPanel(QWidget* parent) : QWidget(parent) {
     refresh_ = new QPushButton(tr("Look Up Again"), this);
     remove_ = new QPushButton(tr("Remove"), this);
     save_ = new QPushButton(tr("Save"), this);
+    refresh_->setToolTip(tr("Ask the credential helper again.\n\ngit credential fill"));
+    remove_->setToolTip(tr("Make the credential helper forget it.\n\ngit credential reject"));
+    save_->setToolTip(tr("Hand it to the credential helper to keep.\n\ngit credential approve"));
     applyRole(remove_, QStringLiteral("destructive"));
     applyRole(save_, QStringLiteral("primary"));
     buttons->addWidget(refresh_);
@@ -149,6 +156,8 @@ CredentialsPanel::CredentialsPanel(QWidget* parent) : QWidget(parent) {
     layout->addWidget(stored_, 1);
 
     storedNote_ = new QLabel(this);
+    // What the stores say back.
+    setPlainText(storedNote_);
     storedNote_->setWordWrap(true);
     applyRole(storedNote_, QStringLiteral("note"));
     layout->addWidget(storedNote_);
@@ -172,8 +181,7 @@ CredentialsPanel::CredentialsPanel(QWidget* parent) : QWidget(parent) {
     connect(storedRefresh, &QPushButton::clicked, this, &CredentialsPanel::refreshStored);
     connect(stored_, &QTreeWidget::itemSelectionChanged, this,
             &CredentialsPanel::updateStoredButtons);
-    connect(inventory_, &session::CredentialInventory::listed, this,
-            &CredentialsPanel::showStored);
+    connect(inventory_, &session::CredentialInventory::listed, this, &CredentialsPanel::showStored);
     connect(storedShow_, &QPushButton::clicked, this, [this] {
         const int index = selectedStored();
         if (index >= 0) {
@@ -185,8 +193,8 @@ CredentialsPanel::CredentialsPanel(QWidget* parent) : QWidget(parent) {
             [this](const QString& secret, const QString& problem) {
                 storedNote_->clear();
                 if (secret.isEmpty()) {
-                    QMessageBox::information(this, tr("Credential"),
-                                             problem.isEmpty() ? tr("Nothing is stored.") : problem);
+                    showPlainMessage(this, QMessageBox::Information, tr("Credential"),
+                                     problem.isEmpty() ? tr("Nothing is stored.") : problem);
                     return;
                 }
                 // Shown in a selectable field, so it can be copied, and gone
@@ -207,11 +215,15 @@ CredentialsPanel::CredentialsPanel(QWidget* parent) : QWidget(parent) {
         if (index < 0) {
             return;
         }
-        const session::StoredCredential& credential = storedList_.at(index);
+        // A copy: the dialog below runs an event loop, and an inventory
+        // refresh arriving during it clears the list a reference would point
+        // into.
+        const session::StoredCredential credential = storedList_.at(index);
         const bool gh = credential.source == session::StoredCredential::Source::GitHubCli;
         if (!confirmDestructive(
                 this, tr("Remove credential?"),
-                gh ? tr("Sign %1 out of GitHub CLI on %2?").arg(credential.username, credential.host)
+                gh ? tr("Sign %1 out of GitHub CLI on %2?")
+                         .arg(credential.username, credential.host)
                    : tr("Remove the credential for %1 on %2?")
                          .arg(credential.username, credential.host),
                 tr("git will ask for it again the next time it needs it — in a terminal as well "
@@ -243,8 +255,8 @@ CredentialsPanel::CredentialsPanel(QWidget* parent) : QWidget(parent) {
     connect(remove_, &QPushButton::clicked, this, &CredentialsPanel::removeStored);
 
     connect(manager_, &session::CredentialManager::lookedUp, this,
-            [this](const QString& url, bool found, const QString& username,
-                   const QString& password, const QString& problem) {
+            [this](const QString& url, bool found, const QString& username, const QString& password,
+                   const QString& problem) {
                 if (url != currentUrl()) {
                     return; // the selection moved on while this was answering
                 }
@@ -274,26 +286,35 @@ void CredentialsPanel::setRepository(const QString& workdir,
                                      const QList<QPair<QString, QString>>& remotes) {
     workdir_ = workdir;
 
-    const QStringList helpers = session::CredentialManager::configuredHelpers(workdir);
-    if (helpers.isEmpty()) {
-        helpers_->setText(tr("No credential helper is configured, so git asks for a password "
-                             "every time and nothing can be stored or shown here."));
-        applyRole(helpers_, QStringLiteral("warn"));
-    } else {
-        // Gity's own per-repository helper is a shell one-liner; said in words.
-        QStringList shown;
-        for (const QString& line : helpers) {
-            const QString account =
-                QString::fromStdString(git::accountOfGhHelper(line.toStdString()));
-            shown << (account.isEmpty()
-                          ? line
-                          : tr("%1  \u2192 GitHub CLI token for %2, this repository only")
-                                .arg(line.section(QChar(' '), 0, 1).section(QChar('\t'), 0, 1),
-                                     account));
-        }
-        helpers_->setText(tr("Helpers:\n%1").arg(shown.join(QChar('\n'))));
-        applyRole(helpers_, QStringLiteral("muted"));
-    }
+    // Read off the UI thread: git reading its config can take seconds on a
+    // network home directory, and the page must not freeze meanwhile.
+    helpers_->setText(tr("Reading git's credential configuration…"));
+    applyRole(helpers_, QStringLiteral("muted"));
+    session::runInBackground<QStringList>(
+        this, [workdir] { return session::CredentialManager::configuredHelpers(workdir); },
+        [this](QStringList helpers) {
+            if (helpers.isEmpty()) {
+                helpers_->setText(
+                    tr("No credential helper is configured, so git asks for a password "
+                       "every time and nothing can be stored or shown here."));
+                applyRole(helpers_, QStringLiteral("warn"));
+            } else {
+                // Gity's own per-repository helper is a shell one-liner; said in words.
+                QStringList shown;
+                for (const QString& line : helpers) {
+                    const QString account =
+                        QString::fromStdString(git::accountOfGhHelper(line.toStdString()));
+                    shown << (account.isEmpty()
+                                  ? line
+                                  : tr("%1  \u2192 GitHub CLI token for %2, this repository only")
+                                        .arg(line.section(QChar(' '), 0, 1)
+                                                 .section(QChar('\t'), 0, 1),
+                                             account));
+                }
+                helpers_->setText(tr("Helpers:\n%1").arg(shown.join(QChar('\n'))));
+                applyRole(helpers_, QStringLiteral("muted"));
+            }
+        });
 
     const QSignalBlocker quiet(remote_);
     remote_->clear();
@@ -309,8 +330,7 @@ void CredentialsPanel::setRepository(const QString& workdir,
 
 void CredentialsPanel::setRepositoryAccount(const QString& host, bool viaGitHubCli,
                                             const QStringList& accounts,
-                                            const QString& defaultAccount,
-                                            const QString& chosen) {
+                                            const QString& defaultAccount, const QString& chosen) {
     repoAccountChosen_ = chosen;
     const QSignalBlocker quiet(repoAccount_);
     repoAccount_->clear();
@@ -327,10 +347,10 @@ void CredentialsPanel::setRepositoryAccount(const QString& host, bool viaGitHubC
     }
     repoAccount_->addItem(defaultAccount.isEmpty()
                               ? tr("Default — whatever git's helper gives")
-                              : tr("Default — %1 (%2)").arg(defaultAccount,
-                                                            viaGitHubCli ? tr("GitHub CLI's active "
-                                                                              "account")
-                                                                         : tr("helper default")),
+                              : tr("Default — %1 (%2)")
+                                    .arg(defaultAccount, viaGitHubCli ? tr("GitHub CLI's active "
+                                                                           "account")
+                                                                      : tr("helper default")),
                           QString());
     for (const QString& account : accounts) {
         repoAccount_->addItem(account, account);
@@ -375,7 +395,7 @@ void CredentialsPanel::showStored(const QList<session::StoredCredential>& creden
                              : QStringLiteral("%1/%2").arg(credential.host, credential.path));
         item->setText(2, credential.active ? tr("%1 — in use").arg(credential.username)
                                            : credential.username);
-        item->setToolTip(0, credential.location);
+        item->setToolTip(0, plainToolTip(credential.location));
         item->setData(0, Qt::UserRole, i);
     }
     QString note = credentials.isEmpty()
@@ -401,10 +421,9 @@ void CredentialsPanel::updateStoredButtons() {
     const bool any = index >= 0 && index < storedList_.size();
     storedShow_->setEnabled(any);
     storedRemove_->setEnabled(any);
-    storedUse_->setEnabled(any &&
-                           storedList_.at(index).source ==
-                               session::StoredCredential::Source::GitHubCli &&
-                           !storedList_.at(index).active);
+    storedUse_->setEnabled(
+        any && storedList_.at(index).source == session::StoredCredential::Source::GitHubCli &&
+        !storedList_.at(index).active);
 }
 
 QString CredentialsPanel::currentUrl() const {
@@ -462,16 +481,25 @@ void CredentialsPanel::removeStored() {
     if (!found_) {
         return;
     }
-    if (!confirmDestructive(this, tr("Remove credential?"),
-                            tr("Remove the credential for %1 from your credential helper?")
-                                .arg(storedUsername_),
-                            tr("git will ask for it again next time it talks to this remote — "
-                               "from a terminal as well as from Gity."),
-                            tr("Remove"))) {
+    // Taken before the dialog: a lookup finishing while it is open clears
+    // these, and removing with an empty username would match every
+    // credential stored for the host.
+    const QString url = currentUrl();
+    const QString username = storedUsername_;
+    const QString password = storedPassword_;
+    if (username.isEmpty()) {
+        return;
+    }
+    if (!confirmDestructive(
+            this, tr("Remove credential?"),
+            tr("Remove the credential for %1 from your credential helper?").arg(username),
+            tr("git will ask for it again next time it talks to this remote — "
+               "from a terminal as well as from Gity."),
+            tr("Remove"))) {
         return;
     }
     setBusy(true, tr("Removing…"));
-    manager_->remove(workdir_, currentUrl(), storedUsername_, storedPassword_);
+    manager_->remove(workdir_, url, username, password);
 }
 
 } // namespace gity::ui

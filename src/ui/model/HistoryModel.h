@@ -7,7 +7,7 @@
 #pragma once
 
 #include "core/model/HistoryChunk.h"
-#include "session/RepoSession.h"
+#include "session/SessionTypes.h"
 
 #include <QString>
 
@@ -28,6 +28,7 @@ struct RowView {
     std::size_t localRow = 0;
 
     [[nodiscard]] bool valid() const noexcept { return chunk != nullptr; }
+
     [[nodiscard]] const graph::GraphRow& row() const { return chunk->graph.rows[localRow]; }
 };
 
@@ -45,6 +46,7 @@ public:
     [[nodiscard]] const std::vector<RefLabel>* refsFor(std::size_t globalRow) const;
 
     [[nodiscard]] std::size_t rowCount() const noexcept { return rowCount_; }
+
     [[nodiscard]] std::uint16_t maxLanes() const noexcept { return maxLanes_; }
 
     [[nodiscard]] RowView at(std::size_t globalRow) const;
@@ -54,6 +56,9 @@ public:
     [[nodiscard]] QString shortId(std::size_t globalRow) const;
     [[nodiscard]] QString fullId(std::size_t globalRow) const;
     [[nodiscard]] QString when(std::size_t globalRow) const;
+    /// In the history of a file that was renamed: the name it had at this
+    /// row, or empty when it had the name the history is of.
+    [[nodiscard]] QString renamedPath(std::size_t globalRow) const;
 
     /// The row holding `oidHex`, or -1. Compares raw oid bytes rather than
     /// formatting each row's id, so selecting a branch does not allocate a

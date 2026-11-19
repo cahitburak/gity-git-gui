@@ -1,5 +1,6 @@
 #include "ImageDiffView.h"
 
+#include "ui/panels/Confirm.h"
 #include "ui/theme/Tokens.h"
 
 #include <QButtonGroup>
@@ -51,8 +52,8 @@ QRect fitSquare(const QRect& area, const QSize& imageSize) {
     if (imageSize.isEmpty()) {
         return {};
     }
-    const int edge = std::min({kMaxImageEdge, area.width() - kViewportPadding * 2,
-                               area.height() - kViewportPadding * 2});
+    const int edge = std::min(
+        {kMaxImageEdge, area.width() - kViewportPadding * 2, area.height() - kViewportPadding * 2});
     if (edge <= 0) {
         return {};
     }
@@ -75,6 +76,8 @@ ImageDiffView::ImageDiffView(QWidget* parent) : QWidget(parent) {
     headerRow->setSpacing(10);
 
     path_ = new QLabel(header);
+    // A file name may hold "<".
+    setPlainText(path_);
     path_->setFont(monoFont(font()));
     path_->setObjectName(QStringLiteral("panePath"));
     headerRow->addWidget(path_, 1);
@@ -94,14 +97,16 @@ ImageDiffView::ImageDiffView(QWidget* parent) : QWidget(parent) {
     auto* group = new QButtonGroup(this);
     group->setExclusive(true);
 
-    const std::pair<const char*, Mode> modes[] = {
-        {"Side by side", Mode::SideBySide},
-        {"Difference", Mode::Difference},
-        {"Onion skin", Mode::OnionSkin},
+    // Translated where they are written: tr() on a variable is invisible to
+    // lupdate, so these were never offered for translation.
+    const std::pair<QString, Mode> modes[] = {
+        {tr("Side by side"), Mode::SideBySide},
+        {tr("Difference"), Mode::Difference},
+        {tr("Onion skin"), Mode::OnionSkin},
     };
     for (const auto& [label, mode] : modes) {
         auto* button = new QToolButton(modeBar_);
-        button->setText(tr(label));
+        button->setText(label);
         button->setCheckable(true);
         button->setChecked(mode == Mode::SideBySide);
         button->setAutoRaise(true);
@@ -164,8 +169,8 @@ void ImageDiffView::rebuildComposite() {
 }
 
 void ImageDiffView::paintPane(QPainter& painter, const QRect& area, const QString& label,
-                                const QString& metadata, const QColor& labelColour,
-                                const QImage& image) const {
+                              const QString& metadata, const QColor& labelColour,
+                              const QImage& image) const {
     // Caption bar first: the label says which side you are looking at, and a
     // pane without one is unreadable the moment there are two.
     const QRect caption(area.x(), area.y(), area.width(), kCaptionHeight);
@@ -181,16 +186,14 @@ void ImageDiffView::paintPane(QPainter& painter, const QRect& area, const QStrin
 
     painter.setFont(monoFont(font(), -2));
     painter.setPen(tokens::textLabel);
-    painter.drawText(caption.adjusted(12, 0, -12, 0), Qt::AlignVCenter | Qt::AlignRight,
-                     metadata);
+    painter.drawText(caption.adjusted(12, 0, -12, 0), Qt::AlignVCenter | Qt::AlignRight, metadata);
 
     const QRect viewport = area.adjusted(0, kCaptionHeight, 0, 0);
     painter.fillRect(viewport, QBrush(checkerBrush()));
 
     if (image.isNull()) {
         painter.setPen(tokens::textFaint);
-        painter.drawText(viewport, Qt::AlignCenter,
-                         tr("no preview"));
+        painter.drawText(viewport, Qt::AlignCenter, tr("no preview"));
         return;
     }
 
@@ -240,17 +243,19 @@ void ImageDiffView::paintEvent(QPaintEvent*) {
         return;
     }
 
-    const QString label = mode_ == Mode::Difference ? tr("Difference blend")
-                                                    : tr("Onion skin · 50%");
-    const QString metadata =
-        mode_ == Mode::Difference
-            ? tr("%1 × %2 · %3% of pixels changed")
-                  .arg(composite_.width())
-                  .arg(composite_.height())
-                  .arg(diff_->changedPixelPercent, 0, 'f', 1)
-            : tr("%1 × %2 · HEAD under working copy")
-                  .arg(composite_.width())
-                  .arg(composite_.height());
+    const QString label =
+        mode_ == Mode::Difference ? tr("Difference blend") : tr("Onion skin · 50%");
+    const QString metadata = mode_ == Mode::Difference
+                                 ? tr("%1 × %2 · %3% of pixels changed")
+                                       .arg(composite_.width())
+                                       .arg(composite_.height())
+                                       .arg(diff_->changedPixelPercent, 0, 'f', 1)
+                                 // The sides by name: for a commit they are its parent and the
+                                 // commit, not HEAD and the working copy.
+                                 : tr("%1 × %2 · %3 under %4")
+                                       .arg(composite_.width())
+                                       .arg(composite_.height())
+                                       .arg(diff_->before.label, diff_->after.label);
 
     paintPane(painter, body, label, metadata, tokens::semanticWarn, composite_);
 }

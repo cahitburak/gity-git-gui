@@ -1,9 +1,11 @@
 #include "CredentialManager.h"
 
 #include "core/git/Credential.h"
+#include "session/Background.h"
 #include "session/CredentialInventory.h"
 #include "session/GitProcess.h"
 
+#include <QDir>
 #include <QThread>
 
 #include <functional>
@@ -43,12 +45,6 @@ bool requestFor(const QString& url, const QString& username, const QString& pass
 
 /// Runs `work` on its own thread and `done` back on `context`'s thread. The
 /// thread cleans itself up; if `context` is gone by then, `done` is dropped.
-void runAsync(QObject* context, std::function<void()> work, std::function<void()> done) {
-    QThread* thread = QThread::create(std::move(work));
-    QObject::connect(thread, &QThread::finished, thread, &QObject::deleteLater);
-    QObject::connect(thread, &QThread::finished, context, std::move(done));
-    thread->start();
-}
 
 } // namespace
 
@@ -62,7 +58,9 @@ QStringList CredentialManager::configuredHelpers(const QString& workdir) {
     // Every credential.*helper key, so URL-scoped helpers show as well as the
     // global one. Read from the repository, so its own config is included.
     const GitResult result = GitProcess::run(
-        workdir.isEmpty() ? QStringLiteral(".") : workdir,
+        // With no repository, the home directory: "." is wherever Gity was
+        // started from, which may be some other repository.
+        workdir.isEmpty() ? QDir::homePath() : workdir,
         {QStringLiteral("config"), QStringLiteral("--show-scope"), QStringLiteral("--get-regexp"),
          QStringLiteral("^credential\\..*helper$")},
         15000);
@@ -83,7 +81,7 @@ void CredentialManager::lookup(const QString& workdir, const QString& url) {
     auto result = std::make_shared<GitResult>();
     auto hint = std::make_shared<QString>();
     const QByteArray input = QByteArray::fromStdString(git::serializeCredential(request));
-    runAsync(
+    runInBackground(
         this,
         [result, hint, workdir, input, url] {
             *result = GitProcess::runWithInputAndEnv(
@@ -110,7 +108,9 @@ void CredentialManager::lookup(const QString& workdir, const QString& url) {
                                            line.contains(QStringLiteral("prompts disabled")) ||
                                            line.contains(QStringLiteral("unable to get"));
                 emit lookedUp(url, false, {}, {},
-                              !hint->isEmpty() ? *hint : nothingStored ? QString() : line);
+                              !hint->isEmpty() ? *hint
+                              : nothingStored  ? QString()
+                                               : line);
                 return;
             }
             const git::Credential answer = git::parseCredential(result->output.toStdString());
@@ -119,9 +119,8 @@ void CredentialManager::lookup(const QString& workdir, const QString& url) {
         });
 }
 
-void CredentialManager::store(const QString& workdir, const QString& url,
-                              const QString& username, const QString& password,
-                              const QString& previousUsername,
+void CredentialManager::store(const QString& workdir, const QString& url, const QString& username,
+                              const QString& password, const QString& previousUsername,
                               const QString& previousPassword) {
     git::Credential record;
     git::Credential previous;
@@ -139,7 +138,7 @@ void CredentialManager::store(const QString& workdir, const QString& url,
     auto result = std::make_shared<GitResult>();
     const QByteArray approve = QByteArray::fromStdString(git::serializeCredential(record));
     const QByteArray reject = QByteArray::fromStdString(git::serializeCredential(previous));
-    runAsync(
+    runInBackground(
         this,
         [result, workdir, approve, reject, renamed] {
             if (renamed) {
@@ -152,15 +151,15 @@ void CredentialManager::store(const QString& workdir, const QString& url,
                 quiet());
         },
         [this, result] {
-            emit finished(result->ok(),
-                          result->ok() ? tr("Saved to your credential helper.")
-                                       : tr("The credential helper did not accept it: %1")
-                                             .arg(result->firstProblemLine()));
+            emit finished(result->ok(), result->ok()
+                                            ? tr("Saved to your credential helper.")
+                                            : tr("The credential helper did not accept it: %1")
+                                                  .arg(result->firstProblemLine()));
         });
 }
 
-void CredentialManager::remove(const QString& workdir, const QString& url,
-                               const QString& username, const QString& password) {
+void CredentialManager::remove(const QString& workdir, const QString& url, const QString& username,
+                               const QString& password) {
     git::Credential record;
     if (!requestFor(url, username, password, &record) || !git::isWritable(record)) {
         emit finished(false, tr("This remote does not use stored credentials."));
@@ -168,12 +167,11 @@ void CredentialManager::remove(const QString& workdir, const QString& url,
     }
     auto result = std::make_shared<GitResult>();
     const QByteArray input = QByteArray::fromStdString(git::serializeCredential(record));
-    runAsync(
+    runInBackground(
         this,
         [result, workdir, input] {
             *result = GitProcess::runWithInputAndEnv(
-                workdir, {QStringLiteral("credential"), QStringLiteral("reject")}, input,
-                quiet());
+                workdir, {QStringLiteral("credential"), QStringLiteral("reject")}, input, quiet());
         },
         [this, result] {
             emit finished(result->ok(), result->ok()

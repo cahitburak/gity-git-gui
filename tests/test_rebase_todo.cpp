@@ -24,10 +24,9 @@ TEST(SerializeTodo, ReversesIntoTheOrderGitApplies) {
         step(RebaseAction::Pick, "bbbbbb", "middle"),
         step(RebaseAction::Pick, "aaaaaa", "oldest"),
     });
-    EXPECT_EQ(todo,
-              "pick aaaaaa oldest\n"
-              "pick bbbbbb middle\n"
-              "pick cccccc newest\n");
+    EXPECT_EQ(todo, "pick aaaaaa oldest\n"
+                    "pick bbbbbb middle\n"
+                    "pick cccccc newest\n");
 }
 
 TEST(SerializeTodo, WritesGitsKeywordForEachAction) {
@@ -37,11 +36,10 @@ TEST(SerializeTodo, WritesGitsKeywordForEachAction) {
         step(RebaseAction::Squash, "222222"),
         step(RebaseAction::Edit, "111111"),
     });
-    EXPECT_EQ(todo,
-              "edit 111111\n"
-              "squash 222222\n"
-              "fixup 333333\n"
-              "drop 444444\n");
+    EXPECT_EQ(todo, "edit 111111\n"
+                    "squash 222222\n"
+                    "fixup 333333\n"
+                    "drop 444444\n");
 }
 
 TEST(SerializeTodo, ASubjectIsOptional) {
@@ -108,7 +106,7 @@ TEST(SerializeTodo, ARewordIsAPickFollowedByAnAmendOfTheMessage) {
     EXPECT_EQ(serializeTodo({reword, step(RebaseAction::Pick, "aaaaaa")}),
               "pick aaaaaa\n"
               "pick bbbbbb\n"
-              "exec git commit --amend --only --allow-empty --cleanup=strip "
+              "exec git commit --amend --only --allow-empty --cleanup=whitespace "
               "--file='/repo/.git/gity/reword/bbbbbb'\n");
 }
 
@@ -117,12 +115,27 @@ TEST(SerializeTodo, AMessageFilePathIsQuotedForTheShell) {
     reword.messageFile = "/it's here/msg";
     EXPECT_EQ(serializeTodo({reword}),
               "pick aaaaaa\n"
-              "exec git commit --amend --only --allow-empty --cleanup=strip "
+              "exec git commit --amend --only --allow-empty --cleanup=whitespace "
               "--file='/it'\\''s here/msg'\n");
 }
 
 TEST(ValidateTodo, ARewordCountsAsKept) {
-    EXPECT_EQ(validateTodo({step(RebaseAction::Fixup, "bbbbbb"),
-                            step(RebaseAction::Reword, "aaaaaa")}),
-              TodoProblem::None);
+    EXPECT_EQ(
+        validateTodo({step(RebaseAction::Fixup, "bbbbbb"), step(RebaseAction::Reword, "aaaaaa")}),
+        TodoProblem::None);
+}
+
+TEST(ShellQuote, EveryByteIsLiteral) {
+    EXPECT_EQ(gity::git::shellQuote("/tmp/a b"), "'/tmp/a b'");
+    EXPECT_EQ(gity::git::shellQuote("it's"), "'it'\\''s'");
+    EXPECT_EQ(gity::git::shellQuote("$(rm -rf ~)"), "'$(rm -rf ~)'");
+}
+
+TEST(SerializeTodo, ASubjectCannotStartALineOfItsOwn) {
+    gity::git::RebaseStep step;
+    step.action = gity::git::RebaseAction::Pick;
+    step.oid = "abc123";
+    step.subject = "one\nexec rm -rf ~";
+    const std::string todo = gity::git::serializeTodo({step});
+    EXPECT_EQ(todo, "pick abc123 one exec rm -rf ~\n");
 }

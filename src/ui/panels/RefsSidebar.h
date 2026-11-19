@@ -7,7 +7,7 @@
 // literal colours.
 #pragma once
 
-#include "session/RepoSession.h"
+#include "session/SessionTypes.h"
 #include "ui/panels/RefsSidebarDelegate.h"
 
 #include <QTreeWidget>
@@ -90,8 +90,8 @@ signals:
 
     /// Two refs selected together: show what differs from the first chosen
     /// to the second. Names are for display; the oids are what is compared.
-    void compareRequested(const QString& fromName, const QString& fromOid,
-                          const QString& toName, const QString& toOid);
+    void compareRequested(const QString& fromName, const QString& fromOid, const QString& toName,
+                          const QString& toOid);
     /// More than two refs selected, which has no single difference to show.
     void compareTooMany(int count);
 
@@ -101,6 +101,10 @@ signals:
 
 protected:
     void contextMenuEvent(QContextMenuEvent* event) override;
+    /// Enter does what a click does, and Shift+Enter what a double click
+    /// does: the sidebar was mouse-only, so a keyboard could move through it
+    /// but not open anything.
+    void keyPressEvent(QKeyEvent* event) override;
 
 private:
     [[nodiscard]] bool matches(const std::string& name) const;

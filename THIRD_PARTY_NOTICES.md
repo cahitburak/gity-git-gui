@@ -13,19 +13,34 @@ is linked below and ships with the component.
 |---|---|---|
 | [Qt 6](https://www.qt.io/) — Core, Gui, Widgets, Network, DBus (Linux), and the SVG image-format plugin at run time | The whole user interface; D-Bus access to the system keyring on Linux | [LGPL-3.0-only](https://doc.qt.io/qt-6/lgpl.html) (also available under GPL and commercial terms) |
 | [libgit2](https://libgit2.org/) | Reading repositories: history, refs, diffs, status | [GPL-2.0 with a linking exception](https://github.com/libgit2/libgit2/blob/main/COPYING) |
+| [KSyntaxHighlighting](https://invent.kde.org/frameworks/syntax-highlighting) — optional, linked only when the build finds it | Colouring code in diffs, blame and the conflict editor | [MIT](https://invent.kde.org/frameworks/syntax-highlighting/-/blob/master/LICENSES/MIT.txt); its syntax definitions each carry their own, mostly MIT or LGPL |
 
-### Only when built with vcpkg (the Windows and macOS builds)
+### Linked along with libgit2
 
-vcpkg builds libgit2 with these, and they are linked along with it:
+libgit2 is built against these, and wherever libgit2 is bundled they are too:
 
 | Component | Licence |
 |---|---|
-| [libssh2](https://libssh2.org/) | [BSD-3-Clause](https://github.com/libssh2/libssh2/blob/master/COPYING) |
 | [PCRE2](https://github.com/PCRE2Project/pcre2) | [BSD-3-Clause with PCRE2 exception](https://github.com/PCRE2Project/pcre2/blob/master/LICENCE.md) |
 | [zlib](https://zlib.net/) | [zlib licence](https://zlib.net/zlib_license.html) |
-| [OpenSSL](https://www.openssl.org/) (where libgit2 or libssh2 is built against it) | [Apache-2.0](https://www.openssl.org/source/license.html) (3.x) |
+| [OpenSSL](https://www.openssl.org/) (Linux, where libgit2 uses it for HTTPS) | [Apache-2.0](https://www.openssl.org/source/license.html) for 3.x; the OpenSSL and SSLeay licences for 1.1 |
 
-On Linux these come, if at all, from the system's libgit2 package and are not part of Gity.
+libgit2 is built without SSH support — every network operation goes through `git` — so libssh2 is
+not part of any Gity package.
+
+Which packages bundle them:
+
+* **Distribution packages** (`cmake --install`, CPack, the AUR) bundle nothing: Qt, libgit2,
+  KSyntaxHighlighting and these come from the system.
+* **The AppImage** bundles Qt and libgit2 (built from source with PCRE2, zlib and the build
+  system's OpenSSL 1.1), together with the libraries `linuxdeploy` collects for them. Those
+  include libraries Qt itself uses — ICU, and image and text libraries such as libpng, FreeType
+  and HarfBuzz where they are not on linuxdeploy's exclude list — each under its own permissive or
+  LGPL licence; `usr/lib` inside the AppImage lists exactly which.
+* **The macOS disk image** bundles Qt and Homebrew's libgit2 and its dependencies, through
+  `macdeployqt`.
+* **The Windows zip** bundles Qt and vcpkg's libgit2 and its dependencies; each vcpkg port's
+  licence is in its `licences` folder.
 
 ## Used only to build or test (not distributed)
 

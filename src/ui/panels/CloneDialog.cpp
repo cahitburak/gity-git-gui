@@ -41,8 +41,7 @@ CloneDialog::CloneDialog(QWidget* parent) : QDialog(parent) {
     auto* directoryLayout = new QHBoxLayout(directoryRow);
     directoryLayout->setContentsMargins(0, 0, 0, 0);
     directory_ = new QLineEdit(directoryRow);
-    directory_->setText(
-        QStandardPaths::writableLocation(QStandardPaths::HomeLocation));
+    directory_->setText(QStandardPaths::writableLocation(QStandardPaths::HomeLocation));
     directoryLayout->addWidget(directory_, 1);
     auto* browse = new QPushButton(tr("Browse…"), directoryRow);
     directoryLayout->addWidget(browse);
@@ -54,6 +53,8 @@ CloneDialog::CloneDialog(QWidget* parent) : QDialog(parent) {
     layout->addLayout(form);
 
     status_ = new QLabel(this);
+    // Names the folder, and what is wrong with the URL typed.
+    setPlainText(status_);
     status_->setWordWrap(true);
     layout->addWidget(status_);
 

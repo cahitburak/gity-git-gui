@@ -10,10 +10,12 @@
 #include "../model/HistoryChunk.h"
 #include "Repository.h"
 
-#include <cstdint>
 #include <atomic>
+#include <cstdint>
 #include <cstring>
 #include <functional>
+#include <string>
+#include <vector>
 
 namespace gity::git {
 
@@ -37,10 +39,18 @@ struct CommitFilter {
     /// Commit time bounds, seconds since the epoch, inclusive. Zero is open.
     std::int64_t since = 0;
     std::int64_t until = 0;
+    /// A file or folder, relative to the top of the working copy with `/`
+    /// between parts: only commits that changed it. Checked by the walk, not
+    /// by matches(), since it needs the commit's trees.
+    std::string path;
+    /// For a file: carry on past a rename under the file's older name, as
+    /// `git log --follow` does. Ignored for a folder.
+    bool followRenames = true;
 
     [[nodiscard]] bool active() const noexcept {
-        return !text.empty() || !author.empty() || since != 0 || until != 0;
+        return !text.empty() || !author.empty() || since != 0 || until != 0 || !path.empty();
     }
+
     [[nodiscard]] bool matches(std::string_view summary, std::string_view authorName,
                                std::string_view idHex, std::int64_t when) const;
     [[nodiscard]] bool operator==(const CommitFilter&) const = default;
@@ -66,6 +76,36 @@ struct StreamOptions {
     /// superseded filter walked the whole history before noticing.
     const std::atomic<bool>* cancel = nullptr;
 };
+
+/// What one commit did to a file or folder, and what it was called before.
+struct PathChange {
+    /// Whether the commit changed it, as `git log -- path` decides: a commit
+    /// is kept unless what `path` names is the same in it as in one of its
+    /// parents, mode included. A merge that took one side's version unchanged is therefore
+    /// left out, as git leaves it out. A rename is a change.
+    bool touched = false;
+    /// Per parent, the name the file had there when this commit renamed it to
+    /// `path`; empty where the name did not change. Only filled when
+    /// following renames, and only for a file — git follows no folder either.
+    std::vector<std::string> renamedFrom;
+    /// Per parent, whether `path` names anything there. Only filled when
+    /// following renames: it is how the walk tells a name a parent really has
+    /// from one passed down by a child that never had the file.
+    std::vector<bool> inParent;
+};
+
+/// How `commit` changed `path`. With `followRenames`, a file that is new in
+/// the commit is looked for among the files the commit deleted, as `git log
+/// --follow` does, so the walk can carry on under its older name.
+///
+/// Unlike git, the sides of a merge that did not reach its result are still
+/// walked, so a change a merge threw away can be listed.
+[[nodiscard]] PathChange pathChange(git_repository* repo, git_commit* commit,
+                                    const std::string& path, bool followRenames);
+
+/// Whether `commit` changed `path`, not following renames.
+[[nodiscard]] bool commitTouchesPath(git_repository* repo, git_commit* commit,
+                                     const std::string& path);
 
 /// True when `filter` matches any of the fields a person would search.
 [[nodiscard]] bool commitMatches(std::string_view summary, std::string_view author,

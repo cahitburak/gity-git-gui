@@ -100,6 +100,7 @@ void PreviewDialog::addChoice(const QString& label, int id, const QString& role)
 int PreviewDialog::choose() {
     if (!command_.isEmpty()) {
         auto* command = new QLabel(QStringLiteral("git %1").arg(command_), this);
+        setPlainText(command);
         command->setFont(QFontDatabase::systemFont(QFontDatabase::FixedFont));
         command->setTextInteractionFlags(Qt::TextSelectableByMouse);
         // A lease names a whole ref and an id; wrapped, not cut off.

@@ -3,16 +3,21 @@
 #include "ui/panels/Confirm.h"
 #include "ui/theme/Theme.h"
 
+#include <QApplication>
+#include <QClipboard>
+#include <QContextMenuEvent>
 #include <QDateTime>
+#include <QFileInfo>
+#include <QMenu>
 
-#include <algorithm>
-#include <QHeaderView>
 #include <QHBoxLayout>
+#include <QHeaderView>
 #include <QLabel>
 #include <QPushButton>
 #include <QSignalBlocker>
 #include <QTreeWidget>
 #include <QVBoxLayout>
+#include <algorithm>
 
 namespace gity::ui {
 namespace {
@@ -29,19 +34,24 @@ QString whenText(std::int64_t seconds) {
 
 QColor statusColour(git::ChangeStatus status, const Theme& theme) {
     switch (status) {
+    // The diff's own add and remove colours, so a file's status and its lines
+    // agree. Lane colours were used before, and lane 4 is red: added files
+    // showed as red and deleted ones as purple.
     case git::ChangeStatus::Added:
-        return theme.laneColor(4); // green-ish in both palettes
+        return theme.diffAddMarker;
     case git::ChangeStatus::Deleted:
-        return theme.laneColor(3); // red-ish
+        return theme.diffDelMarker;
     case git::ChangeStatus::Renamed:
     case git::ChangeStatus::Copied:
-        return theme.laneColor(2);
+        return theme.laneColor(0);
     default:
         return theme.textMuted;
     }
 }
 
 constexpr int kPathRole = Qt::UserRole;
+/// True for a file the commit deleted: there is nothing left to blame.
+constexpr int kDeletedRole = Qt::UserRole + 1;
 
 /// Commits listed per side of a comparison before "… and N more".
 constexpr std::size_t kShown = 10;
@@ -94,6 +104,7 @@ void ChangedFilesList::setFiles(const std::vector<git::ChangedFile>& files) {
         }
         item->setText(1, label);
         item->setData(0, kPathRole, QString::fromStdString(file.path));
+        item->setData(0, kDeletedRole, file.status == git::ChangeStatus::Deleted);
         if (file.binary) {
             item->setForeground(1, theme.textMuted);
             item->setToolTip(1, tr("Binary file"));
@@ -119,12 +130,60 @@ void ChangedFilesList::selectPath(const QString& path) {
     }
 }
 
+void ChangedFilesList::contextMenuEvent(QContextMenuEvent* event) {
+    // From the Menu key or Shift+F10, the file with focus, and the menu by
+    // it: the event's position is then nowhere in particular.
+    const bool keyboard = event->reason() == QContextMenuEvent::Keyboard;
+    QTreeWidgetItem* item =
+        keyboard ? currentItem() : itemAt(viewport()->mapFrom(this, event->pos()));
+    if (item == nullptr) {
+        return;
+    }
+    QPoint at = event->globalPos();
+    if (keyboard) {
+        scrollToItem(item);
+        const QRect row = visualItemRect(item);
+        at = viewport()->mapToGlobal(QPoint(row.left() + 24, row.center().y()));
+    }
+    const QString path = item->data(0, kPathRole).toString();
+    if (path.isEmpty()) {
+        return;
+    }
+    const QString name = QFileInfo(path).fileName();
+    const QString folder = path.contains(QChar('/')) ? path.section(QChar('/'), 0, -2) : QString();
+
+    QMenu menu(this);
+    QAction* history = menu.addAction(tr("Show History of %1").arg(name));
+    QAction* folderHistory =
+        folder.isEmpty() ? nullptr : menu.addAction(tr("Show History of Folder %1").arg(folder));
+    QAction* blame = menu.addAction(tr("Blame %1").arg(name));
+    blame->setEnabled(!item->data(0, kDeletedRole).toBool());
+    menu.addSeparator();
+    QAction* copy = menu.addAction(tr("Copy Path"));
+
+    QAction* chosen = menu.exec(at);
+    if (chosen == nullptr) {
+        return;
+    }
+    if (chosen == history) {
+        emit historyRequested(path);
+    } else if (chosen == folderHistory) {
+        emit historyRequested(folder);
+    } else if (chosen == blame) {
+        emit blameRequested(path);
+    } else if (chosen == copy) {
+        QApplication::clipboard()->setText(path);
+    }
+}
+
 CommitDetailPanel::CommitDetailPanel(QWidget* parent) : QWidget(parent) {
     auto* layout = new QVBoxLayout(this);
     layout->setContentsMargins(14, 10, 14, 10);
     layout->setSpacing(6);
 
     summary_ = new QLabel(this);
+    // A subject like "Escape <b> in titles" is text, not markup.
+    summary_->setTextFormat(Qt::PlainText);
     summary_->setWordWrap(true);
     summary_->setTextInteractionFlags(Qt::TextSelectableByMouse);
     QFont summaryFont = summary_->font();
@@ -162,6 +221,9 @@ CommitDetailPanel::CommitDetailPanel(QWidget* parent) : QWidget(parent) {
 
     files_ = new ChangedFilesList(this);
     layout->addWidget(files_, 1);
+    connect(files_, &ChangedFilesList::historyRequested, this,
+            &CommitDetailPanel::historyRequested);
+    connect(files_, &ChangedFilesList::blameRequested, this, &CommitDetailPanel::blameRequested);
 
     // A click here means "show me this file", and the diff lives in the
     // Changes tab — so the click is handed up rather than acted on.
@@ -244,9 +306,8 @@ void CommitDetailPanel::setComparison(const session::ComparisonPtr& comparison,
     QStringList lines;
     lines << tr("From\t%1  %2").arg(fromName, hexOf(comparison->from));
     lines << tr("To\t%1  %2").arg(toName, hexOf(comparison->to));
-    lines << (comparison->hasMergeBase
-                  ? tr("Merge base\t%1").arg(hexOf(comparison->mergeBase))
-                  : tr("Merge base\tnone — the histories are unrelated"));
+    lines << (comparison->hasMergeBase ? tr("Merge base\t%1").arg(hexOf(comparison->mergeBase))
+                                       : tr("Merge base\tnone — the histories are unrelated"));
     if (comparison->onlyInTo == 0 && comparison->onlyInFrom == 0) {
         lines << tr("History\tthe same commit");
     } else {
@@ -269,8 +330,8 @@ void CommitDetailPanel::setComparison(const session::ComparisonPtr& comparison,
         out << heading;
         const std::size_t shown = std::min(kShown, commits.size());
         for (std::size_t i = 0; i < shown; ++i) {
-            out << QStringLiteral("    %1  %2").arg(hexOf(commits[i].oid),
-                                                  QString::fromStdString(commits[i].summary));
+            out << QStringLiteral("    %1  %2")
+                       .arg(hexOf(commits[i].oid), QString::fromStdString(commits[i].summary));
         }
         if (count > shown) {
             out << tr("    … and %L1 more").arg(count - shown);
@@ -290,10 +351,9 @@ void CommitDetailPanel::setComparison(const session::ComparisonPtr& comparison,
     body_->setVisible(!sections.isEmpty());
 
     files_->setFiles(comparison->files);
-    QString heading = comparison->files.empty()
-                          ? tr("No files differ")
-                          : tr("%Ln file(s) differ", nullptr,
-                               static_cast<int>(comparison->files.size()));
+    QString heading = comparison->files.empty() ? tr("No files differ")
+                                                : tr("%Ln file(s) differ", nullptr,
+                                                     static_cast<int>(comparison->files.size()));
     if (comparison->filesTruncated) {
         heading += tr(" · list truncated");
     }

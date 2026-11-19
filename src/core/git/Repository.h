@@ -34,15 +34,16 @@ inline void check(int code, const char* what) {
 }
 
 /// Owning handle for a libgit2 object with a known free function.
-template <typename T, void (*FreeFn)(T*)>
-class Handle {
+template <typename T, void (*FreeFn)(T*)> class Handle {
 public:
     Handle() = default;
+
     explicit Handle(T* raw) noexcept : raw_(raw) {}
 
     ~Handle() { reset(); }
 
     Handle(Handle&& other) noexcept : raw_(std::exchange(other.raw_, nullptr)) {}
+
     Handle& operator=(Handle&& other) noexcept {
         if (this != &other) {
             reset();
@@ -62,10 +63,12 @@ public:
     }
 
     [[nodiscard]] T* get() const noexcept { return raw_; }
+
     [[nodiscard]] T** receive() noexcept {
         reset();
         return &raw_;
     }
+
     explicit operator bool() const noexcept { return raw_ != nullptr; }
 
 private:
@@ -80,6 +83,7 @@ using DiffHandle = Handle<git_diff, git_diff_free>;
 using StatusListHandle = Handle<git_status_list, git_status_list_free>;
 using IndexHandle = Handle<git_index, git_index_free>;
 using ObjectHandle = Handle<git_object, git_object_free>;
+using BlobHandle = Handle<git_blob, git_blob_free>;
 using ReferenceHandle = Handle<git_reference, git_reference_free>;
 using BranchIteratorHandle = Handle<git_branch_iterator, git_branch_iterator_free>;
 

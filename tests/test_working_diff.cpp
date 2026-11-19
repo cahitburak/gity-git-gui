@@ -1,18 +1,22 @@
-// The one test here that builds a real repository.
+// Diffs read from a real repository.
 //
-// Every other test in this suite is pure logic, deliberately. This defect
-// could not be caught that way: it was an interaction between two libgit2
-// option flags, where a pathspec silently matched nothing unless untracked
-// directories were also recursed. Nothing about the shape of the code was
-// wrong — only what libgit2 does with the combination — so the only test that
-// could have found it is one that asks libgit2.
+// These defects could not be caught with pure logic: the first was an
+// interaction between two libgit2 option flags, where a pathspec silently
+// matched nothing unless untracked directories were also recursed. Nothing
+// about the shape of the code was wrong — only what libgit2 does with the
+// combination — so the only test that could have found it is one that asks
+// libgit2. Writes to the index go through git and are tested with the session
+// layer (tests/session).
+#include "TempDir.h"
+
 #include "core/git/Staging.h"
 
 #include <gtest/gtest.h>
 
-#include <filesystem>
 #include <cstdio>
+#include <filesystem>
 #include <git2.h>
+#include <optional>
 
 namespace {
 
@@ -23,11 +27,7 @@ class Repo {
 public:
     Repo() {
         git_libgit2_init();
-        path_ = fs::temp_directory_path() /
-                ("gity-diff-test-" + std::to_string(::testing::UnitTest::GetInstance()
-                                                        ->random_seed()) +
-                 "-" + std::to_string(counter_++));
-        fs::remove_all(path_);
+        path_ = gity::test::freshTempDir("diff-test");
         fs::create_directories(path_ / "Assets");
 
         // The function, not GIT_REPOSITORY_INIT_OPTIONS_INIT: on libgit2 1.7 the
@@ -86,8 +86,7 @@ public:
         ASSERT_EQ(git_signature_now(&who, "Test", "test@invalid"), 0);
 
         git_oid commitId{};
-        ASSERT_EQ(git_commit_create_v(&commitId, repo_, "HEAD", who, who, nullptr, "base", tree,
-                                      0),
+        ASSERT_EQ(git_commit_create_v(&commitId, repo_, "HEAD", who, who, nullptr, "base", tree, 0),
                   0);
         git_signature_free(who);
         git_tree_free(tree);
@@ -99,7 +98,6 @@ public:
 private:
     git_repository* repo_ = nullptr;
     fs::path path_;
-    static inline int counter_ = 0;
 };
 
 } // namespace
@@ -127,8 +125,8 @@ TEST(WorkingDiff, ABrandNewFileDiffsAgainstNothing) {
     repo.commitAll();
     repo.write("Assets/New.cs", "brand new\n");
 
-    const auto diff = gity::git::loadWorkingDiff(repo.get(), "Assets/New.cs",
-                                                 gity::git::DiffSide::Unstaged, {});
+    const auto diff =
+        gity::git::loadWorkingDiff(repo.get(), "Assets/New.cs", gity::git::DiffSide::Unstaged, {});
     EXPECT_EQ(diff.hunks.size(), 1u) << "an untracked file must diff against nothing";
     ASSERT_FALSE(diff.lines.empty());
     EXPECT_EQ(diff.lines.front().kind, gity::git::DiffLineKind::Addition);
@@ -144,54 +142,128 @@ TEST(WorkingDiff, AnUnchangedFileHasNoHunks) {
     EXPECT_TRUE(diff.hunks.empty());
 }
 
-namespace {
+TEST(WorkingDiff, ABinaryFileIsReportedAsBinary) {
+    // libgit2 only learns a file is binary when it loads the contents, which
+    // happens when the patch is built — reading the flag earlier missed it.
+    Repo repo;
+    repo.write("Assets/icon.bin", std::string("\x89PNG\0\0\x01", 7));
+    repo.commitAll();
+    repo.write("Assets/icon.bin", std::string("\x89PNG\0\0\x02", 7));
 
-std::string readFile(const std::filesystem::path& path) {
-    std::string contents;
-    std::FILE* file = std::fopen(path.string().c_str(), "rb");
-    if (file == nullptr) {
-        return contents;
-    }
-    char buffer[4096];
-    std::size_t read = 0;
-    while ((read = std::fread(buffer, 1, sizeof(buffer), file)) > 0) {
-        contents.append(buffer, read);
-    }
-    std::fclose(file);
-    return contents;
+    const auto diff = gity::git::loadWorkingDiff(repo.get(), "Assets/icon.bin",
+                                                 gity::git::DiffSide::Unstaged, {});
+    EXPECT_TRUE(diff.binary);
 }
 
-bool isStaged(git_repository* repo, const char* path) {
-    unsigned int flags = 0;
-    if (git_status_file(&flags, repo, path) < 0) {
-        return false;
+TEST(WorkingDiff, CrLfEndingsAreRememberedButNotShown) {
+    Repo repo;
+    repo.write("Assets/Player.cs", "one\r\ntwo\r\n");
+    repo.commitAll();
+    repo.write("Assets/Player.cs", "one\r\nTWO\r\n");
+
+    const auto diff = gity::git::loadWorkingDiff(repo.get(), "Assets/Player.cs",
+                                                 gity::git::DiffSide::Unstaged, {});
+    ASSERT_FALSE(diff.lines.empty());
+    for (const auto& line : diff.lines) {
+        EXPECT_TRUE(line.carriageReturn);
+        EXPECT_EQ(diff.lineText(line).find('\r'), std::string_view::npos);
     }
-    return (flags & (GIT_STATUS_INDEX_NEW | GIT_STATUS_INDEX_MODIFIED |
-                     GIT_STATUS_INDEX_DELETED)) != 0;
 }
 
-} // namespace
+TEST(WorkingDiff, AnUntrackedFileHasNoOldSide) {
+    Repo repo;
+    repo.write("Assets/Player.cs", "one\n");
+    repo.commitAll();
+    repo.write("Assets/New.cs", "fresh\n");
 
-TEST(WorkingDiff, DiscardingAnUnstagedHunkRewritesTheFile) {
-    // Discard hunk works on the *unstaged* diff — index against worktree — so
-    // the reversed patch describes the worktree and nothing else. Applied to
-    // the index as well, it cannot match, and the discard fails outright.
+    const auto diff =
+        gity::git::loadWorkingDiff(repo.get(), "Assets/New.cs", gity::git::DiffSide::Unstaged, {});
+    EXPECT_EQ(diff.oldMode, 0u);
+    EXPECT_NE(diff.newMode, 0u);
+}
+
+TEST(WorkingDiff, BothSidesComeWholeForHighlighting) {
+    // A hunk can open inside a comment that started lines above it; only the
+    // whole file says so. The working copy's side is read from disk, since
+    // the file is not in the object database until it is staged.
+    Repo repo;
+    const std::string before = "/* a comment\n   over lines */\nint a;\nint b;\nint c;\nint d;\n";
+    repo.write("Assets/Player.cs", before);
+    repo.commitAll();
+    const std::string after = before + "int e;\n";
+    repo.write("Assets/Player.cs", after);
+
+    const auto unstaged = gity::git::loadWorkingDiff(repo.get(), "Assets/Player.cs",
+                                                     gity::git::DiffSide::Unstaged, {});
+    ASSERT_TRUE(unstaged.hasSources);
+    EXPECT_EQ(unstaged.oldSource, before);
+    EXPECT_EQ(unstaged.newSource, after);
+
+    repo.write("Assets/New.cs", "fresh\n");
+    const auto added =
+        gity::git::loadWorkingDiff(repo.get(), "Assets/New.cs", gity::git::DiffSide::Unstaged, {});
+    ASSERT_TRUE(added.hasSources);
+    EXPECT_TRUE(added.oldSource.empty()) << "an added file has no old side";
+    EXPECT_EQ(added.newSource, "fresh\n");
+}
+
+TEST(WorkingDiff, AFileEmptiedOnDiskStillHasSources) {
+    // An empty file read from disk was taken for one that could not be read,
+    // and the whole diff lost its highlighting.
+    Repo repo;
+    repo.write("Assets/Player.cs", "int a;\n");
+    repo.commitAll();
+    repo.write("Assets/Player.cs", "");
+
+    const auto diff = gity::git::loadWorkingDiff(repo.get(), "Assets/Player.cs",
+                                                 gity::git::DiffSide::Unstaged, {});
+    ASSERT_FALSE(diff.lines.empty());
+    EXPECT_TRUE(diff.hasSources);
+    EXPECT_EQ(diff.oldSource, "int a;\n");
+    EXPECT_TRUE(diff.newSource.empty());
+}
+
+TEST(WorkingDiff, AnIndexWrittenByAnotherProcessIsSeen) {
+    // Every index write goes through the git binary, and the repository
+    // handle lives as long as the session. Its index was read once, so a diff
+    // after `git add` still showed the change as unstaged.
     Repo repo;
     repo.write("Assets/Player.cs", "one\n");
     repo.commitAll();
     repo.write("Assets/Player.cs", "one\ntwo\n");
 
-    const auto diff = gity::git::loadWorkingDiff(repo.get(), "Assets/Player.cs",
-                                                 gity::git::DiffSide::Unstaged, {});
-    ASSERT_EQ(diff.hunks.size(), 1u);
-    const std::string patch =
-        gity::git::buildPartialPatch(diff, gity::git::linesOfHunk(diff, 0), true);
-    ASSERT_FALSE(patch.empty());
+    const auto before = gity::git::loadWorkingDiff(repo.get(), "Assets/Player.cs",
+                                                   gity::git::DiffSide::Unstaged, {});
+    ASSERT_EQ(before.hunks.size(), 1u);
 
-    EXPECT_NO_THROW(gity::git::applyPatchToWorktree(repo.get(), patch));
-    EXPECT_EQ(readFile(std::filesystem::path(git_repository_workdir(repo.get())) /
-                       "Assets/Player.cs"),
-              "one\n");
+    // Another handle on the same repository stands in for `git add`.
+    git_repository* other = nullptr;
+    ASSERT_EQ(git_repository_open(&other, git_repository_workdir(repo.get())), 0);
+    git_index* index = nullptr;
+    ASSERT_EQ(git_repository_index(&index, other), 0);
+    ASSERT_EQ(git_index_add_bypath(index, "Assets/Player.cs"), 0);
+    ASSERT_EQ(git_index_write(index), 0);
+    git_index_free(index);
+    git_repository_free(other);
+
+    const auto unstaged = gity::git::loadWorkingDiff(repo.get(), "Assets/Player.cs",
+                                                     gity::git::DiffSide::Unstaged, {});
+    EXPECT_TRUE(unstaged.hunks.empty()) << "the change is staged now";
+    const auto staged =
+        gity::git::loadWorkingDiff(repo.get(), "Assets/Player.cs", gity::git::DiffSide::Staged, {});
+    EXPECT_EQ(staged.hunks.size(), 1u);
+}
+
+TEST(WorkingDiff, ABinaryFileHasNoSources) {
+    Repo repo;
+    repo.write("Assets/icon.bin", std::string("\x89PNG\0\0\x01", 7));
+    repo.commitAll();
+    repo.write("Assets/icon.bin", std::string("\x89PNG\0\0\x02", 7));
+
+    const auto diff = gity::git::loadWorkingDiff(repo.get(), "Assets/icon.bin",
+                                                 gity::git::DiffSide::Unstaged, {});
+    EXPECT_FALSE(diff.hasSources);
+    EXPECT_TRUE(diff.newSource.empty());
 }
 
 TEST(WorkingDiff, APathWithGlobCharactersDiffsOnlyThatFile) {
@@ -204,23 +276,9 @@ TEST(WorkingDiff, APathWithGlobCharactersDiffsOnlyThatFile) {
     repo.commitAll();
     repo.write("Assets/d.cs", "one\nfrom d\n");
 
-    const auto diff = gity::git::loadWorkingDiff(repo.get(), "Assets/[id].cs",
-                                                 gity::git::DiffSide::Unstaged, {});
+    const auto diff =
+        gity::git::loadWorkingDiff(repo.get(), "Assets/[id].cs", gity::git::DiffSide::Unstaged, {});
     EXPECT_TRUE(diff.hunks.empty()) << "[id].cs is unchanged; d.cs's change leaked in";
-}
-
-TEST(WorkingDiff, UnstagingAPathWithGlobCharactersLeavesItsNeighbours) {
-    Repo repo;
-    repo.write("Assets/[id].cs", "one\n");
-    repo.write("Assets/d.cs", "one\n");
-    repo.commitAll();
-    repo.write("Assets/[id].cs", "two\n");
-    repo.write("Assets/d.cs", "two\n");
-    gity::git::stageFiles(repo.get(), {"Assets/[id].cs", "Assets/d.cs"});
-
-    gity::git::unstageFiles(repo.get(), {"Assets/[id].cs"});
-    EXPECT_FALSE(isStaged(repo.get(), "Assets/[id].cs"));
-    EXPECT_TRUE(isStaged(repo.get(), "Assets/d.cs")) << "unstaging [id].cs unstaged d.cs";
 }
 
 #include "core/git/FileDiff.h"
@@ -258,9 +316,9 @@ TEST(WorkingDiff, ARenamedFileInACommitDiffsAgainstItsOldName) {
     ASSERT_EQ(git_signature_now(&who, "Test", "test@invalid"), 0);
     git_oid commitId{};
     const git_commit* parents[] = {parent};
-    ASSERT_EQ(git_commit_create(&commitId, raw, "HEAD", who, who, nullptr, "rename", tree, 1,
-                                parents),
-              0);
+    ASSERT_EQ(
+        git_commit_create(&commitId, raw, "HEAD", who, who, nullptr, "rename", tree, 1, parents),
+        0);
     git_signature_free(who);
     git_commit_free(parent);
     git_tree_free(tree);
@@ -270,6 +328,10 @@ TEST(WorkingDiff, ARenamedFileInACommitDiffsAgainstItsOldName) {
     EXPECT_EQ(diff.oldPath, "Assets/Old.cs");
     EXPECT_EQ(diff.additions(), 1u) << "only the added line, not the whole file";
     EXPECT_EQ(diff.deletions(), 0u);
+    // Each side whole, from the commit and its parent, under its own name.
+    ASSERT_TRUE(diff.hasSources);
+    EXPECT_EQ(diff.oldSource, body);
+    EXPECT_EQ(diff.newSource, body + "line six\n");
 }
 
 #include "core/git/Compare.h"
@@ -298,8 +360,7 @@ git_oid commitIndex(git_repository* repo, const char* ref, const std::vector<git
     git_signature* who = nullptr;
     EXPECT_EQ(git_signature_now(&who, "Test", "test@invalid"), 0);
     git_oid id{};
-    EXPECT_EQ(git_commit_create(&id, repo, ref, who, who, nullptr, message, tree,
-                                parents.size(),
+    EXPECT_EQ(git_commit_create(&id, repo, ref, who, who, nullptr, message, tree, parents.size(),
                                 const_cast<const git_commit**>(parents.data())),
               0);
     git_signature_free(who);
@@ -341,3 +402,195 @@ TEST(Compare, TwoBranchesDifferByTheirTipsAndTheirOwnCommits) {
     EXPECT_EQ(diff.deletions(), 1u);
     EXPECT_EQ(diff.additions(), 0u);
 }
+
+// Partial patches built from real diffs and applied to the index, the way
+// `git apply --cached` applies them. The hand-built cases in test_staging.cpp
+// pin the text; these pin that the text is a patch git accepts, and that it
+// does what was selected — most of all at the end of a file without a
+// newline, where the "\ No newline at end of file" lines decide the result.
+
+namespace {
+
+constexpr const char* kAbsent = "<absent>";
+
+/// What the index holds for `path` after `patch` is applied to it: nullopt
+/// when the patch does not apply, kAbsent when it took the file out.
+std::optional<std::string> indexAfterApplying(git_repository* repo, const std::string& patch,
+                                              const std::string& path) {
+    git_diff* diff = nullptr;
+    if (git_diff_from_buffer(&diff, patch.data(), patch.size()) != 0) {
+        return std::nullopt;
+    }
+    const int rc = git_apply(repo, diff, GIT_APPLY_LOCATION_INDEX, nullptr);
+    git_diff_free(diff);
+    if (rc != 0) {
+        return std::nullopt;
+    }
+    git_index* index = nullptr;
+    EXPECT_EQ(git_repository_index(&index, repo), 0);
+    EXPECT_EQ(git_index_read(index, 0), 0);
+    std::string contents = kAbsent;
+    if (const git_index_entry* entry = git_index_get_bypath(index, path.c_str(), 0);
+        entry != nullptr) {
+        git_blob* blob = nullptr;
+        EXPECT_EQ(git_blob_lookup(&blob, repo, &entry->id), 0);
+        const auto size = static_cast<std::size_t>(git_blob_rawsize(blob));
+        contents.assign(static_cast<const char*>(git_blob_rawcontent(blob)), size);
+        git_blob_free(blob);
+    }
+    git_index_free(index);
+    return contents;
+}
+
+/// Stages `path` as it is on disk.
+void stage(git_repository* repo, const char* path) {
+    git_index* index = nullptr;
+    ASSERT_EQ(git_repository_index(&index, repo), 0);
+    ASSERT_EQ(git_index_add_bypath(index, path), 0);
+    ASSERT_EQ(git_index_write(index), 0);
+    git_index_free(index);
+}
+
+/// The index of the first line of `kind`.
+std::uint32_t firstOf(const gity::git::FileDiff& diff, gity::git::DiffLineKind kind) {
+    for (std::uint32_t i = 0; i < diff.lines.size(); ++i) {
+        if (diff.lines[i].kind == kind) {
+            return i;
+        }
+    }
+    ADD_FAILURE() << "no line of that kind";
+    return 0;
+}
+
+constexpr const char* kFile = "Assets/Player.cs";
+
+} // namespace
+
+TEST(PartialPatch, AHunkEndingInContextWithoutANewlineStages) {
+    // Both versions end without a newline and the last line is context, so
+    // the marker follows a context line. It was read as a context line of its
+    // own, and the patch then expected a line the file does not have.
+    Repo repo;
+    repo.write(kFile, "1\n2\n3\n4\n5");
+    repo.commitAll();
+    repo.write(kFile, "1\n2\nX\n4\n5");
+
+    const auto diff =
+        gity::git::loadWorkingDiff(repo.get(), kFile, gity::git::DiffSide::Unstaged, {});
+    ASSERT_EQ(diff.hunks.size(), 1u);
+    EXPECT_EQ(diff.lines.back().kind, gity::git::DiffLineKind::NoNewlineMarker);
+    const std::string patch =
+        gity::git::buildPartialPatch(diff, gity::git::linesOfHunk(diff, 0), false);
+    EXPECT_EQ(indexAfterApplying(repo.get(), patch, kFile), "1\n2\nX\n4\n5") << patch;
+}
+
+TEST(PartialPatch, StagingOnlyANewLastLineKeepsTheOldOneAndGivesItANewline) {
+    // The unselected deletion of "last" stays as context, followed by the
+    // added line: "last" is no longer the end of the file, so it cannot keep
+    // its "no newline" marker where it was.
+    Repo repo;
+    repo.write(kFile, "1\n2\nlast");
+    repo.commitAll();
+    repo.write(kFile, "1\n2\nnew last");
+
+    const auto diff =
+        gity::git::loadWorkingDiff(repo.get(), kFile, gity::git::DiffSide::Unstaged, {});
+    const std::string patch = gity::git::buildPartialPatch(
+        diff, {firstOf(diff, gity::git::DiffLineKind::Addition)}, false);
+    EXPECT_EQ(indexAfterApplying(repo.get(), patch, kFile), "1\n2\nlast\nnew last") << patch;
+}
+
+TEST(PartialPatch, StagingOnlyTheRemovalOfALastLineLeavesANewlineBefore) {
+    Repo repo;
+    repo.write(kFile, "1\n2\nlast");
+    repo.commitAll();
+    repo.write(kFile, "1\n2\nnew last");
+
+    const auto diff =
+        gity::git::loadWorkingDiff(repo.get(), kFile, gity::git::DiffSide::Unstaged, {});
+    const std::string patch = gity::git::buildPartialPatch(
+        diff, {firstOf(diff, gity::git::DiffLineKind::Deletion)}, false);
+    EXPECT_EQ(indexAfterApplying(repo.get(), patch, kFile), "1\n2\n") << patch;
+}
+
+TEST(PartialPatch, UnstagingPartOfAChangedLastLine) {
+    // The reverse direction: the patch applies to the index and puts back
+    // only what was selected.
+    for (const auto kind : {gity::git::DiffLineKind::Deletion, gity::git::DiffLineKind::Addition}) {
+        Repo repo;
+        repo.write(kFile, "1\n2\nlast");
+        repo.commitAll();
+        repo.write(kFile, "1\n2\nnew last");
+        stage(repo.get(), kFile);
+
+        const auto diff =
+            gity::git::loadWorkingDiff(repo.get(), kFile, gity::git::DiffSide::Staged, {});
+        const std::string patch = gity::git::buildPartialPatch(diff, {firstOf(diff, kind)}, true);
+        // Unstaging the removal of "last" brings it back before the new line;
+        // unstaging the new line leaves the removal staged.
+        const char* expected =
+            kind == gity::git::DiffLineKind::Deletion ? "1\n2\nlast\nnew last" : "1\n2\n";
+        EXPECT_EQ(indexAfterApplying(repo.get(), patch, kFile), expected) << patch;
+    }
+}
+
+TEST(PartialPatch, StagingEveryLineOfADeletedFileStagesTheDeletion) {
+    // Without "deleted file mode" and "+++ /dev/null" git empties the file
+    // in the index rather than removing it.
+    Repo repo;
+    repo.write(kFile, "a\nb\n");
+    repo.write("Assets/Other.cs", "other\n");
+    repo.commitAll();
+    fs::remove(fs::path(git_repository_workdir(repo.get())) / kFile);
+
+    const auto diff =
+        gity::git::loadWorkingDiff(repo.get(), kFile, gity::git::DiffSide::Unstaged, {});
+    const std::string all =
+        gity::git::buildPartialPatch(diff, gity::git::linesOfHunk(diff, 0), false);
+    EXPECT_NE(all.find("deleted file mode 100644\n--- a/Assets/Player.cs\n+++ /dev/null\n"),
+              std::string::npos)
+        << all;
+
+    // Some of the lines are only an edit.
+    const std::string some = gity::git::buildPartialPatch(diff, {0}, false);
+    EXPECT_EQ(some.find("deleted file mode"), std::string::npos) << some;
+    EXPECT_EQ(indexAfterApplying(repo.get(), all, kFile), kAbsent) << all;
+}
+
+TEST(PartialPatch, UnstagingEveryLineOfAnAddedFileTakesItOutOfTheIndex) {
+    Repo repo;
+    repo.write("Assets/Other.cs", "other\n");
+    repo.commitAll();
+    repo.write(kFile, "a\nb\n");
+    stage(repo.get(), kFile);
+
+    const auto diff =
+        gity::git::loadWorkingDiff(repo.get(), kFile, gity::git::DiffSide::Staged, {});
+    const std::string patch =
+        gity::git::buildPartialPatch(diff, gity::git::linesOfHunk(diff, 0), true);
+    EXPECT_EQ(indexAfterApplying(repo.get(), patch, kFile), kAbsent) << patch;
+}
+
+#ifndef _WIN32
+TEST(PartialPatch, APathGitHasToQuoteStages) {
+    // A tab ends an unquoted name in a patch header, and a newline ends the
+    // line. git quotes such names in C style, and reads them back the same.
+    // Not on Windows, which allows neither character in a file name.
+    Repo repo;
+    const std::string path = "Assets/tab\there \"quoted\" back\\slash.cs";
+    repo.write(path, "one\n");
+    repo.commitAll();
+    repo.write(path, "one\ntwo\n");
+
+    const auto diff =
+        gity::git::loadWorkingDiff(repo.get(), path, gity::git::DiffSide::Unstaged, {});
+    ASSERT_EQ(diff.hunks.size(), 1u);
+    const std::string patch =
+        gity::git::buildPartialPatch(diff, gity::git::linesOfHunk(diff, 0), false);
+    EXPECT_NE(patch.find("diff --git \"a/Assets/tab\\there \\\"quoted\\\" back\\\\slash.cs\" "
+                         "\"b/Assets/tab\\there \\\"quoted\\\" back\\\\slash.cs\"\n"),
+              std::string::npos)
+        << patch;
+    EXPECT_EQ(indexAfterApplying(repo.get(), patch, path), "one\ntwo\n") << patch;
+}
+#endif

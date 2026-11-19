@@ -1,9 +1,11 @@
 #include "GitProcess.h"
 
+#include "core/git/RemoteUrl.h"
+
 #include <QCoreApplication>
-#include <QFileInfo>
 #include <QDateTime>
 #include <QElapsedTimer>
+#include <QFileInfo>
 #include <QMutex>
 #include <QProcess>
 #include <QProcessEnvironment>
@@ -32,8 +34,10 @@ QString askpassHelperPath() {
     const QString name = QStringLiteral("gity-askpass");
 #endif
 
-    // Beside the binary in a build tree and in a Linux install; inside the
-    // bundle on macOS, where the app itself sits in Contents/MacOS.
+    // Beside the binary: in a build tree, a Linux install and an AppImage
+    // (usr/bin), on Windows, and inside the bundle on macOS, where the app
+    // itself sits in Contents/MacOS and the build copies the helper beside
+    // it. The second spelling is for a bundle laid out by hand.
     const QStringList candidates{directory + QChar('/') + name,
                                  directory + QStringLiteral("/../askpass/") + name};
     for (const QString& candidate : candidates) {
@@ -85,6 +89,8 @@ QProcessEnvironment gitEnvironment() {
     return env;
 }
 
+QString redact(const QString& text);
+
 /// Drains stderr into `buffer` and hands each complete line to `onProgress`.
 /// git separates progress updates with \r, not \n, so waiting for newlines
 /// would deliver the whole transfer as one line after it had finished.
@@ -97,7 +103,7 @@ void drainProgress(QByteArray& buffer, const QByteArray& chunk,
         if (c != '\n' && c != '\r') {
             continue;
         }
-        const QString line = QString::fromUtf8(buffer.mid(start, i - start)).trimmed();
+        const QString line = redact(QString::fromUtf8(buffer.mid(start, i - start)).trimmed());
         if (!line.isEmpty()) {
             onProgress(line);
         }
@@ -197,17 +203,21 @@ GitResult executeUnlogged(const Request& request) {
             drainProgress(pending, chunk, *request.onProgress);
         }
 
-        if (t_abort != nullptr && t_abort->load(std::memory_order_relaxed)) {
+        // Only network commands are stopped: they can be retried, and a fetch
+        // or push left half way changes nothing that matters. A commit, a
+        // rebase or a checkout stopped half way leaves the repository in a
+        // state nobody chose, so those always run to the end.
+        if (request.onProgress != nullptr && t_abort != nullptr &&
+            t_abort->load(std::memory_order_relaxed)) {
             stop(process);
-            result.errorOutput = QStringLiteral("git was stopped because the repository closed");
+            result.errorOutput = QStringLiteral("git was stopped before it finished");
             result.timedOut = true;
             return result;
         }
         if (timer.elapsed() > request.timeoutMs) {
             result.timedOut = true;
             stop(process);
-            result.errorOutput =
-                QStringLiteral("git timed out after %1 ms").arg(request.timeoutMs);
+            result.errorOutput = QStringLiteral("git timed out after %1 ms").arg(request.timeoutMs);
             return result;
         }
     }
@@ -220,7 +230,11 @@ GitResult executeUnlogged(const Request& request) {
     // killed process reports 0.
     result.exitCode = process.exitStatus() == QProcess::NormalExit ? process.exitCode() : -1;
     result.output = QString::fromUtf8(standardOutput);
-    result.errorOutput = QString::fromUtf8(standardError);
+    // stderr is only ever shown, never parsed for a URL, so it is masked
+    // here, once, for every place it might end up: an error dialog, the
+    // status bar, the command log. stdout is left alone — `remote -v` and
+    // `config` are read for the URLs themselves.
+    result.errorOutput = redact(QString::fromUtf8(standardError));
     return result;
 }
 
@@ -229,13 +243,14 @@ QMutex g_sinkMutex;
 GitProcess::LogSink g_sink;
 thread_local int t_internalDepth = 0;
 
-/// A password in a URL argument is replaced before the command is shown to
-/// anyone: `clone https://me:secret@host/...` must not reach the log.
-QString redact(const QString& argument) {
-    static const QRegularExpression userinfo(QStringLiteral("(://[^/:@\\s]+):[^@/\\s]+@"));
-    QString shown = argument;
-    shown.replace(userinfo, QStringLiteral("\\1:***@"));
-    return shown;
+/// A secret in a URL is replaced before the text is shown to anyone:
+/// `clone https://me:secret@host/...` and `clone https://ghp_…@host/...` must
+/// not reach the log, and neither may git's own error message repeating them.
+QString redact(const QString& text) {
+    if (!text.contains(QStringLiteral("://"))) {
+        return text; // the common case, without a round trip through UTF-8
+    }
+    return QString::fromStdString(gity::git::maskUrlCredentials(text.toStdString()));
 }
 
 GitResult execute(const Request& request) {
@@ -244,12 +259,13 @@ GitResult execute(const Request& request) {
     const QDateTime started = QDateTime::currentDateTime();
     GitResult result = executeUnlogged(request);
 
-    GitProcess::LogSink sink;
-    {
-        const QMutexLocker lock(&g_sinkMutex);
-        sink = g_sink;
-    }
-    if (sink) {
+    // Called with the lock held, not with a copy taken under it: whoever
+    // clears the sink — the command log, as it is destroyed at quit — must be
+    // able to rely on it never being called again once setLogSink returns,
+    // while a thread of its own may be finishing a git command right then.
+    // The sink only queues the record, so nothing waits on it for long.
+    const QMutexLocker lock(&g_sinkMutex);
+    if (const GitProcess::LogSink& sink = g_sink; sink) {
         GitProcess::LogRecord record;
         record.started = started;
         record.workdir = request.workdir;
@@ -296,7 +312,7 @@ QString GitResult::firstProblemLine() const {
     for (const QString& line : source.split(QChar('\n'))) {
         const QString trimmed = line.trimmed();
         if (!trimmed.isEmpty()) {
-            return trimmed;
+            return redact(trimmed); // stdout is not masked at the source
         }
     }
     return {};
@@ -367,6 +383,10 @@ QString GitProcess::executable() {
 
 void GitProcess::setThreadAbortFlag(const std::atomic<bool>* flag) {
     t_abort = flag;
+}
+
+bool GitProcess::aborting() noexcept {
+    return t_abort != nullptr && t_abort->load(std::memory_order_relaxed);
 }
 
 GitResult GitProcess::run(const QString& workdir, const QStringList& args, int timeoutMs) {

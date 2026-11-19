@@ -69,6 +69,10 @@ protected:
     void mouseMoveEvent(QMouseEvent* event) override;
     void leaveEvent(QEvent* event) override;
     void keyPressEvent(QKeyEvent* event) override;
+    /// The Menu key and Shift+F10 open the selected commit's menu. They reach
+    /// the scroll area itself, not its viewport, so the filter above never saw
+    /// them and cherry-pick, revert and reset were mouse-only.
+    bool event(QEvent* event) override;
 
 private:
     void updateScrollBars();
@@ -77,7 +81,6 @@ private:
 
     [[nodiscard]] int rowHeight() const;
     [[nodiscard]] int laneX(int lane) const;
-    [[nodiscard]] int graphGutterWidth() const;
     [[nodiscard]] qsizetype rowAt(int viewportY) const;
     /// Scrolls just far enough that `row` is fully visible.
     void scrollToRow(qsizetype row);

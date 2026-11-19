@@ -49,8 +49,8 @@ Comparison loadComparison(git_repository* repo, const git_oid& from, const git_o
 
     const TreeHandle fromTree = treeOf(repo, from);
     const TreeHandle toTree = treeOf(repo, to);
-    out.files = listChangedFiles(repo, fromTree.get(), toTree.get(), options.files,
-                                 &out.filesTruncated);
+    out.files =
+        listChangedFiles(repo, fromTree.get(), toTree.get(), options.files, &out.filesTruncated);
 
     out.hasMergeBase = git_merge_base(&out.mergeBase, repo, &from, &to) == 0;
     out.onlyInTo = walkOnlyIn(repo, to, from, options.maxCommits, out.onlyInToCommits);

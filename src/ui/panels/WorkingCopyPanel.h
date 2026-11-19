@@ -6,7 +6,7 @@
 //
 #pragma once
 
-#include "session/RepoSession.h"
+#include "session/SessionTypes.h"
 
 #include <QWidget>
 
@@ -60,13 +60,21 @@ signals:
     void unstageRequested(const QStringList& paths);
     void diffRequested(const QString& path, bool staged);
     void commitRequested(const QString& message, bool amend);
-    void applyPatchRequested(const QString& patchText);
-    void discardHunkRequested(const QString& patchText);
+    void applyPatchRequested(const QByteArray& patch);
+    void discardHunkRequested(const QByteArray& patch);
     void discardRequested(const QStringList& paths);
     /// Stash just these files, leaving the rest of the working copy alone.
     void stashRequested(const QStringList& paths);
     void lockRequested(const QString& path);
     void unlockRequested(const QString& path, bool force);
+    /// The commits that changed `path`.
+    void historyRequested(const QString& path);
+    /// Who last changed each line of `path` as it is on disk now.
+    void blameRequested(const QString& path);
+    /// Open the conflict editor on `path`.
+    void resolveRequested(const QString& path);
+    /// Resolve `path` with one side's whole version.
+    void takeSideRequested(const QString& path, bool ours);
 
 private:
     void showRowMenu(QTreeWidget* list, const QPoint& where);

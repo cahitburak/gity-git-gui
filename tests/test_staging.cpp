@@ -1,9 +1,10 @@
 // M2 — partial-patch synthesis.
 //
-// libgit2 can apply a patch to the index but has no notion of "these lines
-// only", so a selection has to become a patch first. That transformation is
-// the same one `git add -p` performs, and getting it wrong corrupts the index
-// silently rather than failing loudly — so it is pinned here in detail.
+// git applies patches, not line selections, so a selection has to become a
+// patch first. That transformation is the same one `git add -p` performs, and
+// getting it wrong corrupts the index or fails to apply — so it is pinned here
+// in detail. Applying the result is tested against real repositories in
+// tests/session/test_index_writes.cpp.
 
 #include "core/git/Staging.h"
 
@@ -170,15 +171,77 @@ TEST(Staging, ReversalInvertsBodyAndHeader) {
     EXPECT_EQ(countLinesStartingWith(forward, '-'), countLinesStartingWith(reversed, '+'));
 }
 
-TEST(Staging, ReversedHunkHeaderSwapsSides) {
+TEST(Staging, ReversedHunkStartsAtTheNewSide) {
     const FileDiff diff = makeDiff(10, 20,
                                    {
                                        {DiffLineKind::Context, "ctx", 10, 20},
                                        {DiffLineKind::Addition, "added", 0, 21},
                                    });
     const std::string reversed = buildPartialPatch(diff, linesOfHunk(diff, 0), true);
-    // Forward is "@@ -10,1 +20,2 @@", so reversed must be "@@ -20,2 +10,1 @@".
-    EXPECT_NE(reversed.find("@@ -20,2 +10,1 @@"), std::string::npos) << reversed;
+    // Forward is "@@ -10,1 +20,2 @@". Reversed, the patch applies to the new
+    // side, so it starts where that side's lines are: line 20, two lines long.
+    EXPECT_NE(reversed.find("@@ -20,2 +20,1 @@"), std::string::npos) << reversed;
+}
+
+TEST(Staging, ReversingPartOfAHunkKeepsUnselectedAdditionsAsContext) {
+    // Unstaging one of two staged additions: the other is still in the index,
+    // so the patch has to expect it there.
+    const FileDiff diff = makeDiff(1, 1,
+                                   {
+                                       {DiffLineKind::Context, "a", 1, 1},
+                                       {DiffLineKind::Addition, "b", 0, 2},
+                                       {DiffLineKind::Addition, "c", 0, 3},
+                                       {DiffLineKind::Context, "d", 2, 4},
+                                   });
+    const std::string patch = buildPartialPatch(diff, {1}, true);
+    EXPECT_NE(patch.find("@@ -1,4 +1,3 @@\n a\n-b\n c\n d\n"), std::string::npos) << patch;
+}
+
+TEST(Staging, ReversingPartOfAHunkDropsUnselectedDeletions) {
+    // An unselected deletion is already gone from the target.
+    const FileDiff diff = makeDiff(1, 1,
+                                   {
+                                       {DiffLineKind::Context, "a", 1, 1},
+                                       {DiffLineKind::Deletion, "b", 2, 0},
+                                       {DiffLineKind::Deletion, "c", 3, 0},
+                                       {DiffLineKind::Context, "d", 4, 2},
+                                   });
+    const std::string patch = buildPartialPatch(diff, {2}, true);
+    EXPECT_NE(patch.find("@@ -1,2 +1,3 @@\n a\n+c\n d\n"), std::string::npos) << patch;
+}
+
+TEST(Staging, CarriageReturnsArePutBack) {
+    FileDiff diff = simpleDiff();
+    for (auto& line : diff.lines) {
+        line.carriageReturn = true;
+    }
+    const std::string patch = buildPartialPatch(diff, linesOfHunk(diff, 0), false);
+    EXPECT_NE(patch.find(" keep before\r\n-old line\r\n+new line\r\n"), std::string::npos) << patch;
+}
+
+TEST(Staging, APatchCreatingTheFileSaysSo) {
+    FileDiff diff = makeDiff(0, 1,
+                             {
+                                 {DiffLineKind::Addition, "one", 0, 1},
+                                 {DiffLineKind::Addition, "two", 0, 2},
+                             });
+    diff.newMode = 0100755;
+    const std::string patch = buildPartialPatch(diff, {0}, false);
+    EXPECT_NE(patch.find("new file mode 100755\n--- /dev/null\n+++ b/Assets/Player.cs\n"),
+              std::string::npos)
+        << patch;
+    EXPECT_NE(patch.find("@@ -0,0 +1,1 @@\n+one\n"), std::string::npos) << patch;
+}
+
+TEST(Staging, ADeletedLineLookingLikeAHeaderSurvivesReversal) {
+    const FileDiff diff = makeDiff(1, 1,
+                                   {
+                                       {DiffLineKind::Context, "select 1;", 1, 1},
+                                       {DiffLineKind::Deletion, "-- comment", 2, 0},
+                                       {DiffLineKind::Context, "select 2;", 3, 2},
+                                   });
+    const std::string patch = buildPartialPatch(diff, linesOfHunk(diff, 0), true);
+    EXPECT_NE(patch.find("\n+-- comment\n"), std::string::npos) << patch;
 }
 
 TEST(Staging, ContextIsPreservedInBothDirections) {
@@ -196,14 +259,35 @@ TEST(Staging, EmptyDiffProducesNoPatch) {
     EXPECT_TRUE(buildPartialPatch(empty, {}, false).empty());
 }
 
-TEST(Staging, RenameUsesTheOldPathOnTheOldSide) {
+TEST(Staging, ANameGitWouldQuoteIsQuoted) {
+    // Unquoted, the tab would end the name in the header. The name is quoted
+    // whole, prefix included, as git writes it.
+    FileDiff diff = simpleDiff();
+    diff.path = "dir/a\tb\x01.cs";
+    const std::string patch = buildPartialPatch(diff, linesOfHunk(diff, 0), false);
+    EXPECT_NE(patch.find("diff --git \"a/dir/a\\tb\\001.cs\" \"b/dir/a\\tb\\001.cs\"\n"
+                         "--- \"a/dir/a\\tb\\001.cs\"\n+++ \"b/dir/a\\tb\\001.cs\"\n"),
+              std::string::npos)
+        << patch;
+
+    // Spaces and non-ASCII names need nothing.
+    diff.path = "dir/caf\xC3\xA9 menu.cs";
+    EXPECT_NE(buildPartialPatch(diff, linesOfHunk(diff, 0), false)
+                  .find("diff --git a/dir/caf\xC3\xA9 menu.cs b/dir/caf\xC3\xA9 menu.cs\n"),
+              std::string::npos);
+}
+
+TEST(Staging, BothSidesNameTheCurrentPath) {
+    // A staged rename already sits at the new path in the index. Naming the
+    // old path on one side would turn a partial patch into a rename of its
+    // own.
     FileDiff diff = simpleDiff();
     diff.oldPath = "Assets/Old.cs";
 
     const std::string patch = buildPartialPatch(diff, linesOfHunk(diff, 0), false);
-    EXPECT_NE(patch.find("diff --git a/Assets/Old.cs b/Assets/Player.cs"), std::string::npos)
+    EXPECT_NE(patch.find("diff --git a/Assets/Player.cs b/Assets/Player.cs"), std::string::npos)
         << patch;
-    EXPECT_NE(patch.find("--- a/Assets/Old.cs"), std::string::npos) << patch;
+    EXPECT_NE(patch.find("--- a/Assets/Player.cs"), std::string::npos) << patch;
     EXPECT_NE(patch.find("+++ b/Assets/Player.cs"), std::string::npos) << patch;
 }
 

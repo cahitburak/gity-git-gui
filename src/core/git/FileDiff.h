@@ -35,6 +35,10 @@ struct DiffLine {
     std::uint32_t newLine = 0;
     std::uint32_t textOffset = 0;
     std::uint32_t textLength = 0;
+    /// The line ended in CR LF. The text is stored without either, so the diff
+    /// view shows no stray glyph — but a patch rebuilt from it must put the CR
+    /// back, or it no longer matches a file committed with CRLF endings.
+    bool carriageReturn = false;
 };
 
 struct DiffHunk {
@@ -52,6 +56,12 @@ struct FileDiff {
     std::string oldPath;
     ChangeStatus status = ChangeStatus::Unknown;
 
+    /// Git file modes of the two sides; 0 where the side does not exist — an
+    /// untracked or added file has no old side, a deleted one no new side. A
+    /// patch that creates or deletes the file has to say so in its header.
+    std::uint32_t oldMode = 0;
+    std::uint32_t newMode = 0;
+
     bool binary = false;
     /// True when the file was skipped for size. A 40 MB generated asset has no
     /// readable textual diff and rendering one helps nobody.
@@ -60,6 +70,14 @@ struct FileDiff {
     std::vector<DiffHunk> hunks;
     std::vector<DiffLine> lines;
     std::string text; ///< Arena; DiffLine offsets index into this.
+
+    /// Both sides whole, for syntax highlighting: a hunk can start inside a
+    /// comment or a string, and only the lines before it say so. Read only
+    /// when `hasSources` — not for a binary or oversized file, or a side git
+    /// could not read — and empty for a side that does not exist.
+    std::string oldSource;
+    std::string newSource;
+    bool hasSources = false;
 
     [[nodiscard]] std::string_view lineText(const DiffLine& line) const noexcept {
         return std::string_view(text).substr(line.textOffset, line.textLength);
@@ -75,12 +93,24 @@ struct FileDiffOptions {
     /// Beyond this the diff is reported as too large rather than rendered.
     std::size_t maxLines = 200000;
     std::uint32_t contextLines = 3;
+    /// Read both sides whole into the FileDiff, for highlighting. Off for a
+    /// diff that is only counted, never shown.
+    bool readSources = true;
 };
+
+/// Past this a side is not read whole: the diff is still shown, highlighted
+/// from its own lines.
+inline constexpr std::size_t kMaxSourceBytes = std::size_t{2} << 20;
+
+/// Fills `out` from a libgit2 patch: status, modes and the binary flag from its
+/// delta, then every hunk and line, stopping at `maxLines`. The one place a
+/// patch becomes a FileDiff, for history and working copy alike. With
+/// `readSources`, both sides are read whole too.
+void readPatch(git_patch* patch, FileDiff& out, std::size_t maxLines, bool readSources = true);
 
 /// Diffs `path` in `commit` against its first parent.
 [[nodiscard]] FileDiff loadFileDiff(git_repository* repo, const git_oid& commitOid,
-                                    const std::string& path,
-                                    const FileDiffOptions& options = {});
+                                    const std::string& path, const FileDiffOptions& options = {});
 
 /// Diffs `path` as it is at `toOid` against how it is at `fromOid` — the
 /// change you would see going from one commit, or branch tip, to the other.

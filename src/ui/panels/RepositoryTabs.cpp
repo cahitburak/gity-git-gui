@@ -1,5 +1,7 @@
 #include "RepositoryTabs.h"
 
+#include "ui/panels/Confirm.h"
+
 #include <QDir>
 #include <QHBoxLayout>
 #include <QTabBar>
@@ -45,17 +47,7 @@ RepositoryTabs::RepositoryTabs(QWidget* parent) : QWidget(parent) {
         if (bar_->count() <= 1 || index < 0 || index >= bar_->count()) {
             return;
         }
-        const bool wasCurrent = index == bar_->currentIndex();
-        // Removing the current tab moves the current index, and that change
-        // is announced below once — not twice, with a path in between.
-        suppress_ = true;
-        bar_->removeTab(index);
-        suppress_ = false;
-        updateClosable();
-        emit tabsChanged();
-        if (wasCurrent) {
-            emit repositoryActivated(pathAt(bar_->currentIndex()));
-        }
+        removeAt(index);
     });
 
     setVisible(false);
@@ -84,23 +76,45 @@ void RepositoryTabs::open(const QString& path, const QString& parentName) {
         return;
     }
 
-    const QString name = QDir(path).dirName();
     QVariantMap record;
     record.insert(kPathKey, canonical(path));
     record.insert(kParentKey, parentName);
 
     suppress_ = true;
-    const int index = bar_->addTab(name);
+    const int index = bar_->addTab(QDir(path).dirName());
     bar_->setTabData(index, record);
-    bar_->setTabToolTip(index, parentName.isEmpty()
-                                   ? QDir::toNativeSeparators(path)
-                                   : tr("%1 — submodule of %2")
-                                         .arg(QDir::toNativeSeparators(path), parentName));
+    describe(index, path, parentName);
     bar_->setCurrentIndex(index);
     suppress_ = false;
 
     updateClosable();
     setVisible(true);
+    emit tabsChanged();
+}
+
+void RepositoryTabs::describe(int index, const QString& path, const QString& parentName) {
+    bar_->setTabText(index, QDir(path).dirName());
+    bar_->setTabToolTip(
+        index,
+        plainToolTip(
+            parentName.isEmpty()
+                ? QDir::toNativeSeparators(path)
+                : tr("%1 — submodule of %2").arg(QDir::toNativeSeparators(path), parentName)));
+}
+
+bool RepositoryTabs::contains(const QString& path) const {
+    return indexOf(path) >= 0;
+}
+
+void RepositoryTabs::rekey(const QString& from, const QString& to) {
+    const int index = indexOf(from);
+    if (index < 0 || to.isEmpty()) {
+        return;
+    }
+    QVariantMap record = bar_->tabData(index).toMap();
+    record.insert(kPathKey, canonical(to));
+    bar_->setTabData(index, record);
+    describe(index, to, record.value(kParentKey).toString());
     emit tabsChanged();
 }
 
@@ -126,6 +140,30 @@ void RepositoryTabs::updateClosable() {
     }
 }
 
+void RepositoryTabs::removeAt(int index) {
+    const bool wasCurrent = index == bar_->currentIndex();
+    const QString closed = pathAt(index);
+    // Removing the current tab moves the current index, and that change is
+    // announced below once — not twice, with a path in between.
+    suppress_ = true;
+    bar_->removeTab(index);
+    suppress_ = false;
+    updateClosable();
+    setVisible(bar_->count() > 0);
+    emit tabsChanged();
+    emit repositoryClosed(closed);
+    if (wasCurrent && bar_->count() > 0) {
+        emit repositoryActivated(pathAt(bar_->currentIndex()));
+    }
+}
+
+void RepositoryTabs::close(const QString& path) {
+    const int index = indexOf(path);
+    if (index >= 0) {
+        removeAt(index);
+    }
+}
+
 QString RepositoryTabs::currentPath() const {
     return pathAt(bar_->currentIndex());
 }
@@ -137,6 +175,14 @@ QString RepositoryTabs::currentParentName() const {
 
 int RepositoryTabs::count() const {
     return bar_->count();
+}
+
+QStringList RepositoryTabs::paths() const {
+    QStringList all;
+    for (int i = 0; i < bar_->count(); ++i) {
+        all << pathAt(i);
+    }
+    return all;
 }
 
 QVariantList RepositoryTabs::state() const {

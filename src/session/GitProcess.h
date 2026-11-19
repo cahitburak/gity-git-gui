@@ -20,10 +20,10 @@
 #include <QByteArray>
 #include <QDateTime>
 
-#include <atomic>
-#include <functional>
 #include <QString>
 #include <QStringList>
+#include <atomic>
+#include <functional>
 
 namespace gity::session {
 
@@ -101,17 +101,20 @@ public:
     /// Both: input on stdin and extra environment. `git credential` needs it,
     /// since a secret must not go through a command line and a lookup must
     /// not be allowed to prompt.
-    [[nodiscard]] static GitResult runWithInputAndEnv(const QString& workdir,
-                                                      const QStringList& args,
-                                                      const QByteArray& input,
-                                                      const QList<EnvOverride>& overrides,
-                                                      int timeoutMs = 120000);
+    [[nodiscard]] static GitResult
+    runWithInputAndEnv(const QString& workdir, const QStringList& args, const QByteArray& input,
+                       const QList<EnvOverride>& overrides, int timeoutMs = 120000);
 
-    /// Makes every invocation on the calling thread stop early once `flag`
-    /// is set. A session worker registers its shutdown flag here, so closing
-    /// a repository does not block the window until a ten-minute fetch or an
-    /// hour-long clone finishes on its own. Null removes it.
+    /// Makes network invocations on the calling thread — runStreaming and
+    /// runInParent — stop early once `flag` is set. A session worker
+    /// registers its flag here, so Cancel, or closing a repository, does not
+    /// wait for a ten-minute fetch or an hour-long clone. Local commands are
+    /// never stopped half way. Null removes it.
     static void setThreadAbortFlag(const std::atomic<bool>* flag);
+
+    /// The calling thread's abort flag is set: network commands it starts
+    /// now will be stopped.
+    [[nodiscard]] static bool aborting() noexcept;
 
     /// One finished git invocation, for the command log. Never carries stdin
     /// — a commit message or a credential — and passwords in URL arguments
@@ -128,9 +131,12 @@ public:
         bool internal = false;
         QString errorOutput;
     };
+
     using LogSink = std::function<void(const LogRecord&)>;
 
-    /// Receives every invocation, on whichever thread ran it.
+    /// Receives every invocation, on whichever thread ran it. Replacing or
+    /// clearing it waits for a call already in progress, so once this returns
+    /// the old sink is not called again. The sink must not run git itself.
     static void setLogSink(LogSink sink);
 
     /// While one of these lives on a thread, that thread's invocations are

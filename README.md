@@ -71,6 +71,11 @@ you find, with that in mind.
   discard — and bring submodules along.
 * Merge, cherry-pick, revert, reset, stash, and plain and interactive rebase — with reword, squash,
   fixup, drop, and stop-to-edit in Local Changes.
+* **A conflict editor** — ours, theirs and the result in three columns with the result in the
+  middle, or in two with the result below; take a side or both for each conflict, or edit the
+  result in place.
+* **Syntax highlighting** in diffs, blame and the conflict editor, where KSyntaxHighlighting is
+  installed.
 
 **Working with remotes**
 
@@ -137,12 +142,12 @@ changes underneath.
 ## Building
 
 You need CMake 3.24 or later, Ninja, a C++20 compiler, Qt 6.8 or later, libgit2 1.7 or later, and
-GoogleTest. At run time Gity uses the `git` on your system, 2.30 or later (2.38 or later for merge
-previews).
+GoogleTest. KDE's KSyntaxHighlighting is optional: with it, code is coloured. At run time Gity uses
+the `git` on your system, 2.30 or later (2.38 or later for merge previews).
 
 | Platform | Dependencies |
 |---|---|
-| Linux | `qt6-base-dev libgit2-dev libgtest-dev ninja-build` — or Qt from the official installer if your distribution's is older than 6.8 |
+| Linux | `qt6-base-dev libgit2-dev libgtest-dev ninja-build`, and `libkf6syntaxhighlighting-dev` for colours — or Qt from the official installer if your distribution's is older than 6.8. On Arch: `qt6-base libgit2 gtest ninja syntax-highlighting` |
 | macOS | `brew install ninja qt@6 libgit2 googletest` |
 | Windows | Qt from the official installer; libgit2 and GoogleTest from vcpkg |
 

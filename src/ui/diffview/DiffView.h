@@ -11,7 +11,8 @@
 #pragma once
 
 #include "core/git/Staging.h"
-#include "session/RepoSession.h"
+#include "session/SessionTypes.h"
+#include "ui/highlight/SyntaxHighlight.h"
 
 #include <QAbstractScrollArea>
 
@@ -47,7 +48,9 @@ public:
     void setShowingStaged(bool staged);
 
     [[nodiscard]] const git::FileDiff* diff() const noexcept { return diff_.get(); }
+
     [[nodiscard]] const git::LineSelection& selection() const noexcept { return selection_; }
+
     void clearSelection();
 
 signals:
@@ -62,6 +65,7 @@ signals:
     void stageSelectionRequested();
 
 protected:
+    void changeEvent(QEvent* event) override;
     void focusInEvent(QFocusEvent* event) override;
     void focusOutEvent(QFocusEvent* event) override;
     void paintFocus(QPainter& painter) const;
@@ -86,6 +90,10 @@ private:
     [[nodiscard]] int rowHeight() const;
     [[nodiscard]] int gutterWidth() const;
     [[nodiscard]] QFont monoFont() const;
+    /// Built once, not per call: rowHeight and paintRow ask for it many times
+    /// a paint, and each build is a font database lookup.
+    mutable QFont monoFont_;
+    mutable bool monoFontValid_ = false;
 
     FileDiffPtr diff_;
     /// Per-hunk staged counts. Distinct from `staging_`, which is the *mode*
@@ -113,8 +121,20 @@ private:
         QRect stage;
         QRect discard;
     };
+
     mutable std::vector<HunkButtons> hunkButtons_;
-    int longestLine_ = 0; ///< In characters, for the horizontal range.
+    int longestLine_ = 0; ///< In columns, tabs expanded, for the horizontal range.
+
+    /// Colours each line from the side it belongs to: a deletion from the
+    /// old file, everything else from the new. Done on the first paint of a
+    /// diff, and again when the theme's colours change.
+    void highlight();
+    FileSpansPtr oldSpans_;
+    FileSpansPtr newSpans_;
+    /// Per diff line, its spans; null where there are none.
+    std::vector<const LineSpans*> lineSpans_;
+    QString spansKey_;
+    bool spansReady_ = false;
 };
 
 } // namespace gity::ui

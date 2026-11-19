@@ -9,11 +9,11 @@
 using namespace gity::git;
 
 TEST(ParseDeviceCode, TheJsonForm) {
-    const DeviceCode code = parseDeviceCode(
-        R"({"device_code":"3584d83530557fdd1f46af8289938c8ef79f9dc5",)"
-        R"("user_code":"WDJB-MJHT",)"
-        R"("verification_uri":"https://github.com/login/device",)"
-        R"("expires_in":900,"interval":5})");
+    const DeviceCode code =
+        parseDeviceCode(R"({"device_code":"3584d83530557fdd1f46af8289938c8ef79f9dc5",)"
+                        R"("user_code":"WDJB-MJHT",)"
+                        R"("verification_uri":"https://github.com/login/device",)"
+                        R"("expires_in":900,"interval":5})");
     EXPECT_TRUE(code.valid());
     EXPECT_EQ(code.deviceCode, "3584d83530557fdd1f46af8289938c8ef79f9dc5");
     EXPECT_EQ(code.userCode, "WDJB-MJHT");
@@ -55,8 +55,8 @@ TEST(ParseDeviceCode, AnErrorResponseIsNotAValidCode) {
 }
 
 TEST(ParsePollResponse, PendingWhileTheUserIsStillApproving) {
-    const PollResult result = parsePollResponse(
-        R"({"error":"authorization_pending","error_description":"pending"})");
+    const PollResult result =
+        parsePollResponse(R"({"error":"authorization_pending","error_description":"pending"})");
     EXPECT_EQ(result.state, PollState::Pending);
     EXPECT_TRUE(result.accessToken.empty());
 }
@@ -74,9 +74,9 @@ TEST(ParsePollResponse, DeniedAndExpiredAreToldApart) {
 }
 
 TEST(ParsePollResponse, AGrantCarriesTheToken) {
-    const PollResult result = parsePollResponse(
-        R"({"access_token":"gho_exampleNotARealToken0000000000000000",)"
-        R"("token_type":"bearer","scope":"repo"})");
+    const PollResult result =
+        parsePollResponse(R"({"access_token":"gho_exampleNotARealToken0000000000000000",)"
+                          R"("token_type":"bearer","scope":"repo"})");
     EXPECT_EQ(result.state, PollState::Granted);
     EXPECT_EQ(result.accessToken, "gho_exampleNotARealToken0000000000000000");
 }
@@ -129,4 +129,69 @@ TEST(ParseDeviceCode, AnAbsurdIntervalIsClamped) {
                               R"("verification_uri":"c","interval":-5})")
                   .intervalSeconds,
               1);
+}
+
+TEST(ParseDeviceCode, FormValuesArePercentDecoded) {
+    // As a form reply really encodes it: the URL's colon and slashes escaped.
+    const DeviceCode code = parseDeviceCode(
+        "device_code=3584d835&user_code=WDJB-MJHT"
+        "&verification_uri=https%3A%2F%2Fgithub.com%2Flogin%2Fdevice&expires_in=900&interval=5");
+    EXPECT_EQ(code.verificationUrl, "https://github.com/login/device");
+}
+
+TEST(ParseDeviceCode, JsonEscapesAreDecoded) {
+    const DeviceCode code = parseDeviceCode(
+        R"({"device_code":"a","user_code":"b",)"
+        R"("verification_uri":"https:\/\/gitlab.example\/oauth\/device","expires_in":900})");
+    EXPECT_EQ(code.verificationUrl, "https://gitlab.example/oauth/device");
+}
+
+TEST(ParsePollResponse, ANullTokenIsNoToken) {
+    // Read naively, null is the four letters "null" — which would be stored
+    // as the token.
+    const PollResult result =
+        parsePollResponse(R"({"access_token":null,"error":"authorization_pending"})");
+    EXPECT_NE(result.state, PollState::Granted);
+    EXPECT_TRUE(result.accessToken.empty());
+}
+
+TEST(ParsePollResponse, TheKeyInsideAnotherValueIsNotTheToken) {
+    // Searching the text for "access_token" found it as a string value, and
+    // the value after the next colon became the token; a URL in a description
+    // holding ?access_token= was read as a form-encoded grant.
+    PollResult result =
+        parsePollResponse(R"({"error":"bad_verification_code","error_description":"access_token",)"
+                          R"("error_uri":"https://docs.example/device"})");
+    EXPECT_EQ(result.state, PollState::Failed);
+    EXPECT_TRUE(result.accessToken.empty());
+
+    result =
+        parsePollResponse(R"({"error":"incorrect_client_credentials",)"
+                          R"("error_description":"see https://docs.example/?access_token=xyz"})");
+    EXPECT_EQ(result.state, PollState::Failed);
+    EXPECT_TRUE(result.accessToken.empty());
+
+    // Nor a member of a nested object.
+    result = parsePollResponse(
+        R"({"error":"authorization_pending","detail":{"access_token":"nested"}})");
+    EXPECT_EQ(result.state, PollState::Pending);
+    EXPECT_TRUE(result.accessToken.empty());
+}
+
+TEST(ParsePollResponse, ATokenThatIsNotAStringIsNoToken) {
+    auto result = parsePollResponse(R"({"access_token":false,"error":"authorization_pending"})");
+    EXPECT_EQ(result.state, PollState::Pending);
+    EXPECT_TRUE(result.accessToken.empty());
+    result = parsePollResponse(R"({"access_token":12345,"error":"slow_down"})");
+    EXPECT_EQ(result.state, PollState::SlowDown);
+    EXPECT_TRUE(result.accessToken.empty());
+}
+
+TEST(ParseDeviceCode, UnicodeEscapesAreDecoded) {
+    // \u0026 is how some encoders write '&'; it was read as the letters u0026.
+    const DeviceCode code = parseDeviceCode(
+        R"({"device_code":"a","user_code":"b",)"
+        R"("verification_uri":"https://host/device?a=1\u0026b=2","expires_in":900})");
+    EXPECT_EQ(code.verificationUrl, "https://host/device?a=1&b=2");
+    EXPECT_EQ(code.expiresInSeconds, 900);
 }
