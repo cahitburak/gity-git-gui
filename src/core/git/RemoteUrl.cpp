@@ -161,6 +161,51 @@ bool looksLikeToken(std::string_view user) {
 
 constexpr std::string_view kMask = "***";
 
+/// The userinfo split at its first ':', as git splits it: a password may hold
+/// a colon and a username may not.
+struct UserPassword {
+    std::string_view user;
+    std::string_view password;
+    bool hasPassword = false;
+};
+
+UserPassword splitUserinfo(std::string_view userinfo) {
+    const std::size_t colon = userinfo.find(':');
+    if (colon == std::string_view::npos) {
+        return {userinfo, {}, false};
+    }
+    return {userinfo.substr(0, colon), userinfo.substr(colon + 1), true};
+}
+
+bool equalFolded(std::string_view a, std::string_view b) {
+    return a.size() == b.size() && std::equal(a.begin(), a.end(), b.begin(), [](char x, char y) {
+               return std::tolower(static_cast<unsigned char>(x)) ==
+                      std::tolower(static_cast<unsigned char>(y));
+           });
+}
+
+/// The scheme of the URL whose userinfo starts at `info.begin`: the word
+/// before its "://".
+std::string_view schemeBefore(std::string_view text, const Userinfo& info) {
+    const std::size_t end = info.begin - 3;
+    std::size_t begin = end;
+    while (begin > 0 &&
+           (std::isalnum(static_cast<unsigned char>(text[begin - 1])) != 0 ||
+            text[begin - 1] == '+' || text[begin - 1] == '-' || text[begin - 1] == '.')) {
+        --begin;
+    }
+    return text.substr(begin, end - begin);
+}
+
+/// The host, with any port, after the userinfo's '@'.
+std::string_view hostAfter(std::string_view text, const Userinfo& info) {
+    std::size_t end = info.end + 1;
+    while (end < text.size() && !endsAuthority(text[end])) {
+        ++end;
+    }
+    return text.substr(info.end + 1, end - info.end - 1);
+}
+
 } // namespace
 
 std::string maskUrlCredentials(std::string_view text) {
@@ -172,17 +217,15 @@ std::string maskUrlCredentials(std::string_view text) {
         if (info.begin == std::string_view::npos) {
             break;
         }
-        const std::string_view userinfo = text.substr(info.begin, info.end - info.begin);
-        const std::size_t colon = userinfo.find(':');
+        const UserPassword parts = splitUserinfo(text.substr(info.begin, info.end - info.begin));
         out += text.substr(copied, info.begin - copied);
-        if (colon != std::string_view::npos) {
-            out += userinfo.substr(0, colon);
+        // The username is looked at even when a password follows it: a token
+        // is also written as the user with a filler password
+        // (`ghp_xxxx:x-oauth-basic@`), or with an empty one (`ghp_xxxx:@`).
+        out += looksLikeToken(parts.user) ? kMask : parts.user;
+        if (parts.hasPassword) {
             out += ':';
             out += kMask;
-        } else if (looksLikeToken(userinfo)) {
-            out += kMask;
-        } else {
-            out += userinfo;
         }
         copied = info.end;
         from = info.end;
@@ -197,25 +240,46 @@ std::string unmaskUrlCredentials(std::string_view edited, std::string_view origi
     if (was.begin == std::string_view::npos || now.begin == std::string_view::npos) {
         return std::string(edited);
     }
-    const std::string_view oldInfo = original.substr(was.begin, was.end - was.begin);
-    const std::string_view newInfo = edited.substr(now.begin, now.end - now.begin);
-    const std::size_t oldColon = oldInfo.find(':');
-    const std::size_t newColon = newInfo.find(':');
+    const UserPassword old = splitUserinfo(original.substr(was.begin, was.end - was.begin));
+    const UserPassword typed = splitUserinfo(edited.substr(now.begin, now.end - now.begin));
 
-    std::string restored;
-    if (newInfo == kMask && oldColon == std::string_view::npos) {
-        restored = std::string(oldInfo); // the token that was the username
-    } else if (newColon != std::string_view::npos && newInfo.substr(newColon + 1) == kMask &&
-               oldColon != std::string_view::npos) {
-        restored = std::string(newInfo.substr(0, newColon + 1));
-        restored += oldInfo.substr(oldColon + 1);
-    } else {
+    // A part is only put back where masking took one out: a masked username
+    // was a token, and a masked password was whatever the original had.
+    const bool userMasked = typed.user == kMask && looksLikeToken(old.user);
+    const bool passwordMasked = typed.hasPassword && typed.password == kMask && old.hasPassword;
+    if (!userMasked && !passwordMasked) {
         return std::string(edited); // the person typed their own
     }
 
+    // The secret belongs to the server it was written for. An edit that points
+    // the remote at another host, or downgrades it to plain http, would hand
+    // the token to that server: the masked parts are dropped instead, so
+    // neither the secret nor a literal "***" is saved.
+    const std::string_view oldScheme = schemeBefore(original, was);
+    const std::string_view newScheme = schemeBefore(edited, now);
+    const bool sameScheme = equalFolded(oldScheme, newScheme) ||
+                            (equalFolded(oldScheme, "http") && equalFolded(newScheme, "https"));
+    const bool restore =
+        sameScheme && equalFolded(hostAfter(original, was), hostAfter(edited, now));
+
+    std::string userinfo;
+    if (!userMasked) {
+        userinfo = typed.user;
+    } else if (restore) {
+        userinfo = old.user;
+    }
+    if (typed.hasPassword && (!passwordMasked || restore)) {
+        userinfo += ':';
+        userinfo += passwordMasked ? old.password : typed.password;
+    }
+
     std::string out(edited.substr(0, now.begin));
-    out += restored;
-    out += edited.substr(now.end);
+    if (userinfo.empty()) {
+        out += edited.substr(now.end + 1); // nothing left before the '@', so no '@'
+    } else {
+        out += userinfo;
+        out += edited.substr(now.end);
+    }
     return out;
 }
 

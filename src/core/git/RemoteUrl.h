@@ -32,7 +32,8 @@ namespace gity::git {
 ///   * `https://user:secret@host/...` becomes `https://user:***@host/...`;
 ///   * `https://ghp_xxxx@host/...` — a token as the username, which is how
 ///     GitHub, GitLab and Bitbucket document cloning with one — becomes
-///     `https://***@host/...`.
+///     `https://***@host/...`, and `https://ghp_xxxx:x-oauth-basic@host/...`
+///     becomes `https://***:***@host/...`.
 ///
 /// A plain username (`https://alice@host`) is not a secret and is kept.
 [[nodiscard]] std::string maskUrlCredentials(std::string_view text);
@@ -40,6 +41,10 @@ namespace gity::git {
 /// Undoes maskUrlCredentials on a URL a person edited from its masked form,
 /// taking the secret back from `original`. Without it, accepting an edited
 /// URL would save the literal `***` over the real token.
+///
+/// Only while the edit still names the same host over the same scheme (or
+/// upgrades http to https): pointed anywhere else, the masked parts are
+/// dropped rather than the secret sent to a server it was not meant for.
 [[nodiscard]] std::string unmaskUrlCredentials(std::string_view edited, std::string_view original);
 
 } // namespace gity::git

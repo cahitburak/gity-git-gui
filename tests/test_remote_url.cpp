@@ -136,10 +136,60 @@ TEST(UnmaskUrlCredentials, PutsThePasswordBackAfterAnEdit) {
               "https://me:s3cret@github.com/o/renamed.git");
 }
 
+TEST(MaskUrlCredentials, HidesATokenUsernameThatHasAPasswordAfterIt) {
+    // GitHub documents a token as the user with a filler password, and some
+    // tools write it with an empty one. Keeping "the username" kept the token.
+    EXPECT_EQ(gity::git::maskUrlCredentials("https://ghp_abcdef0123456789:@github.com/o/r"),
+              "https://***:***@github.com/o/r");
+    EXPECT_EQ(
+        gity::git::maskUrlCredentials("https://ghp_abcdef0123456789:x-oauth-basic@github.com/o/r"),
+        "https://***:***@github.com/o/r");
+    // A plain name before a password is still shown.
+    EXPECT_EQ(gity::git::maskUrlCredentials("https://alice:pw@github.com/o/r"),
+              "https://alice:***@github.com/o/r");
+}
+
 TEST(UnmaskUrlCredentials, PutsTheTokenBack) {
+    EXPECT_EQ(gity::git::unmaskUrlCredentials("https://***@github.com/o/renamed",
+                                              "https://ghp_abcdef0123456789@github.com/o/r"),
+              "https://ghp_abcdef0123456789@github.com/o/renamed");
+}
+
+TEST(UnmaskUrlCredentials, PutsBackATokenUsernameAndItsPassword) {
+    EXPECT_EQ(gity::git::unmaskUrlCredentials(
+                  "https://***:***@github.com/o/renamed",
+                  "https://ghp_abcdef0123456789:x-oauth-basic@github.com/o/r"),
+              "https://ghp_abcdef0123456789:x-oauth-basic@github.com/o/renamed");
+}
+
+TEST(UnmaskUrlCredentials, ASecretDoesNotFollowTheRemoteToAnotherHost) {
+    // Restoring it would send a GitHub token to whatever server the edit
+    // named. The masked parts are dropped instead, and no literal "***" is
+    // saved either.
     EXPECT_EQ(gity::git::unmaskUrlCredentials("https://***@gitlab.com/o/r",
                                               "https://ghp_abcdef0123456789@github.com/o/r"),
-              "https://ghp_abcdef0123456789@gitlab.com/o/r");
+              "https://gitlab.com/o/r");
+    EXPECT_EQ(gity::git::unmaskUrlCredentials("https://me:***@evil.example/o/r",
+                                              "https://me:s3cret@github.com/o/r"),
+              "https://me@evil.example/o/r");
+    EXPECT_EQ(gity::git::unmaskUrlCredentials("https://me:***@github.com:8443/o/r",
+                                              "https://me:s3cret@github.com/o/r"),
+              "https://me@github.com:8443/o/r")
+        << "another port is another server";
+}
+
+TEST(UnmaskUrlCredentials, NorIsItSentInTheClear) {
+    EXPECT_EQ(gity::git::unmaskUrlCredentials("http://me:***@github.com/o/r",
+                                              "https://me:s3cret@github.com/o/r"),
+              "http://me@github.com/o/r");
+    // Upgrading to https is the safe direction, and keeps it.
+    EXPECT_EQ(
+        gity::git::unmaskUrlCredentials("https://me:***@host/o/r", "http://me:s3cret@host/o/r"),
+        "https://me:s3cret@host/o/r");
+    // Host names are not case-sensitive.
+    EXPECT_EQ(gity::git::unmaskUrlCredentials("https://me:***@GitHub.com/o/r",
+                                              "https://me:s3cret@github.com/o/r"),
+              "https://me:s3cret@GitHub.com/o/r");
 }
 
 TEST(UnmaskUrlCredentials, AnythingTypedByHandWins) {
