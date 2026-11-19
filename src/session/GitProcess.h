@@ -134,7 +134,9 @@ public:
 
     using LogSink = std::function<void(const LogRecord&)>;
 
-    /// Receives every invocation, on whichever thread ran it.
+    /// Receives every invocation, on whichever thread ran it. Replacing or
+    /// clearing it waits for a call already in progress, so once this returns
+    /// the old sink is not called again. The sink must not run git itself.
     static void setLogSink(LogSink sink);
 
     /// While one of these lives on a thread, that thread's invocations are

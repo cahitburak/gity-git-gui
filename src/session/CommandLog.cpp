@@ -7,6 +7,13 @@ namespace gity::session {
 
 CommandLog::CommandLog(QObject* parent) : QObject(parent) {}
 
+CommandLog::~CommandLog() {
+    if (installed_) {
+        // Waits for a record being handed over right now; none comes after.
+        GitProcess::setLogSink({});
+    }
+}
+
 CommandLog* CommandLog::instance() {
     static QPointer<CommandLog> log;
     if (log.isNull()) {
@@ -17,6 +24,7 @@ CommandLog* CommandLog::instance() {
 
 void CommandLog::install() {
     CommandLog* log = instance();
+    log->installed_ = true;
     GitProcess::setLogSink([log](const GitProcess::LogRecord& record) {
         // Whichever thread ran git, the record is handed to the UI thread.
         QMetaObject::invokeMethod(

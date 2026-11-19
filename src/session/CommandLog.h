@@ -25,6 +25,11 @@ public:
     /// object exists.
     static void install();
 
+    /// Stops the records coming here. Threads that outlive the application
+    /// object — a credential lookup still waiting on a keyring at quit —
+    /// would otherwise hand their last record to a log already destroyed.
+    ~CommandLog() override;
+
     [[nodiscard]] const std::deque<GitProcess::LogRecord>& records() const { return records_; }
 
     void clear();
@@ -40,6 +45,8 @@ private:
     void append(const GitProcess::LogRecord& record);
 
     std::deque<GitProcess::LogRecord> records_;
+    /// GitProcess's sink points here.
+    bool installed_ = false;
 };
 
 } // namespace gity::session

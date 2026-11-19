@@ -6,6 +6,10 @@
 #include <gtest/gtest.h>
 
 #include <QMutex>
+#include <QThread>
+
+#include <atomic>
+#include <thread>
 
 using gity::session::GitProcess;
 
@@ -80,4 +84,25 @@ TEST(GitProcess, ATimeoutIsReportedAsOne) {
         GitProcess::run(repo.dir(), {"commit", "--allow-empty", "-q", "-m", "x"}, 500);
     EXPECT_TRUE(result.timedOut);
     EXPECT_FALSE(result.ok());
+}
+
+TEST(GitProcess, ClearingTheLogSinkWaitsForARecordBeingHandedOver) {
+    // The command log clears the sink as it is destroyed at quit. A thread
+    // finishing a git command at that moment used to hand its record to the
+    // log after it was gone.
+    gity::test::TempRepo repo;
+    std::atomic<bool> entered{false};
+    std::atomic<bool> left{false};
+    GitProcess::setLogSink([&](const GitProcess::LogRecord&) {
+        entered = true;
+        QThread::msleep(300);
+        left = true;
+    });
+    std::thread runner([&] { static_cast<void>(GitProcess::run(repo.dir(), {"status"})); });
+    while (!entered) {
+        QThread::msleep(1);
+    }
+    GitProcess::setLogSink({});
+    EXPECT_TRUE(left) << "the sink was cleared while it was still being called";
+    runner.join();
 }

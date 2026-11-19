@@ -259,12 +259,13 @@ GitResult execute(const Request& request) {
     const QDateTime started = QDateTime::currentDateTime();
     GitResult result = executeUnlogged(request);
 
-    GitProcess::LogSink sink;
-    {
-        const QMutexLocker lock(&g_sinkMutex);
-        sink = g_sink;
-    }
-    if (sink) {
+    // Called with the lock held, not with a copy taken under it: whoever
+    // clears the sink — the command log, as it is destroyed at quit — must be
+    // able to rely on it never being called again once setLogSink returns,
+    // while a thread of its own may be finishing a git command right then.
+    // The sink only queues the record, so nothing waits on it for long.
+    const QMutexLocker lock(&g_sinkMutex);
+    if (const GitProcess::LogSink& sink = g_sink; sink) {
         GitProcess::LogRecord record;
         record.started = started;
         record.workdir = request.workdir;

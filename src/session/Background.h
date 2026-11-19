@@ -7,6 +7,7 @@
 // session's worker (ADR-004).
 #pragma once
 
+#include <QCoreApplication>
 #include <QObject>
 #include <QThread>
 
@@ -20,6 +21,13 @@ namespace gity::session {
 inline void runInBackground(QObject* context, std::function<void()> work,
                             std::function<void()> done) {
     QThread* thread = QThread::create(std::move(work));
+    // The thread object is deleted from the application's thread, whichever
+    // thread asked. Created on a session's worker, its deleteLater went to
+    // that worker's event loop — gone, if the repository was closed before
+    // the work finished — and the object was never deleted.
+    if (const QCoreApplication* app = QCoreApplication::instance(); app != nullptr) {
+        thread->moveToThread(app->thread());
+    }
     QObject::connect(thread, &QThread::finished, thread, &QObject::deleteLater);
     QObject::connect(thread, &QThread::finished, context, std::move(done));
     thread->start();
