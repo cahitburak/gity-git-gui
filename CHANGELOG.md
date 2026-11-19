@@ -29,7 +29,26 @@ A review of the whole codebase, and what it found fixed. Details are in the comm
   start with `#`, and more.
 * CI packages releases (AppImage, macOS disk image, Windows zip) into a draft release on a tag, and
   checks sanitizers, versions, desktop metadata and formatting. Tests now include real
-  repositories driven through `git`: 307 in all, up from 187.
+  repositories driven through `git`: 360 in all, up from 187.
+* **A second review, of the branch as a whole.**
+  * Credentials: a token used as the user name stays masked, a remote URL cannot inject lines into
+    the credential helper, and a working-copy path cannot read or write outside the repository
+    through `..` or a symlinked folder.
+  * Names starting with `-` can no longer be taken for options (`git branch -- …`), and an undo
+    no longer restores another branch's files when HEAD moved in a terminal, or touches the parent
+    repository for an uninitialised submodule.
+  * Partial staging next to a last line without a newline, of a deleted file, and of paths with
+    quotes or control characters produces patches git accepts.
+  * A file's history keeps commits from before a rename on repositories with other branches, and
+    counts a commit that only changed a file's mode.
+  * Conflicts in submodules and symlinks open as a choice of side, and keeping a submodule's side
+    stages that side's commit.
+  * Opening a repository through a subfolder no longer duplicates its tab, and opening a folder with
+    no repository no longer crashes.
+  * Conflict buttons stay clickable after part of the editor repaints, the columns scroll as one
+    in both layouts, and an edit in progress counts as unsaved.
+  * Highlighting leaves very long lines plain instead of freezing the window.
+  * The push preview describes a fork's push when `pushRemote` sends it there.
 * The two largest files are split up — the main window and the repository session — with no change
   in behaviour.
 * **History of a file or folder, and blame.** Right-click a file in a commit, a comparison or the
