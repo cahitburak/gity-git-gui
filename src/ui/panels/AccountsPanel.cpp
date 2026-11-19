@@ -31,6 +31,7 @@ namespace {
 
 constexpr int kHostRole = Qt::UserRole + 1;
 constexpr int kUserRole = Qt::UserRole + 2;
+constexpr int kProviderRole = Qt::UserRole + 3;
 
 QString providerLabel(git::Provider provider) {
     const std::string_view name = git::providerName(provider);
@@ -142,6 +143,7 @@ void AccountsPanel::reload() {
                              : tr("%1 (%2)").arg(account.username, account.label));
         item->setData(0, kHostRole, account.host);
         item->setData(0, kUserRole, account.username);
+        item->setData(0, kProviderRole, static_cast<int>(account.provider));
     }
     updateButtons();
 }
@@ -154,7 +156,10 @@ session::Account AccountsPanel::selectedAccount() const {
     session::Account account;
     account.host = selected.first()->data(0, kHostRole).toString();
     account.username = selected.first()->data(0, kUserRole).toString();
-    account.provider = git::providerForHost(account.host.toStdString());
+    // As saved, not guessed again from the host: a self-hosted GitHub
+    // Enterprise, GitLab or Gitea has a name that says nothing, and the
+    // guess made it Other and took browser sign-in away.
+    account.provider = static_cast<git::Provider>(selected.first()->data(0, kProviderRole).toInt());
     return account;
 }
 
