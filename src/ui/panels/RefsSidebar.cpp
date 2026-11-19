@@ -2,6 +2,7 @@
 
 #include <QKeyEvent>
 
+#include "core/git/RemoteUrl.h"
 #include "ui/panels/Confirm.h"
 #include "ui/panels/RefsSidebarDelegate.h"
 #include "ui/theme/Theme.h"
@@ -606,7 +607,10 @@ void RefsSidebar::addSubmodules(QTreeWidgetItem* section,
                                          "repository records.")
                                     : tr("Has uncommitted changes of its own."));
         } else {
-            item->setToolTip(0, plainToolTip(QString::fromStdString(submodule.url)));
+            // Masked: a URL can carry a token, and a tooltip is read over a
+            // shoulder as easily as the Remotes dialog, which masks it too.
+            item->setToolTip(
+                0, plainToolTip(QString::fromStdString(git::maskUrlCredentials(submodule.url))));
         }
     }
 }
