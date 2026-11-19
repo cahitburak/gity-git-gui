@@ -159,7 +159,9 @@ bool readSide(git_repository* repo, const git_diff_file& file, std::string& out)
             if (size > kMaxSourceBytes) {
                 return false;
             }
-            out.assign(static_cast<const char*>(git_blob_rawcontent(blob.get())), size);
+            if (size > 0) { // an empty blob's content may be a null pointer
+                out.assign(static_cast<const char*>(git_blob_rawcontent(blob.get())), size);
+            }
             return true;
         }
     }

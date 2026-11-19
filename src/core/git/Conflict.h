@@ -12,12 +12,18 @@
 #include "Merge3.h"
 #include "Repository.h"
 
+#include <cstdint>
 #include <string>
 
 namespace gity::git {
 
 struct ConflictSide {
     bool present = false;
+    /// The git file mode of this version: a regular or executable file, a
+    /// symlink (0120000) or a submodule (0160000). 0 when it is not present.
+    std::uint32_t mode = 0;
+    /// Read only when the versions are merged line by line; empty for a
+    /// conflict that can only be taken whole.
     std::string text;
 };
 
@@ -34,7 +40,8 @@ struct ConflictFile {
     ConflictSide base;
     ConflictSide ours;
     ConflictSide theirs;
-    /// Any version holds binary content: only a whole side can be taken.
+    /// Only a whole side can be taken: a version holds binary content, or is
+    /// not a file at all but a symlink or a submodule (see each side's mode).
     bool binary = false;
 
     /// HEAD — what "ours" is — and the commit being merged, picked, reverted
