@@ -119,6 +119,13 @@ void MainWindow::openRepository(const QString& path) {
     if (path.isEmpty()) {
         return;
     }
+    // The spelling a repository on screen was first opened by: its tab has
+    // its workdir now, and is switched to. A second tab under the old
+    // spelling shared its session, and closing it retired that session.
+    if (const QString workdir = workdirOpenedAs(path); !workdir.isEmpty()) {
+        openRepository(workdir);
+        return;
+    }
     // Whether this is a refresh of what is already open — after a fetch, a
     // commit, a checkout — rather than a different repository. A refresh keeps
     // what the user is in the middle of typing.
@@ -574,6 +581,16 @@ QString MainWindow::sessionPathFor(const QString& path) const {
     return sessionPaths_.value(gity::ui::RepositoryTabs::canonical(path), path);
 }
 
+QString MainWindow::workdirOpenedAs(const QString& path) const {
+    const QString wanted = gity::ui::RepositoryTabs::canonical(path);
+    for (auto it = sessionPaths_.cbegin(); it != sessionPaths_.cend(); ++it) {
+        if (gity::ui::RepositoryTabs::canonical(it.value()) == wanted && it.key() != wanted) {
+            return it.key();
+        }
+    }
+    return {};
+}
+
 void MainWindow::openClone(const QString& path) {
     // Not under a dialog or a menu: each is asking about the repository on
     // screen, and switching to the clone while one is open carried its answer
@@ -602,10 +619,26 @@ void MainWindow::activateSession(const QString& path) {
 void MainWindow::retireSession(const QString& path) {
     const QString key = gity::ui::RepositoryTabs::canonical(path);
     viewStates_.remove(key);
-    sessions_.retire(sessionPathFor(path));
+    // A tab closed as a duplicate — the same repository reached by another
+    // spelling — may share its session with a tab still open, or name the
+    // same directory through a symlink. What that tab still uses stays.
+    const QString sessionPath = sessionPathFor(path);
+    const QString directory = QFileInfo(path).canonicalFilePath();
+    bool sessionInUse = false;
+    bool directoryOpen = false;
+    for (const QString& open : repoTabs_->paths()) {
+        sessionInUse = sessionInUse || sessionPathFor(open) == sessionPath;
+        directoryOpen = directoryOpen ||
+                        (!directory.isEmpty() && QFileInfo(open).canonicalFilePath() == directory);
+    }
+    if (!sessionInUse) {
+        sessions_.retire(sessionPath);
+    }
     sessionPaths_.remove(key);
     // Its conflict choices, written or not, go with its tab.
-    conflicts_->forgetRepository(path);
+    if (!directoryOpen) {
+        conflicts_->forgetRepository(path);
+    }
 }
 
 void MainWindow::closeEvent(QCloseEvent* event) {

@@ -8,6 +8,7 @@
 // of why you opened it.
 #pragma once
 
+#include <QStringList>
 #include <QVariantList>
 #include <QWidget>
 
@@ -45,6 +46,8 @@ public:
     /// repository opened on its own.
     [[nodiscard]] QString currentParentName() const;
     [[nodiscard]] int count() const;
+    /// Every open tab's path, in order.
+    [[nodiscard]] QStringList paths() const;
 
     /// The open tabs, in order, as plain data for saving between sessions.
     [[nodiscard]] QVariantList state() const;

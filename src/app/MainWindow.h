@@ -206,6 +206,10 @@ private:
     /// by, which differs from its workdir when that was a subfolder or a
     /// symlink.
     [[nodiscard]] QString sessionPathFor(const QString& path) const;
+    /// The workdir whose tab `path` was first opened by, when it was a
+    /// subfolder or a symlink; empty otherwise. The inverse of
+    /// sessionPathFor.
+    [[nodiscard]] QString workdirOpenedAs(const QString& path) const;
     /// The network actions and Cancel button, for the session on screen.
     void syncNetworkState();
     /// A repository not on screen finished a fetch, pull or push.

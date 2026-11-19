@@ -177,6 +177,14 @@ int RepositoryTabs::count() const {
     return bar_->count();
 }
 
+QStringList RepositoryTabs::paths() const {
+    QStringList all;
+    for (int i = 0; i < bar_->count(); ++i) {
+        all << pathAt(i);
+    }
+    return all;
+}
+
 QVariantList RepositoryTabs::state() const {
     QVariantList tabs;
     for (int i = 0; i < bar_->count(); ++i) {
