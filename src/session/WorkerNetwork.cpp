@@ -18,7 +18,8 @@ void RepoWorker::runForcePush(const QString& branch, const QString& remote,
     runNetwork(QObject::tr("Force push"),
                {QStringLiteral("push"), QStringLiteral("--progress"),
                 QStringLiteral("--force-with-lease=refs/heads/%1:%2").arg(remoteBranch, leaseOid),
-                remote, QStringLiteral("refs/heads/%1:refs/heads/%2").arg(branch, remoteBranch)});
+                QStringLiteral("--"), remote,
+                QStringLiteral("refs/heads/%1:refs/heads/%2").arg(branch, remoteBranch)});
 }
 
 namespace {
@@ -398,13 +399,18 @@ void RepoWorker::runPushBranch(const QString& branch) {
 
     // A branch tracking another local branch (remote ".") has nowhere to be
     // pushed to; publishing it is the useful reading.
+    //
+    // `--` before the remote in each push: its name comes from the
+    // repository's config, and a name beginning with a dash — say
+    // "--receive-pack=…" — would otherwise be read as an option.
     if (tracked && trackedRemote != QStringLiteral(".")) {
         if (!pushRemote.isEmpty() && pushRemote != trackedRemote) {
-            runNetwork(verb,
-                       {QStringLiteral("push"), QStringLiteral("--progress"), pushRemote, branch});
+            runNetwork(verb, {QStringLiteral("push"), QStringLiteral("--progress"),
+                              QStringLiteral("--"), pushRemote, branch});
         } else {
             runNetwork(verb,
-                       {QStringLiteral("push"), QStringLiteral("--progress"), trackedRemote,
+                       {QStringLiteral("push"), QStringLiteral("--progress"), QStringLiteral("--"),
+                        trackedRemote,
                         QStringLiteral("%1:%2").arg(QString::fromUtf8(refname), trackedMerge)});
         }
         return;
@@ -418,7 +424,7 @@ void RepoWorker::runPushBranch(const QString& branch) {
         return;
     }
     runNetwork(verb, {QStringLiteral("push"), QStringLiteral("--progress"),
-                      QStringLiteral("--set-upstream"), remote, branch});
+                      QStringLiteral("--set-upstream"), QStringLiteral("--"), remote, branch});
 }
 
 void RepoWorker::runPush() {
@@ -471,8 +477,8 @@ void RepoWorker::runPushTag(const QString& name) {
     }
     // The refspec is explicit rather than --tags: pushing every tag at once
     // publishes ones the user may never have meant to share.
-    runNetwork(verb, {QStringLiteral("push"), QStringLiteral("--progress"), remote,
-                      QStringLiteral("refs/tags/%1").arg(name)});
+    runNetwork(verb, {QStringLiteral("push"), QStringLiteral("--progress"), QStringLiteral("--"),
+                      remote, QStringLiteral("refs/tags/%1").arg(name)});
 }
 
 void RepoWorker::loadLocks() {

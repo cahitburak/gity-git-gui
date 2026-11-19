@@ -127,8 +127,12 @@ void RepoWorker::computePreview(int kindValue, const QString& target, const QStr
         // pull will actually bring in. Progress shows in the status bar; this
         // is not a Fetch the user asked for, so it does not announce one.
         const GitProcess::VisibleScope visible;
+        // `--`: the remote's name is read from the config, and must not be
+        // taken for an option such as --upload-pack.
         const GitResult fetched = GitProcess::runStreaming(
-            workdir_, {QStringLiteral("fetch"), QStringLiteral("--progress"), preview->remote},
+            workdir_,
+            {QStringLiteral("fetch"), QStringLiteral("--progress"), QStringLiteral("--"),
+             preview->remote},
             [this](const QString& line) { reportProgress(line); }, 600000);
         if (!fetched.ok()) {
             preview->problem = QObject::tr("Could not check %1: %2")

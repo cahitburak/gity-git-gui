@@ -66,6 +66,7 @@ if(TARGET gity::session)
         session/test_repo_watcher.cpp
         session/test_repository_reads.cpp
         session/test_session_hub.cpp
+        session/test_session_commands.cpp
         session/test_switch_context.cpp
     )
     target_include_directories(gity_session_tests PRIVATE ${PROJECT_SOURCE_DIR}/src)

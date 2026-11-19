@@ -36,18 +36,27 @@ void RepoWorker::runCreateBranch(const QString& name, const QString& startPoint,
                                  bool checkout, int changesValue, bool updateSubmodules) {
     using Kind = RefKind;
     const auto kind = static_cast<Kind>(kindValue);
-    QStringList args;
-    args << (checkout ? QStringLiteral("switch") : QStringLiteral("branch"));
-    if (checkout) {
-        args << QStringLiteral("-c");
-    }
-    args << name;
     // Started from someone else's branch under a new name, it is a new line of
     // work, not a copy of theirs: tracking origin/develop would make Pull
     // bring develop in and Push refuse the mismatched name. Push publishes it
     // under its own name instead. Named the same, tracking is the point.
-    if (kind == Kind::Remote && startPoint.section(QChar('/'), 1) != name) {
-        args << QStringLiteral("--no-track");
+    const bool noTrack = kind == Kind::Remote && startPoint.section(QChar('/'), 1) != name;
+    QStringList args;
+    if (checkout) {
+        // The name is the value of -c, so git never reads it as an option.
+        args << QStringLiteral("switch") << QStringLiteral("-c") << name;
+        if (noTrack) {
+            args << QStringLiteral("--no-track");
+        }
+    } else {
+        // `--` before the name: typed into a dialog, "-D" with a start point
+        // of "main" was `git branch -D main`, which deletes main. After it,
+        // git refuses the name as one no branch can have.
+        args << QStringLiteral("branch");
+        if (noTrack) {
+            args << QStringLiteral("--no-track");
+        }
+        args << QStringLiteral("--") << name;
     }
     if (!startPoint.isEmpty()) {
         args << startPoint;

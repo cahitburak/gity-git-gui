@@ -350,7 +350,10 @@ void RepoSession::requestAddRemote(const QString& name, const QString& url) {
 void RepoSession::requestRemoveRemote(const QString& name) {
     post(
         [this, name] {
-            worker_->runRemoteCommand({QStringLiteral("remote"), QStringLiteral("remove"), name});
+            // `--` before names, as for add: git accepts a remote whose name
+            // begins with a dash, and must not read one as an option.
+            worker_->runRemoteCommand(
+                {QStringLiteral("remote"), QStringLiteral("remove"), QStringLiteral("--"), name});
         },
         Qt::QueuedConnection);
 }
@@ -358,8 +361,8 @@ void RepoSession::requestRemoveRemote(const QString& name) {
 void RepoSession::requestRenameRemote(const QString& from, const QString& to) {
     post(
         [this, from, to] {
-            worker_->runRemoteCommand(
-                {QStringLiteral("remote"), QStringLiteral("rename"), from, to});
+            worker_->runRemoteCommand({QStringLiteral("remote"), QStringLiteral("rename"),
+                                       QStringLiteral("--"), from, to});
         },
         Qt::QueuedConnection);
 }
@@ -505,7 +508,8 @@ void RepoSession::requestDeleteBranch(const QString& name, bool force) {
         [this, name, force] {
             worker_->runBranchCommand(QObject::tr("Delete branch"),
                                       {QStringLiteral("branch"),
-                                       force ? QStringLiteral("-D") : QStringLiteral("-d"), name});
+                                       force ? QStringLiteral("-D") : QStringLiteral("-d"),
+                                       QStringLiteral("--"), name});
         },
         Qt::QueuedConnection);
 }
@@ -519,7 +523,9 @@ void RepoSession::requestCreateTag(const QString& name, const QString& target,
                 // Annotated: an object of its own with an author and a date.
                 args << QStringLiteral("--annotate") << QStringLiteral("--message") << message;
             }
-            args << name;
+            // `--` before the name: one typed as "-d", with an existing tag
+            // as its target, was `git tag -d <that tag>`.
+            args << QStringLiteral("--") << name;
             if (!target.isEmpty()) {
                 args << target;
             }
@@ -531,8 +537,9 @@ void RepoSession::requestCreateTag(const QString& name, const QString& target,
 void RepoSession::requestDeleteTag(const QString& name) {
     post(
         [this, name] {
-            worker_->runBranchCommand(QObject::tr("Delete tag"),
-                                      {QStringLiteral("tag"), QStringLiteral("--delete"), name});
+            worker_->runBranchCommand(
+                QObject::tr("Delete tag"),
+                {QStringLiteral("tag"), QStringLiteral("--delete"), QStringLiteral("--"), name});
         },
         Qt::QueuedConnection);
 }
