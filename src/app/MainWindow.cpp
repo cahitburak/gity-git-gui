@@ -645,9 +645,7 @@ void MainWindow::connectRepositoryTabs() {
                                           gity::ui::RepositoryTabs::canonical(currentWorkdir_)) {
                     return;
                 }
-                switchingRepository_ = true;
                 openRepository(path);
-                switchingRepository_ = false;
             });
 }
 

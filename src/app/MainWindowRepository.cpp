@@ -25,6 +25,7 @@
 #include <QFileDialog>
 #include <QFileInfo>
 #include <QLabel>
+#include <QLineEdit>
 #include <QMessageBox>
 #include <QSplitter>
 #include <QStackedWidget>
@@ -81,17 +82,20 @@ void MainWindow::restoreSession(bool openCurrent) {
     // not mounted today is kept in the saved list, so it comes back when the
     // drive does. Only a folder that is there with no repository in it is
     // dropped for good.
-    QString currentPath;
+    // Found first, all of them: each tab opened below saves the list, with
+    // the unavailable ones added, and one found only after the last save
+    // was dropped from it.
     unavailableTabs_.clear();
+    for (const saved::Tab& tab : tabs.tabs) {
+        if (!tab.path.isEmpty() && !QFileInfo::exists(tab.path + QStringLiteral("/.git")) &&
+            !QFileInfo::exists(tab.path)) {
+            unavailableTabs_ << tab;
+        }
+    }
+    QString currentPath;
     for (int i = 0; i < tabs.tabs.size(); ++i) {
         const saved::Tab& tab = tabs.tabs.at(i);
-        if (tab.path.isEmpty()) {
-            continue;
-        }
-        if (!QFileInfo::exists(tab.path + QStringLiteral("/.git"))) {
-            if (!QFileInfo::exists(tab.path)) {
-                unavailableTabs_ << tab;
-            }
+        if (tab.path.isEmpty() || !QFileInfo::exists(tab.path + QStringLiteral("/.git"))) {
             continue;
         }
         repoTabs_->open(tab.path, tab.parent);
@@ -170,6 +174,19 @@ void MainWindow::openRepository(const QString& path) {
         filterBar_->setContributors({});
         // A blame is of one repository's file.
         blame_->clear();
+        // What was last reported about the repository being left: its refs,
+        // remotes, status and account, which dialogs ask questions from until
+        // the arriving one's come in. The branch filter was typed for its
+        // branches.
+        currentRefs_.reset();
+        currentRemotes_.reset();
+        currentStatus_.reset();
+        account_ = {};
+        accountStatus_->setVisible(false);
+        refs_->setPullRequestNoun({});
+        refFilter_->clear();
+        pullAction_->setText(tr("Pull"));
+        pushAction_->setText(tr("Push"));
     }
 
     if (!refreshing) {
@@ -219,6 +236,15 @@ void MainWindow::applyCommitFilter() {
         return;
     }
     walkedFilter_ = filter;
+    // The commit being read stays selected if it matches, which keeps the
+    // place; otherwise the newest match is selected once the walk ends, as
+    // the first chunk of an unfiltered one would be. Without this nothing
+    // was selected after a filter changed. One still being looked for, when
+    // the filter changes again before it is found, is kept.
+    if (!currentOid_.isEmpty()) {
+        pendingSelectOid_ = currentOid_;
+    }
+    firstChunkSeen_ = false;
     // The model has to be emptied before the new walk streams into it, or
     // the filtered rows are appended to the unfiltered ones and the view
     // shows both sets at once.
@@ -321,7 +347,12 @@ void MainWindow::onRefsReady(gity::session::RefSetPtr refs) {
         branchAction_->setEnabled(true);
         stashAction_->setEnabled(true);
         // SPEC.md puts the counts on the buttons. They come from the checked-out
-        // branch's upstream, which is the only one Pull and Push act on.
+        // branch's upstream, which is the only one Pull and Push act on — and
+        // with HEAD detached or unborn there is none, so no counts.
+        pullAction_->setText(tr("Pull"));
+        pushAction_->setText(tr("Push"));
+        gity::ui::describeCommand(pushAction_, tr("Send your new commits to the remote."),
+                                  QStringLiteral("push"));
         for (const auto& branch : refs->localBranches) {
             if (!branch.isHead) {
                 continue;

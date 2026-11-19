@@ -293,9 +293,6 @@ private:
     gity::ui::HistoryFilterBar* filterBar_ = nullptr;
     /// What the history on screen was walked with.
     gity::git::CommitFilter walkedFilter_;
-    /// True while a tab switch is driving openRepository, so the tab bar is
-    /// not asked to reset itself half way through.
-    bool switchingRepository_ = false;
     /// Kept so the merge chooser can list branches without asking again.
     gity::session::RefSetPtr currentRefs_;
     gity::session::RemoteListPtr currentRemotes_;

@@ -51,11 +51,8 @@ void MainWindow::showFileHistory(const QString& path) {
         return;
     }
     showScreen(gity::ui::RefsSidebar::Screen::History);
-    // The commit being read stays selected if it changed the file, which
-    // keeps the place; otherwise the newest that did is selected once the
-    // walk ends.
-    pendingSelectOid_ = currentOid_;
-    firstChunkSeen_ = false;
+    // The commit being read stays selected if it changed the file
+    // (applyCommitFilter).
     filterBar_->showPath(path);
 }
 
@@ -79,7 +76,10 @@ QString MainWindow::choosePath(bool folder) {
         return {};
     }
     const QString relative = QDir(currentWorkdir_).relativeFilePath(chosen);
-    if (relative.startsWith(QStringLiteral("..")) || QDir::isAbsolutePath(relative)) {
+    // Outside is ".." or under "../" — not a name that merely starts with
+    // two dots, like "..env".
+    if (relative == QStringLiteral("..") || relative.startsWith(QStringLiteral("../")) ||
+        QDir::isAbsolutePath(relative)) {
         statusBar()->showMessage(tr("%1 is not in this repository.").arg(chosen), 6000);
         return {};
     }
