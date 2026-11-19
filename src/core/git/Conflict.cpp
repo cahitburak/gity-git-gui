@@ -52,7 +52,9 @@ BlobHandle lookUpSide(git_repository* repo, const git_index_entry* entry, Confli
 /// The version's text as it is on disk: through the checkout filters.
 std::string textOf(git_blob* blob, const std::string& path) {
     Buffer filtered;
-    git_blob_filter_options options = GIT_BLOB_FILTER_OPTIONS_INIT;
+    git_blob_filter_options options;
+    check(git_blob_filter_options_init(&options, GIT_BLOB_FILTER_OPTIONS_VERSION),
+          "initialize checkout filters");
     if (git_blob_filter(&filtered.buf, blob, path.c_str(), &options) == 0) {
         return filtered.buf.size > 0 ? std::string(filtered.buf.ptr, filtered.buf.size)
                                      : std::string();

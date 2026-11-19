@@ -94,7 +94,9 @@ std::string renamedTo(git_repository* repo, git_tree* parentTree, git_tree* tree
     DiffHandle diff;
     check(git_diff_tree_to_tree(diff.receive(), repo, parentTree, tree, nullptr),
           "compare a commit with its parent");
-    git_diff_find_options find = GIT_DIFF_FIND_OPTIONS_INIT;
+    git_diff_find_options find;
+    check(git_diff_find_options_init(&find, GIT_DIFF_FIND_OPTIONS_VERSION),
+          "initialize rename detection");
     find.flags = GIT_DIFF_FIND_RENAMES;
     check(git_diff_find_similar(diff.get(), &find), "find renamed files");
     const std::size_t count = git_diff_num_deltas(diff.get());

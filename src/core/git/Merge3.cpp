@@ -51,7 +51,10 @@ std::size_t rangeBegin(int start, int count) {
 
 std::vector<Change> changesBetween(std::string_view base, std::string_view side) {
     std::vector<Change> changes;
-    git_diff_options options = GIT_DIFF_OPTIONS_INIT;
+    git_diff_options options;
+    if (git_diff_options_init(&options, GIT_DIFF_OPTIONS_VERSION) != 0) {
+        throw std::runtime_error("initialize diff options");
+    }
     options.context_lines = 0;
     options.interhunk_lines = 0;
     // Bytes that look binary are still lines here; the caller decided the
