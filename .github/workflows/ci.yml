@@ -317,7 +317,11 @@ jobs:
           # Licences of what macdeployqt bundled (THIRD_PARTY_NOTICES.md).
           res=dist/Gity.app/Contents/Resources
           cp LICENSE THIRD_PARTY_NOTICES.md "$res/"
-          curl -fsSL "https://raw.githubusercontent.com/libgit2/libgit2/v$(brew list --versions libgit2 | awk '{print $2}')/COPYING" \
+          # Homebrew adds its own revision to a rebuilt formula — 1.9.1_1 —
+          # which is not part of the tag libgit2 released it under.
+          libgit2_version="$(brew list --versions libgit2 | awk '{print $2}')"
+          libgit2_version="${libgit2_version%_*}"
+          curl -fsSL "https://raw.githubusercontent.com/libgit2/libgit2/v$libgit2_version/COPYING" \
             -o "$res/libgit2-COPYING"
           curl -fsSL https://www.gnu.org/licenses/lgpl-3.0.txt -o "$res/Qt-LGPL-3.0.txt"
           curl -fsSL https://www.gnu.org/licenses/gpl-3.0.txt -o "$res/Qt-GPL-3.0.txt"
@@ -325,8 +329,23 @@ jobs:
       # ADR-007 — signing and notarization, once the Developer ID certificate
       # and an App Store Connect password are in repository secrets. Without
       # them the disk image is unsigned and Gatekeeper warns on first open.
+      # Whether the certificate is there is asked in a step of its own: a
+      # step's `if` sees the workflow's, the job's and earlier steps' env but
+      # not its own, so testing env.MACOS_CERTIFICATE on the signing step
+      # found it empty every time and signing never ran. A job-level env
+      # would work too, but would hand the secret to every step.
+      - name: Check for a signing certificate
+        id: signing
+        if: startsWith(github.ref, 'refs/tags/v')
+        env:
+          MACOS_CERTIFICATE: ${{ secrets.MACOS_CERTIFICATE }}
+        run: |
+          if [ -n "$MACOS_CERTIFICATE" ]; then
+            echo "available=true" >> "$GITHUB_OUTPUT"
+          fi
+
       - name: Sign and notarize
-        if: startsWith(github.ref, 'refs/tags/v') && env.MACOS_CERTIFICATE != ''
+        if: steps.signing.outputs.available == 'true'
         env:
           MACOS_CERTIFICATE: ${{ secrets.MACOS_CERTIFICATE }}
           MACOS_CERTIFICATE_PASSWORD: ${{ secrets.MACOS_CERTIFICATE_PASSWORD }}
