@@ -71,6 +71,35 @@ void RepoWorker::computePreview(int kindValue, const QString& target, const QStr
 
     const bool isPull = preview->kind == Preview::Kind::Pull;
     const bool isPush = preview->kind == Preview::Kind::Push;
+    // Publishing to `remote`: everything not already on some remote goes.
+    const auto publish = [&](const QString& remote) {
+        preview->newBranch = true;
+        preview->remote = remote;
+        preview->remoteBranch = branch;
+        preview->target = QStringLiteral("%1/%2").arg(remote, branch);
+        const GitResult count = GitProcess::run(
+            // "--" last: a branch named like a top-level folder ("docs") is
+            // otherwise ambiguous, and git refuses — and the preview said
+            // nothing was going out.
+            workdir_, {QStringLiteral("rev-list"), QStringLiteral("--count"), branch,
+                       QStringLiteral("--not"), QStringLiteral("--remotes"), QStringLiteral("--")});
+        preview->outgoing = trimmedOutput(count).toInt();
+        const GitResult log = GitProcess::run(
+            workdir_,
+            {QStringLiteral("log"), QStringLiteral("-10"), QStringLiteral("--format=%h%x00%s"),
+             branch, QStringLiteral("--not"), QStringLiteral("--remotes"), QStringLiteral("--")});
+        for (const QString& line : log.output.split(QChar('\n'), Qt::SkipEmptyParts)) {
+            preview->outgoingCommits << line.section(QChar('\0'), 0, 0).leftJustified(8) +
+                                            QStringLiteral("  ") + line.section(QChar('\0'), 1);
+        }
+        finish();
+    };
+    // Where a push goes when that is not the upstream's remote — the fork,
+    // in a triangular setup — as runPushBranch decides it. The preview has
+    // to describe that remote: compared with the upstream instead, a branch
+    // the upstream had moved past looked rejected, and the force push
+    // offered for it went to the upstream.
+    const QString pushTo = isPush ? pushRemoteOf(branch) : QString();
     QString other = target;
     if (isPull || isPush) {
         const GitResult upstream =
@@ -88,38 +117,30 @@ void RepoWorker::computePreview(int kindValue, const QString& target, const QStr
                 finish();
                 return;
             }
-            // Publishing: everything not already on some remote goes.
-            preview->newBranch = true;
             QString problem;
-            preview->remote = publishRemote(&problem);
-            preview->remoteBranch = branch;
-            if (preview->remote.isEmpty()) {
+            const QString remote = !pushTo.isEmpty() ? pushTo : publishRemote(&problem);
+            if (remote.isEmpty()) {
+                preview->remote.clear();
                 preview->problem = problem;
                 finish();
                 return;
             }
-            preview->target = QStringLiteral("%1/%2").arg(preview->remote, branch);
-            const GitResult count = GitProcess::run(
-                // "--" last: a branch named like a top-level folder ("docs")
-                // is otherwise ambiguous, and git refuses — and the preview
-                // said nothing was going out.
-                workdir_,
-                {QStringLiteral("rev-list"), QStringLiteral("--count"), branch,
-                 QStringLiteral("--not"), QStringLiteral("--remotes"), QStringLiteral("--")});
-            preview->outgoing = trimmedOutput(count).toInt();
-            const GitResult log = GitProcess::run(
-                workdir_, {QStringLiteral("log"), QStringLiteral("-10"),
-                           QStringLiteral("--format=%h%x00%s"), branch, QStringLiteral("--not"),
-                           QStringLiteral("--remotes"), QStringLiteral("--")});
-            for (const QString& line : log.output.split(QChar('\n'), Qt::SkipEmptyParts)) {
-                preview->outgoingCommits << line.section(QChar('\0'), 0, 0).leftJustified(8) +
-                                                QStringLiteral("  ") + line.section(QChar('\0'), 1);
-            }
-            finish();
+            publish(remote);
             return;
         }
         other = trimmedOutput(upstream);
         preview->target = other;
+        if (!pushTo.isEmpty() && pushTo != preview->remote) {
+            const QString there = QStringLiteral("%1/%2").arg(pushTo, branch);
+            if (resolve(QStringLiteral("refs/remotes/") + there).isEmpty()) {
+                publish(pushTo); // not on the fork yet
+                return;
+            }
+            preview->remote = pushTo;
+            preview->remoteBranch = branch;
+            other = there;
+            preview->target = there;
+        }
     }
 
     if (isPull) {

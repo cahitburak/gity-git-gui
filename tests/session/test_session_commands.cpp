@@ -206,6 +206,85 @@ TEST(SessionCommands, CancelStopsAFetchTheWorkerHasNotReportedStartingYet) {
     EXPECT_LT(timer.elapsed(), 5000) << "the fetch ran to the end";
 }
 
+namespace {
+
+gity::session::PreviewPtr previewOf(RepoSession& session, gity::session::Preview::Kind kind) {
+    gity::session::PreviewPtr preview;
+    QEventLoop loop;
+    const auto connection = QObject::connect(&session, &RepoSession::previewReady, &loop,
+                                             [&](gity::session::PreviewPtr ready) {
+                                                 preview = std::move(ready);
+                                                 loop.quit();
+                                             });
+    QTimer::singleShot(20000, &loop, &QEventLoop::quit);
+    session.requestPreview(kind);
+    loop.exec();
+    QObject::disconnect(connection);
+    return preview;
+}
+
+} // namespace
+
+TEST(SessionCommands, APushPreviewDescribesTheRemoteThePushGoesTo) {
+    // Fetched from upstream, pushed to a fork. The upstream has moved on;
+    // the fork has not. The preview compared with the upstream, called the
+    // push rejected, and offered a force push — to the upstream.
+    TempRepo upstream;
+    upstream.write("a.txt", "one\n");
+    upstream.commitAll();
+    TempRepo fork;
+    fork.git({"config", "receive.denyCurrentBranch", "ignore"});
+    TempRepo repo;
+    repo.git({"remote", "add", "upstream", upstream.dir()});
+    repo.git({"remote", "add", "fork", fork.dir()});
+    repo.git({"fetch", "-q", "upstream"});
+    repo.git({"reset", "-q", "--hard", "upstream/main"});
+    repo.git({"branch", "-q", "--set-upstream-to=upstream/main", "main"});
+    repo.git({"config", "remote.pushDefault", "fork"});
+    repo.git({"push", "-q", "fork", "main"});
+
+    upstream.write("a.txt", "two\n");
+    upstream.commitAll("upstream moves on");
+    repo.git({"fetch", "-q", "upstream"});
+    repo.write("b.txt", "mine\n");
+    repo.commitAll("my work");
+
+    RepoSession session;
+    ASSERT_TRUE(openAndWait(session, repo));
+    const auto preview = previewOf(session, gity::session::Preview::Kind::Push);
+    ASSERT_TRUE(preview);
+    EXPECT_TRUE(preview->problem.isEmpty()) << preview->problem.toStdString();
+    EXPECT_EQ(preview->remote, QStringLiteral("fork"));
+    EXPECT_EQ(preview->remoteBranch, QStringLiteral("main"));
+    EXPECT_EQ(preview->outgoing, 1);
+    EXPECT_EQ(preview->incoming, 0);
+    EXPECT_TRUE(preview->leaseOid.isEmpty()) << "a force push was offered";
+}
+
+TEST(SessionCommands, AFirstPushToAForkIsPreviewedAsPublishingThere) {
+    TempRepo upstream;
+    upstream.write("a.txt", "one\n");
+    upstream.commitAll();
+    TempRepo fork;
+    TempRepo repo;
+    repo.git({"remote", "add", "upstream", upstream.dir()});
+    repo.git({"remote", "add", "fork", fork.dir()});
+    repo.git({"fetch", "-q", "upstream"});
+    repo.git({"reset", "-q", "--hard", "upstream/main"});
+    repo.git({"branch", "-q", "--set-upstream-to=upstream/main", "main"});
+    repo.git({"config", "branch.main.pushRemote", "fork"});
+    repo.write("b.txt", "mine\n");
+    repo.commitAll("my work");
+
+    RepoSession session;
+    ASSERT_TRUE(openAndWait(session, repo));
+    const auto preview = previewOf(session, gity::session::Preview::Kind::Push);
+    ASSERT_TRUE(preview);
+    EXPECT_TRUE(preview->newBranch);
+    EXPECT_EQ(preview->remote, QStringLiteral("fork"));
+    EXPECT_EQ(preview->outgoing, 1);
+}
+
 TEST(SessionCommands, ASupersededWalkSendsNothingIntoTheNewOne) {
     // The window empties its model and then asks for a filtered walk. Rows
     // the previous walk had already sent were still queued, and landed in

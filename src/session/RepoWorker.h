@@ -188,6 +188,9 @@ private:
     /// The remote a branch or tag with nowhere configured is published to, or
     /// empty with `problem` saying why there is no sensible choice.
     [[nodiscard]] QString publishRemote(QString* problem) const;
+    /// Where `branch` is pushed when that is not its upstream's remote:
+    /// branch.<name>.pushRemote, else remote.pushDefault; empty for neither.
+    [[nodiscard]] QString pushRemoteOf(const QString& branch) const;
 
     std::atomic<bool>& cancel_;
     /// Kept open between requests so detail loads do not reopen the repository.

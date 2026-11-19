@@ -339,6 +339,26 @@ void RepoWorker::runRemoteCommand(const QStringList& args) {
     loadRemotes();
 }
 
+QString RepoWorker::pushRemoteOf(const QString& branch) const {
+    // A triangular setup — fetch from upstream, push to a fork — names where
+    // pushes go separately, and that wins, exactly as it does for `git push`.
+    git_config* rawConfig = nullptr;
+    if (!repo_ || git_repository_config_snapshot(&rawConfig, repo_.get()) != 0) {
+        return {};
+    }
+    const gity::git::Handle<git_config, git_config_free> config(rawConfig);
+    const QByteArray keys[] = {QStringLiteral("branch.%1.pushRemote").arg(branch).toUtf8(),
+                               QByteArrayLiteral("remote.pushDefault")};
+    for (const QByteArray& key : keys) {
+        const char* value = nullptr;
+        if (git_config_get_string(&value, config.get(), key.constData()) == 0 && value != nullptr &&
+            *value != '\0') {
+            return QString::fromUtf8(value);
+        }
+    }
+    return {};
+}
+
 QString RepoWorker::publishRemote(QString* problem) const {
     // origin unless the repository has exactly one other remote; guessing
     // beyond that would publish somewhere the user did not choose.
@@ -389,25 +409,7 @@ void RepoWorker::runPushBranch(const QString& branch) {
     git_buf_dispose(&remoteBuf);
     git_buf_dispose(&mergeBuf);
 
-    // A triangular setup — fetch from upstream, push to a fork — names where
-    // pushes go separately, and that wins, exactly as it does for `git push`.
-    QString pushRemote;
-    {
-        git_config* rawConfig = nullptr;
-        if (git_repository_config_snapshot(&rawConfig, repo_.get()) == 0) {
-            const gity::git::Handle<git_config, git_config_free> config(rawConfig);
-            const QByteArray keys[] = {QStringLiteral("branch.%1.pushRemote").arg(branch).toUtf8(),
-                                       QByteArrayLiteral("remote.pushDefault")};
-            for (const QByteArray& key : keys) {
-                const char* value = nullptr;
-                if (git_config_get_string(&value, config.get(), key.constData()) == 0 &&
-                    value != nullptr && *value != '\0') {
-                    pushRemote = QString::fromUtf8(value);
-                    break;
-                }
-            }
-        }
-    }
+    const QString pushRemote = pushRemoteOf(branch);
 
     // A branch tracking another local branch (remote ".") has nowhere to be
     // pushed to; publishing it is the useful reading.
