@@ -1,5 +1,6 @@
 #include "BlobReader.h"
 
+#include <algorithm>
 #include <cstdlib>
 #include <filesystem>
 #include <fstream>
@@ -7,7 +8,6 @@
 
 namespace gity::git {
 namespace {
-
 
 constexpr std::string_view kLfsMagic = "version https://git-lfs.github.com/spec/";
 
@@ -103,30 +103,60 @@ BlobContent readBlobAtHead(git_repository* repo, const std::string& path) {
 
 BlobContent readWorktreeFile(const std::string& workdir, const std::string& path,
                              std::size_t maxBytes) {
+    namespace fs = std::filesystem;
     BlobContent content;
     std::error_code ec;
-    const std::filesystem::path full = std::filesystem::path(workdir) / path;
+
+    // A path inside the working copy, never one that leaves it: absolute, or
+    // climbing out with "..". Paths from a diff never do, but this reads
+    // whatever it is given.
+    const fs::path relative(path);
+    if (relative.empty() || relative.has_root_path()) {
+        return content;
+    }
+    for (const fs::path& part : relative) {
+        if (part == "..") {
+            return content;
+        }
+    }
+    const fs::path root = fs::canonical(workdir, ec);
+    if (ec) {
+        return content;
+    }
+    const fs::path full = root / relative;
 
     // Not followed out of the working copy: git stores a symlink as the path
     // it names, and an image diff of "the file" must not read whatever that
     // path points to elsewhere on the machine.
-    if (std::filesystem::is_symlink(std::filesystem::symlink_status(full, ec))) {
+    if (fs::is_symlink(fs::symlink_status(full, ec))) {
         return content;
     }
-    const auto size = std::filesystem::file_size(full, ec);
+    // Nor through a folder on the way that is a symlink. git tracks nothing
+    // beyond one, but a tracked folder replaced by a link still has its old
+    // paths in the diff, and reading them would read wherever the link goes.
+    // The folder is resolved and has to still be inside the working copy.
+    const fs::path folder = fs::canonical(full.parent_path(), ec);
+    if (ec ||
+        std::mismatch(root.begin(), root.end(), folder.begin(), folder.end()).first != root.end()) {
+        return content;
+    }
+    const fs::path resolved = folder / full.filename();
+
+    const auto size = fs::file_size(resolved, ec);
     // Nor read whole when it is huge: this feeds an image decoder, and a
     // multi-gigabyte file in the working copy would be held in memory twice.
     if (ec || size > maxBytes) {
         return content;
     }
 
-    std::ifstream in(full, std::ios::binary);
+    std::ifstream in(resolved, std::ios::binary);
     if (!in) {
         return content;
     }
     content.bytes.resize(static_cast<std::size_t>(size));
     in.read(content.bytes.data(), static_cast<std::streamsize>(size));
     content.bytes.resize(static_cast<std::size_t>(in.gcount()));
+    content.found = true;
     parseLfsPointer(content);
     return content;
 }

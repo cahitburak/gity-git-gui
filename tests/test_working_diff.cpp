@@ -209,6 +209,22 @@ TEST(WorkingDiff, BothSidesComeWholeForHighlighting) {
     EXPECT_EQ(added.newSource, "fresh\n");
 }
 
+TEST(WorkingDiff, AFileEmptiedOnDiskStillHasSources) {
+    // An empty file read from disk was taken for one that could not be read,
+    // and the whole diff lost its highlighting.
+    Repo repo;
+    repo.write("Assets/Player.cs", "int a;\n");
+    repo.commitAll();
+    repo.write("Assets/Player.cs", "");
+
+    const auto diff = gity::git::loadWorkingDiff(repo.get(), "Assets/Player.cs",
+                                                 gity::git::DiffSide::Unstaged, {});
+    ASSERT_FALSE(diff.lines.empty());
+    EXPECT_TRUE(diff.hasSources);
+    EXPECT_EQ(diff.oldSource, "int a;\n");
+    EXPECT_TRUE(diff.newSource.empty());
+}
+
 TEST(WorkingDiff, ABinaryFileHasNoSources) {
     Repo repo;
     repo.write("Assets/icon.bin", std::string("\x89PNG\0\0\x01", 7));

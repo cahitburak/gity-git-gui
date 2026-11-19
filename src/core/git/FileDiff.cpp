@@ -165,8 +165,8 @@ bool readSide(git_repository* repo, const git_diff_file& file, std::string& out)
         return false;
     }
     const BlobContent disk = readWorktreeFile(workdir, file.path, kMaxSourceBytes);
-    if (disk.empty()) {
-        return false;
+    if (!disk.found) {
+        return false; // an empty file is a side like any other
     }
     out.assign(disk.bytes.data(), disk.bytes.size());
     return true;
