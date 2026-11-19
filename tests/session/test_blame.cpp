@@ -96,3 +96,23 @@ TEST(Blame, SaysWhyWhenThereIsNothingToBlame) {
     EXPECT_FALSE(odd.blame);
     EXPECT_TRUE(odd.problem.contains(QStringLiteral("--output=x")));
 }
+
+TEST(Blame, NamesAFileOutsideAsciiAsItIsSpelled) {
+    // git quotes such names in porcelain unless told not to: "café.txt"
+    // came back as "caf\303\251.txt", in quotes.
+    TempRepo repo;
+    const QString before = QStringLiteral("café.txt");
+    const QString after = QStringLiteral("déjà.txt");
+    repo.write(before, "one\n");
+    repo.commitAll();
+    repo.git({"mv", before, after});
+    repo.write(after, "one\ntwo\n");
+    repo.commitAll(QStringLiteral("renamed"));
+
+    const Answer answer = blame(repo, after, repo.head());
+    ASSERT_TRUE(answer.blame) << answer.problem.toStdString();
+    ASSERT_EQ(answer.blame->lines.size(), 2u);
+    const auto& commits = answer.blame->commits;
+    EXPECT_EQ(commits[answer.blame->lines[0].commit].path, before.toStdString());
+    EXPECT_EQ(commits[answer.blame->lines[1].commit].path, after.toStdString());
+}

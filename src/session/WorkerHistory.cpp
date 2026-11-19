@@ -389,7 +389,11 @@ void RepoWorker::loadBlame(const QString& path, const QString& revision, quint64
     }
     // Without a revision git blames the file as it is on disk, so lines
     // edited since the last commit show as not committed yet.
-    QStringList args{QStringLiteral("blame"), QStringLiteral("--porcelain")};
+    // core.quotePath off: porcelain's "filename" and "previous" lines name
+    // the file as git would anywhere else, and with the default a name
+    // outside ASCII came back as "\303\251…" in quotes.
+    QStringList args{QStringLiteral("-c"), QStringLiteral("core.quotePath=false"),
+                     QStringLiteral("blame"), QStringLiteral("--porcelain")};
     if (!revision.isEmpty()) {
         args << revision;
     }
