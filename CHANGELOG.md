@@ -29,7 +29,7 @@ A review of the whole codebase, and what it found fixed. Details are in the comm
   start with `#`, and more.
 * CI packages releases (AppImage, macOS disk image, Windows zip) into a draft release on a tag, and
   checks sanitizers, versions, desktop metadata and formatting. Tests now include real
-  repositories driven through `git`: 360 in all, up from 187.
+  repositories driven through `git`: 366 in all, up from 187.
 * **A second review, of the branch as a whole.**
   * Credentials: a token used as the user name stays masked, a remote URL cannot inject lines into
     the credential helper, and a working-copy path cannot read or write outside the repository
@@ -49,6 +49,19 @@ A review of the whole codebase, and what it found fixed. Details are in the comm
     in both layouts, and an edit in progress counts as unsaved.
   * Highlighting leaves very long lines plain instead of freezing the window.
   * The push preview describes a fork's push when `pushRemote` sends it there.
+* **A third review, of the second one's fixes.**
+  * A link in the working copy into `.git`, or one leading nowhere, can no longer be written
+    through when a conflict resolution is saved.
+  * Reopening a repository by the subfolder or symlink it was first opened through switches to
+    its tab, instead of opening a second one whose closing emptied the first; closing such a
+    duplicate no longer clears the repository's conflict choices.
+  * Undoing a discard, stash or tag after a commit made in a terminal leaves that commit's files
+    alone.
+  * Conflict writes that finish after their tab is left are settled for their own repository, and
+    a cancelled quit opens the conflict window on the unsaved file, not the first one.
+  * A second Cancel is no longer undone by the first, closing a tab during a preview no longer
+    blocks the window, and a cancel during the last submodule's fetch says Stopped.
+  * A sign-in reply whose token is not a string is not taken as granted.
 * The two largest files are split up — the main window and the repository session — with no change
   in behaviour.
 * **History of a file or folder, and blame.** Right-click a file in a commit, a comparison or the
