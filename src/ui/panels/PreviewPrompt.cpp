@@ -142,7 +142,9 @@ void describe(PreviewDialog& dialog, const gity::session::Preview& p) {
                 PreviewDialog::tr("Publishes %1 to %2 as a new branch.").arg(p.branch, p.remote));
             dialog.addList(PreviewDialog::tr("Commits not on any remote yet:"), p.outgoingCommits,
                            p.outgoing);
-            dialog.setCommand(QStringLiteral("push --set-upstream %1 %2").arg(p.remote, p.branch));
+            dialog.setCommand(
+                p.setsUpstream ? QStringLiteral("push --set-upstream %1 %2").arg(p.remote, p.branch)
+                               : QStringLiteral("push %1 %2").arg(p.remote, p.branch));
             dialog.addChoice(PreviewDialog::tr("Push"), toId(PreviewChoice::Go),
                              QStringLiteral("primary"));
             break;

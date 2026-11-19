@@ -71,6 +71,9 @@ struct Preview {
 
     // Push only.
     bool newBranch = false;
+    /// The push makes the branch track what it creates. Not so for a branch
+    /// that already tracks the upstream and is first pushed to a fork.
+    bool setsUpstream = false;
     QString remote;
     QString remoteBranch;
     /// The remote branch's tip as last fetched: what a force push leases

@@ -125,6 +125,8 @@ void RepoWorker::computePreview(int kindValue, const QString& target, const QStr
                 finish();
                 return;
             }
+            // Untracked until now: the push sets its upstream.
+            preview->setsUpstream = true;
             publish(remote);
             return;
         }
