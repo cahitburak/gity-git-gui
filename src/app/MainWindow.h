@@ -323,6 +323,9 @@ private:
     /// By workdir, canonically: the path its session was made under, where
     /// the two differ (sessionPathFor).
     QHash<QString, QString> sessionPaths_;
+    /// A quit was cancelled for conflict choices not saved in a repository
+    /// not on screen: the conflict window opens on them once it has opened.
+    bool openUnsavedConflictsOnOpen_ = false;
     /// The working copy as last reported, for questions a dialog must ask.
     gity::session::StatusPtr currentStatus_;
 

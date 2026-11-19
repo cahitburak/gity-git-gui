@@ -308,6 +308,10 @@ void MainWindow::onOpened(const gity::session::RepoInfo& info) {
     repoLabel_->setText(QStringLiteral("%1  ·  %2").arg(info.workdir, info.headRef));
     currentWorkdir_ = info.workdir;
     conflicts_->setRepository(info.workdir, QDir(info.workdir).dirName());
+    if (openUnsavedConflictsOnOpen_) {
+        openUnsavedConflictsOnOpen_ = false;
+        conflicts_->openUnsaved();
+    }
     sessions_.markOpened();
     syncNetworkState();
     updateRepositoryTitle();
@@ -600,6 +604,8 @@ void MainWindow::retireSession(const QString& path) {
     viewStates_.remove(key);
     sessions_.retire(sessionPathFor(path));
     sessionPaths_.remove(key);
+    // Its conflict choices, written or not, go with its tab.
+    conflicts_->forgetRepository(path);
 }
 
 void MainWindow::closeEvent(QCloseEvent* event) {
@@ -626,7 +632,17 @@ void MainWindow::closeEvent(QCloseEvent* event) {
                "closes. Quit anyway?"),
             QMessageBox::Cancel | QMessageBox::Yes, QMessageBox::Cancel);
         if (answer != QMessageBox::Yes) {
-            conflicts_->openFile();
+            // To the choices that are not saved, which may be another
+            // repository's than the one on screen: that one is opened first,
+            // and the window shown once it has.
+            const QString unsaved = conflicts_->unsavedRepositories().value(0);
+            if (unsaved.isEmpty() || gity::ui::RepositoryTabs::canonical(unsaved) ==
+                                         gity::ui::RepositoryTabs::canonical(currentWorkdir_)) {
+                conflicts_->openUnsaved();
+            } else {
+                openUnsavedConflictsOnOpen_ = true;
+                openRepository(unsaved);
+            }
             event->ignore();
             return;
         }

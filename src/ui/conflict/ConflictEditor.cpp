@@ -418,7 +418,20 @@ void ConflictEditor::showWholeFile(const session::ConflictPtr& file) {
     keepOurs_->setVisible(file->ours.present);
     keepTheirs_->setVisible(file->theirs.present);
     deleteFile_->setVisible(!file->bothSides());
-    if (file->binary && file->bothSides()) {
+    // git's modes: a symlink holds a path, a submodule a commit. Either way
+    // there are no lines to merge, only a side to keep.
+    const auto either = [&file](std::uint32_t mode) {
+        return file->ours.mode == mode || file->theirs.mode == mode;
+    };
+    if (file->bothSides() && either(0160000)) {
+        wholeTitle_->setText(tr("Both sides moved this submodule to different commits"));
+        wholeDetail_->setText(tr("Keep the commit one side chose — or check out the one you "
+                                 "want inside the submodule and stage it from Local Changes."));
+    } else if (file->bothSides() && either(0120000)) {
+        wholeTitle_->setText(tr("Both sides changed where this symlink points"));
+        wholeDetail_->setText(tr("A link holds one path, not lines to merge. Keep one side's "
+                                 "target."));
+    } else if (file->binary && file->bothSides()) {
         wholeTitle_->setText(tr("Both sides changed this file, and it is not text"));
         wholeDetail_->setText(tr("It cannot be merged line by line. Keep one side's version "
                                  "whole — or merge it in the program that made it, save it, "
