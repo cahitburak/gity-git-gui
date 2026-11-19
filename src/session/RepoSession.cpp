@@ -160,7 +160,15 @@ RepoSession::~RepoSession() {
     // — a commit, a rebase step, a checkout — is left to finish: killing one
     // half way leaves the repository in a state nobody chose. The window asks
     // before closing while one is running.
-    stopNetwork_.store(true, std::memory_order_relaxed);
+    //
+    // Counted as a cancel, under the same lock: a reset still queued from an
+    // earlier Cancel would otherwise lower the flag again, and a fetch queued
+    // behind it run to the end while this waits for the thread.
+    {
+        const std::lock_guard lock(cancelLock_);
+        ++networkCancels_;
+        stopNetwork_.store(true, std::memory_order_relaxed);
+    }
     cancel_.store(true, std::memory_order_relaxed);
     thread_.quit();
     thread_.wait();
