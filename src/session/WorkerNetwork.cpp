@@ -99,17 +99,19 @@ void RepoWorker::runFetch(bool withSubmodules) {
         }
         QStringList failed;
         int fetched = 0;
+        const auto stopped = [&] {
+            emit networkFinished(verb, false,
+                                 QObject::tr("Stopped. The repository was fetched (%1), but not "
+                                             "all of its submodules.")
+                                     .arg(summary),
+                                 errorOutput);
+            refreshStatus();
+        };
         for (const QString& path : std::as_const(paths)) {
             // Cancelled: each fetch left would only start and be stopped at
             // once, and be listed as failing when nothing went wrong with it.
             if (GitProcess::aborting()) {
-                emit networkFinished(
-                    verb, false,
-                    QObject::tr("Stopped. The repository was fetched (%1), but not all of its "
-                                "submodules.")
-                        .arg(summary),
-                    errorOutput);
-                refreshStatus();
+                stopped();
                 return;
             }
             const QString dir = QDir(workdir_).filePath(path.trimmed());
@@ -128,6 +130,12 @@ void RepoWorker::runFetch(bool withSubmodules) {
             if (sub.ok()) {
                 ++fetched;
                 continue;
+            }
+            // Stopped part way, not failed — the last one too, which no
+            // check at the top of the loop comes round to.
+            if (GitProcess::aborting()) {
+                stopped();
+                return;
             }
             const gity::git::NetworkOutcome subOutcome = gity::git::classifyNetwork(
                 false, sub.output.toStdString(), sub.errorOutput.toStdString());
