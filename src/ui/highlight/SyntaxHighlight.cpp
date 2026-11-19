@@ -25,6 +25,10 @@ namespace {
 /// for longer than the colours are worth.
 constexpr std::size_t kMaxBytes = std::size_t{2} << 20;
 constexpr std::size_t kMaxLines = 60000;
+/// Past this a line is drawn plain, though the lines round it are coloured:
+/// a minified line of a megabyte is regular expressions run over a megabyte,
+/// on the window's thread, for colours nobody reads.
+constexpr std::size_t kMaxLineLength = 8192;
 
 #ifdef GITY_HAVE_SYNTAX_HIGHLIGHTING
 
@@ -90,7 +94,10 @@ protected:
     }
 };
 
-/// Runs `next` until it returns false, colouring each line it gives.
+/// Runs `next` until it returns false, colouring each line it gives. A line
+/// it says is too long gets no colours and goes to the highlighter as an
+/// empty one, so what ends with a line — a "//" comment, say — still ends
+/// there.
 template <typename Next> FileSpansPtr run(const QString& path, Next&& next) {
     const kh::Definition definition = repository().definitionForFileName(path);
     if (!definition.isValid()) {
@@ -102,8 +109,14 @@ template <typename Next> FileSpansPtr run(const QString& path, Next&& next) {
     auto spans = std::make_shared<FileSpans>();
     kh::State state;
     QString line;
-    while (next(line)) {
+    bool tooLong = false;
+    while (next(line, tooLong)) {
         spans->emplace_back();
+        if (tooLong) {
+            collector.out = nullptr;
+            state = collector.next(QStringView(), state);
+            continue;
+        }
         collector.out = &spans->back();
         state = collector.next(line, state);
     }
@@ -138,7 +151,7 @@ FileSpansPtr highlight(const QString& path, std::string_view text, std::size_t l
     const std::size_t limit = lines == 0 ? kMaxLines : std::min(lines, kMaxLines);
     std::size_t at = 0;
     std::size_t done = 0;
-    return run(path, [&](QString& line) {
+    return run(path, [&](QString& line, bool& tooLong) {
         if (at >= text.size() || done >= limit) {
             return false;
         }
@@ -150,7 +163,12 @@ FileSpansPtr highlight(const QString& path, std::string_view text, std::size_t l
         if (!piece.empty() && piece.back() == '\r') {
             piece.remove_suffix(1);
         }
-        line = QString::fromUtf8(piece.data(), static_cast<qsizetype>(piece.size()));
+        tooLong = piece.size() > kMaxLineLength;
+        if (tooLong) {
+            line.clear();
+        } else {
+            line = QString::fromUtf8(piece.data(), static_cast<qsizetype>(piece.size()));
+        }
         at = end + 1;
         ++done;
         return true;
@@ -168,12 +186,28 @@ FileSpansPtr highlightLines(const QString& path, const std::vector<QString>& lin
     if (lines.size() > kMaxLines) {
         return nullptr;
     }
+    // The same budget as a file's bytes, counted in characters, of which
+    // there are no more than bytes: this lets through no more than
+    // highlight() does.
+    std::size_t total = 0;
+    for (const QString& line : lines) {
+        total += static_cast<std::size_t>(line.size());
+        if (total > kMaxBytes) {
+            return nullptr;
+        }
+    }
     std::size_t at = 0;
-    return run(path, [&](QString& line) {
+    return run(path, [&](QString& line, bool& tooLong) {
         if (at >= lines.size()) {
             return false;
         }
-        line = lines[at++];
+        const QString& next = lines[at++];
+        tooLong = static_cast<std::size_t>(next.size()) > kMaxLineLength;
+        if (tooLong) {
+            line.clear();
+        } else {
+            line = next;
+        }
         return true;
     });
 #else
@@ -210,6 +244,19 @@ int codeLineColumns(QStringView text) {
     int column = 0;
     for (const QChar c : text) {
         column += c == QLatin1Char('\t') ? kCodeTabWidth - (column % kCodeTabWidth) : 1;
+    }
+    return column;
+}
+
+int codeLineColumns(std::string_view utf8) {
+    int column = 0;
+    for (const char c : utf8) {
+        if (c == '\t') {
+            column += kCodeTabWidth - (column % kCodeTabWidth);
+        } else if (c != '\n' && c != '\r' && (static_cast<unsigned char>(c) & 0xC0) != 0x80) {
+            // A continuation byte is part of the character before it.
+            ++column;
+        }
     }
     return column;
 }

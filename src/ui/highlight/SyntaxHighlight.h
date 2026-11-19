@@ -48,11 +48,13 @@ namespace syntax {
 /// `text` as the file `path` holds it: lines split at '\n', a '\r' before one
 /// dropped. Only the first `lines` are coloured, 0 meaning all — what comes
 /// after the last line shown cannot change it. Null when no language matches
-/// the name, the file is too large to be worth it, or the build has none.
+/// the name, the file is too large to be worth it, or the build has none. A
+/// line of more than a few thousand characters is left without colours.
 [[nodiscard]] FileSpansPtr highlight(const QString& path, std::string_view text,
                                      std::size_t lines = 0);
 
-/// The same for a file already in lines, without their endings.
+/// The same for a file already in lines, without their endings, within the
+/// same limits.
 [[nodiscard]] FileSpansPtr highlightLines(const QString& path, const std::vector<QString>& lines);
 
 /// The spans of line `number`, from 1; null past the end or without spans.
@@ -80,5 +82,9 @@ void drawCodeLine(QPainter& painter, int x, int y, int height, QStringView text,
 
 /// How wide drawCodeLine draws `text`, in the painter's font metrics given.
 [[nodiscard]] int codeLineColumns(QStringView text);
+/// The same counted on a line's UTF-8 bytes, without making a QString of
+/// them: tabs to the next stop, one per character, a line ending not at all.
+/// For measuring every line of a file at each change.
+[[nodiscard]] int codeLineColumns(std::string_view utf8);
 
 } // namespace gity::ui
