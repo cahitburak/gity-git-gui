@@ -461,7 +461,11 @@ void RepoSession::requestAbortOperation() {
             // The verb comes from what is actually on disk. Assuming "merge"
             // here is how a stopped rebase gets abandoned with the wrong
             // command.
-            const char* path = git_repository_path(worker_->repository());
+            git_repository* repository = worker_->repository();
+            if (repository == nullptr) {
+                return; // nothing open, so nothing underway
+            }
+            const char* path = git_repository_path(repository);
             const gity::git::Operation operation =
                 path != nullptr ? gity::git::detectOperation(path) : gity::git::Operation::None;
             const std::string_view command = gity::git::operationCommand(operation);
