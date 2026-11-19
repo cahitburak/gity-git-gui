@@ -153,6 +153,15 @@ public:
     /// Commits `files` on top of `parents` (by message), moving HEAD to it.
     void commit(const std::string& message, const Files& files,
                 const std::vector<std::string>& parents) {
+        commitOn("refs/heads/main", message, files, parents);
+    }
+
+    /// The same on the branch `ref`, which HEAD is moved to as well, at
+    /// `seconds` after the time every other commit is made at.
+    void commitOn(const std::string& ref, const std::string& message, const Files& files,
+                  const std::vector<std::string>& parents, std::int64_t seconds = 0) {
+        git_signature* when = nullptr;
+        EXPECT_EQ(git_signature_new(&when, "Test", "test@invalid", 1700000000 + seconds, 0), 0);
         const git_oid tree = writeTree(files);
         git_tree* treeObject = nullptr;
         EXPECT_EQ(git_tree_lookup(&treeObject, repo_, &tree), 0);
@@ -164,18 +173,49 @@ public:
         }
         std::vector<const git_commit*> constParents(parentCommits.begin(), parentCommits.end());
         git_oid id{};
-        EXPECT_EQ(git_commit_create(&id, repo_, nullptr, who_, who_, nullptr, message.c_str(),
+        EXPECT_EQ(git_commit_create(&id, repo_, nullptr, when, when, nullptr, message.c_str(),
                                     treeObject, constParents.size(), constParents.data()),
                   0);
         for (git_commit* parent : parentCommits) {
             git_commit_free(parent);
         }
         git_tree_free(treeObject);
+        git_signature_free(when);
         ids_[message] = id;
-        git_reference* ref = nullptr;
-        EXPECT_EQ(git_reference_create(&ref, repo_, "refs/heads/main", &id, 1, nullptr), 0);
-        git_reference_free(ref);
-        EXPECT_EQ(git_repository_set_head(repo_, "refs/heads/main"), 0);
+        git_reference* branch = nullptr;
+        EXPECT_EQ(git_reference_create(&branch, repo_, ref.c_str(), &id, 1, nullptr), 0);
+        git_reference_free(branch);
+        EXPECT_EQ(git_repository_set_head(repo_, ref.c_str()), 0);
+    }
+
+    /// Makes `path` executable in `message`'s tree, as a new commit on main.
+    void chmodCommit(const std::string& message, const std::string& base, const std::string& path) {
+        git_commit* parent = nullptr;
+        EXPECT_EQ(git_commit_lookup(&parent, repo_, &ids_.at(base)), 0);
+        git_tree* tree = nullptr;
+        EXPECT_EQ(git_commit_tree(&tree, parent), 0);
+        git_treebuilder* builder = nullptr;
+        EXPECT_EQ(git_treebuilder_new(&builder, repo_, tree), 0);
+        const git_tree_entry* entry = git_treebuilder_get(builder, path.c_str());
+        ASSERT_NE(entry, nullptr);
+        const git_oid blob = *git_tree_entry_id(entry);
+        EXPECT_EQ(git_treebuilder_insert(nullptr, builder, path.c_str(), &blob,
+                                         GIT_FILEMODE_BLOB_EXECUTABLE),
+                  0);
+        git_oid treeId{};
+        EXPECT_EQ(git_treebuilder_write(&treeId, builder), 0);
+        git_treebuilder_free(builder);
+        git_tree_free(tree);
+        git_tree* newTree = nullptr;
+        EXPECT_EQ(git_tree_lookup(&newTree, repo_, &treeId), 0);
+        git_oid id{};
+        const git_commit* parents[] = {parent};
+        EXPECT_EQ(git_commit_create(&id, repo_, "refs/heads/main", who_, who_, nullptr,
+                                    message.c_str(), newTree, 1, parents),
+                  0);
+        git_tree_free(newTree);
+        git_commit_free(parent);
+        ids_[message] = id;
     }
 
     /// Summaries of the commits that changed `path`, newest first.
@@ -348,4 +388,29 @@ TEST(HistoryStream, PathFollowsARenameOnOneSideOfAMerge) {
     // side's rename is, and the walk carries on to base under the old name.
     const Names found = repo.history("new.txt");
     EXPECT_EQ(found, (Names{"edit new", "side renames", "base"}));
+}
+
+TEST(HistoryStream, PathFollowsARenamePastANewerBranchWithoutTheFile) {
+    // Every branch is walked. A newer commit on another branch, where the
+    // file does not exist under its new name, reached the common ancestor
+    // first and told it the new name; the rename's old name came second and
+    // was ignored, so the history stopped at the rename.
+    FileRepo repo;
+    repo.commit("base", {{"old.txt", lines(1)}, {"b.txt", "1"}}, {});
+    repo.commit("rename", {{"new.txt", lines(1)}, {"b.txt", "1"}}, {"base"});
+    repo.commitOn("refs/heads/other", "other edits b", {{"old.txt", lines(1)}, {"b.txt", "2"}},
+                  {"base"}, 3600);
+
+    using Named = std::vector<std::pair<std::string, std::string>>;
+    EXPECT_EQ(repo.historyWithNames("new.txt"),
+              (Named{{"rename", "new.txt"}, {"base", "old.txt"}}));
+}
+
+TEST(HistoryStream, PathListsACommitThatOnlyChangedTheMode) {
+    // git log -- path lists a chmod +x; comparing ids alone did not.
+    FileRepo repo;
+    repo.commit("add", {{"run.sh", "echo\n"}, {"b.txt", "1"}}, {});
+    repo.commit("edit b", {{"run.sh", "echo\n"}, {"b.txt", "2"}}, {"add"});
+    repo.chmodCommit("make it executable", "edit b", "run.sh");
+    EXPECT_EQ(repo.history("run.sh"), (Names{"make it executable", "add"}));
 }

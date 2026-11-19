@@ -48,12 +48,20 @@ bool CommitFilter::matches(std::string_view summary, std::string_view authorName
 namespace {
 
 /// What `path` names in a tree: its id — a blob, a folder's tree, a
-/// submodule's commit — or zero when there is nothing there, and its kind.
+/// submodule's commit — or zero when there is nothing there, its kind, and
+/// its mode.
 struct Entry {
     git_oid id{};
     git_object_t type = GIT_OBJECT_INVALID;
+    git_filemode_t mode = GIT_FILEMODE_UNREADABLE;
 
     [[nodiscard]] bool present() const noexcept { return git_oid_is_zero(&id) == 0; }
+
+    /// The same content with the same mode. The mode counts, as it does for
+    /// git: a commit that only made a file executable changed it.
+    [[nodiscard]] bool same(const Entry& other) const noexcept {
+        return git_oid_equal(&id, &other.id) != 0 && mode == other.mode;
+    }
 };
 
 Entry entryAt(git_tree* tree, const std::string& path) {
@@ -63,6 +71,7 @@ Entry entryAt(git_tree* tree, const std::string& path) {
     if (rc == 0) {
         git_oid_cpy(&found.id, git_tree_entry_id(entry));
         found.type = git_tree_entry_type(entry);
+        found.mode = git_tree_entry_filemode(entry);
         git_tree_entry_free(entry);
     } else if (rc != GIT_ENOTFOUND) {
         throwLastError(rc, "look up a path in a commit");
@@ -113,8 +122,9 @@ PathChange pathChange(git_repository* repo, git_commit* commit, const std::strin
     }
     // Only a file is followed; a folder that moved is a different folder.
     const bool follow = followRenames && mine.type == GIT_OBJECT_BLOB;
-    if (follow) {
+    if (followRenames) {
         change.renamedFrom.resize(parents);
+        change.inParent.resize(parents);
     }
     change.touched = true;
     for (unsigned int p = 0; p < parents; ++p) {
@@ -123,12 +133,15 @@ PathChange pathChange(git_repository* repo, git_commit* commit, const std::strin
               "look up a parent commit");
         const TreeHandle parentTree = treeOf(parent.get());
         const Entry theirs = entryAt(parentTree.get(), path);
-        if (git_oid_equal(&mine.id, &theirs.id) != 0) {
+        if (followRenames) {
+            change.inParent[p] = theirs.present();
+        }
+        if (mine.same(theirs)) {
             // The same as one parent: this commit did not change it. The
             // other parents are still asked what the file was called there,
             // since the walk goes down every side.
             change.touched = false;
-            if (!follow) {
+            if (!followRenames) {
                 return change;
             }
             continue;
@@ -148,9 +161,9 @@ namespace {
 
 /// The name a followed file has in each commit the walk has yet to reach.
 /// The walk is topological, so every child of a commit is visited before it:
-/// a commit is told its name by the first child that reaches it, and forgets
-/// it once visited, so only the walk's frontier is held. Names are kept once
-/// and referred to by index, since nearly every commit shares one.
+/// a commit is told its name by its children, and forgets it once visited,
+/// so only the walk's frontier is held. Names are kept once and referred to
+/// by index, since nearly every commit shares one.
 class FollowedNames {
 public:
     explicit FollowedNames(std::string path) { names_.push_back(std::move(path)); }
@@ -162,13 +175,21 @@ public:
         if (found == at_.end()) {
             return 0;
         }
-        const std::uint32_t name = found->second;
+        const std::uint32_t name = found->second.name;
         at_.erase(found);
         return name;
     }
 
-    void expect(const git_oid& parent, std::uint32_t name) {
-        at_.try_emplace(keyFromOid(parent), name);
+    /// Tells `parent` the file's name there, `known` when the parent has a
+    /// file by that name. Children on other branches pass on whatever name
+    /// they were given, whether the file exists there or not; the first child
+    /// to reach a commit is the newest, not the one that knows. So a known
+    /// name replaces a guess, and otherwise the first answer stands.
+    void expect(const git_oid& parent, std::uint32_t name, bool known) {
+        const auto [it, added] = at_.try_emplace(keyFromOid(parent), Expected{name, known});
+        if (!added && known && !it->second.known) {
+            it->second = Expected{name, known};
+        }
     }
 
     std::uint32_t intern(std::string name) {
@@ -183,8 +204,13 @@ public:
     [[nodiscard]] const std::string& name(std::uint32_t index) const { return names_[index]; }
 
 private:
+    struct Expected {
+        std::uint32_t name = 0;
+        bool known = false;
+    };
+
     std::vector<std::string> names_;
-    std::unordered_map<graph::CommitKey, std::uint32_t> at_;
+    std::unordered_map<graph::CommitKey, Expected> at_;
 };
 
 using Clock = std::chrono::steady_clock;
@@ -301,8 +327,9 @@ StreamStats streamHistory(git_repository* repo, const StreamOptions& options,
             for (unsigned int p = 0; p < parents; ++p) {
                 const bool renamed =
                     p < change.renamedFrom.size() && !change.renamedFrom[p].empty();
+                const bool known = renamed || (p < change.inParent.size() && change.inParent[p]);
                 followed.expect(*git_commit_parent_id(commit.get(), p),
-                                renamed ? followed.intern(change.renamedFrom[p]) : name);
+                                renamed ? followed.intern(change.renamedFrom[p]) : name, known);
             }
             if (!change.touched) {
                 continue;
