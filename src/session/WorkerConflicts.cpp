@@ -17,6 +17,33 @@
 #include <QSaveFile>
 
 namespace gity::session {
+namespace {
+
+/// The commit a submodule's side of a conflict records, when `path` is a
+/// submodule; empty for anything else.
+QString submoduleCommit(git_repository* repo, const QString& path, bool ours) {
+    gity::git::IndexHandle index;
+    if (git_repository_index(index.receive(), repo) != 0 || git_index_read(index.get(), 0) != 0) {
+        return {};
+    }
+    const git_index_entry* ancestor = nullptr;
+    const git_index_entry* oursEntry = nullptr;
+    const git_index_entry* theirsEntry = nullptr;
+    const QByteArray name = path.toUtf8();
+    if (git_index_conflict_get(&ancestor, &oursEntry, &theirsEntry, index.get(),
+                               name.constData()) != 0) {
+        return {};
+    }
+    const git_index_entry* side = ours ? oursEntry : theirsEntry;
+    if (side == nullptr || side->mode != GIT_FILEMODE_COMMIT) {
+        return {};
+    }
+    char hex[GIT_OID_MAX_HEXSIZE + 1] = {};
+    git_oid_tostr(hex, sizeof(hex), &side->id);
+    return QString::fromLatin1(hex);
+}
+
+} // namespace
 
 void RepoWorker::loadConflict(const QString& path, quint64 generation) {
     if (!repo_) {
@@ -91,12 +118,23 @@ void RepoWorker::resolveWithSide(const QString& path, int side) {
         done = tr("Resolved %1 by deleting it").arg(path);
     } else {
         const bool ours = side == 0;
-        result = GitProcess::run(workdir_,
-                                 {QStringLiteral("--literal-pathspecs"), QStringLiteral("checkout"),
-                                  ours ? QStringLiteral("--ours") : QStringLiteral("--theirs"),
-                                  QStringLiteral("--"), path});
-        if (result.ok()) {
-            result = index::stagePaths(workdir_, {path});
+        if (const QString commit = submoduleCommit(repo_.get(), path, ours); !commit.isEmpty()) {
+            // A submodule's side is a commit, not content: `checkout --ours`
+            // leaves its folder alone, and `add` then stages whatever commit
+            // it has checked out — ours, whichever side was asked for. The
+            // side's commit is staged directly, which also ends the conflict;
+            // moving the submodule there is `git submodule update`'s job.
+            result = GitProcess::run(workdir_,
+                                     {QStringLiteral("update-index"), QStringLiteral("--cacheinfo"),
+                                      QStringLiteral("160000,%1,%2").arg(commit, path)});
+        } else {
+            result = GitProcess::run(
+                workdir_, {QStringLiteral("--literal-pathspecs"), QStringLiteral("checkout"),
+                           ours ? QStringLiteral("--ours") : QStringLiteral("--theirs"),
+                           QStringLiteral("--"), path});
+            if (result.ok()) {
+                result = index::stagePaths(workdir_, {path});
+            }
         }
         done = ours ? tr("Resolved %1 with our version").arg(path)
                     : tr("Resolved %1 with their version").arg(path);

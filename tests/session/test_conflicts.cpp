@@ -122,6 +122,43 @@ TEST(Conflicts, TakingASideWritesAndStagesIt) {
     EXPECT_FALSE(unmerged(repo, "f.txt"));
 }
 
+TEST(Conflicts, TakingASubmodulesSideStagesThatSidesCommit) {
+    // lib's branches a and b part from one commit; the superproject's main
+    // and side record one each, and merging stops on lib.
+    TempRepo lib;
+    lib.write("f", "1\n");
+    lib.commitAll(QStringLiteral("1"));
+    lib.git({"checkout", "-q", "-b", "a"});
+    lib.write("f", "a\n");
+    lib.commitAll(QStringLiteral("a"));
+    lib.git({"checkout", "-q", "-b", "b", "main"});
+    lib.write("f", "b\n");
+    lib.commitAll(QStringLiteral("b"));
+    const QString theirs = lib.git({"rev-parse", "b"}).output.trimmed();
+    lib.git({"checkout", "-q", "main"}); // what the submodule starts at
+
+    TempRepo repo;
+    repo.write("README", "app\n");
+    repo.commitAll(QStringLiteral("base"));
+    repo.git({"-c", "protocol.file.allow=always", "submodule", "add", "-q", lib.dir(), "lib"});
+    repo.commitAll(QStringLiteral("lib"));
+    repo.git({"checkout", "-q", "-b", "side"});
+    repo.git({"-C", "lib", "checkout", "-q", "b"});
+    repo.commitAll(QStringLiteral("lib at b"));
+    repo.git({"checkout", "-q", "main"});
+    repo.git({"-C", "lib", "checkout", "-q", "a"});
+    repo.commitAll(QStringLiteral("lib at a"));
+    static_cast<void>(GitProcess::run(repo.dir(), {"merge", "-q", "side"}));
+    ASSERT_TRUE(unmerged(repo, "lib"));
+
+    const Written taken = write(repo, [](RepoSession& session) {
+        session.requestResolveWithSide(QStringLiteral("lib"), RepoSession::ConflictSide::Theirs);
+    });
+    EXPECT_TRUE(taken.ok) << taken.message.toStdString();
+    EXPECT_FALSE(unmerged(repo, "lib"));
+    EXPECT_EQ(repo.git({"rev-parse", ":lib"}).output.trimmed(), theirs);
+}
+
 TEST(Conflicts, StartingOverBringsTheConflictBack) {
     TempRepo repo;
     conflictedMerge(repo);
