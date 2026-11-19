@@ -702,9 +702,13 @@ void RepoSession::requestRedo() {
 }
 
 void RepoSession::requestPreview(Preview::Kind kind, const QString& target, const QString& branch) {
-    postRead([this, kind, target,
-              branch] { worker_->computePreview(static_cast<int>(kind), target, branch); },
-             Qt::QueuedConnection);
+    previewsInFlight_.fetch_add(1, std::memory_order_relaxed);
+    postRead(
+        [this, kind, target, branch] {
+            worker_->computePreview(static_cast<int>(kind), target, branch);
+            previewsInFlight_.fetch_sub(1, std::memory_order_relaxed);
+        },
+        Qt::QueuedConnection);
 }
 
 void RepoSession::requestForcePush(const QString& branch, const QString& remote,

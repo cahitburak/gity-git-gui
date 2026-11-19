@@ -208,6 +208,44 @@ TEST(SessionHub, ATabReopenedWhileItsSessionIsStillBusyGetsThatSessionBack) {
     EXPECT_TRUE(hub.currentNeverOpened()) << "the window opens it again, as any new tab";
 }
 
+TEST(SessionHub, ATabClosedDuringAPreviewDoesNotWaitForIt) {
+    // A preview changes nothing, so it did not count as busy, and closing
+    // its tab destroyed the session there and then — waiting, on the
+    // window's thread, for the preview's fetch to stop or its trial merge
+    // to end.
+    TempRepo remote;
+    remote.write("a.txt", "one\n");
+    remote.commitAll();
+    TempRepo repo;
+    repo.git({"remote", "add", "origin", remote.dir()});
+    repo.git({"fetch", "-q", "origin"});
+    repo.git({"checkout", "-q", "-b", "work", "--track", "origin/main"});
+    repo.git({"config", "remote.origin.uploadpack", "sleep 10; git-upload-pack"});
+
+    SessionHub hub;
+    hub.activate(repo.dir());
+    ASSERT_TRUE(openCurrent(hub, repo));
+    QPointer<RepoSession> session = hub.current();
+    session->requestPreview(gity::session::Preview::Kind::Pull);
+    EXPECT_FALSE(session->busy()) << "a preview is no reason to ask before quitting";
+
+    hub.retire(repo.dir());
+    ASSERT_FALSE(session.isNull()) << "destroyed at once, waiting for the preview";
+    EXPECT_TRUE(hub.busyRepositories().isEmpty());
+
+    QEventLoop loop;
+    QTimer poll;
+    QObject::connect(&poll, &QTimer::timeout, &loop, [&] {
+        if (session.isNull()) {
+            loop.quit();
+        }
+    });
+    poll.start(50);
+    QTimer::singleShot(8000, &loop, &QEventLoop::quit);
+    loop.exec();
+    EXPECT_TRUE(session.isNull()) << "kept after the preview was stopped";
+}
+
 TEST(SessionHub, AClosedTabReportsNothingMore) {
     TempRepo repo;
     repo.write("a.txt", "one\n");

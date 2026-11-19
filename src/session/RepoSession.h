@@ -42,6 +42,14 @@ public:
         return writesInFlight_.load(std::memory_order_relaxed) > 0;
     }
 
+    /// Nothing is running that destroying the session would have to wait
+    /// for: no write, and no preview — which changes nothing, but may be in
+    /// a fetch or a trial merge, and destroying the session waits for that
+    /// step to end on the thread destroying it.
+    [[nodiscard]] bool idle() const noexcept {
+        return !busy() && previewsInFlight_.load(std::memory_order_relaxed) == 0;
+    }
+
     /// A fetch, pull, push or clone is running.
     [[nodiscard]] bool networkBusy() const noexcept {
         return networkBusy_.load(std::memory_order_relaxed);
@@ -368,6 +376,7 @@ private:
     std::mutex cancelLock_;
     std::atomic<bool> networkBusy_{false};
     std::atomic<int> writesInFlight_{0};
+    std::atomic<int> previewsInFlight_{0};
     /// Bumped by every open and filter. A walk queued behind a newer one is
     /// skipped outright rather than run to the end, and what a superseded
     /// walk already sent is dropped when it arrives.

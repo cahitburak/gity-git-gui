@@ -13,8 +13,7 @@ SessionHub::SessionHub(QObject* parent) : QObject(parent) {
     reaper_ = new QTimer(this);
     reaper_->setInterval(500);
     connect(reaper_, &QTimer::timeout, this, [this] {
-        std::erase_if(retiring_,
-                      [](const Retiring& retiring) { return !retiring.session->busy(); });
+        std::erase_if(retiring_, [](const Retiring& retiring) { return retiring.session->idle(); });
         if (retiring_.empty()) {
             reaper_->stop();
         }
@@ -107,10 +106,12 @@ void SessionHub::retire(const QString& path) {
         stopForwarding();
         current_ = &relay_;
     }
-    // A fetch is stopped; a commit or rebase step finishes first. Destroying
-    // a busy session would block the window until it did.
+    // A fetch is stopped; a commit or rebase step finishes first, and so
+    // does the step a preview is on — the trial merge after its fetch.
+    // Destroying a session that is not idle would block the window until
+    // it did.
     session->cancelNetwork();
-    if (!session->busy()) {
+    if (session->idle()) {
         return; // destroyed here, idle
     }
     retiring_.push_back({key, std::move(session)});
