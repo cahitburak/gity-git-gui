@@ -28,9 +28,12 @@ public:
     explicit RepoWorker(std::atomic<bool>& cancelFlag);
 
 public slots:
-    void open(const QString& path);
+    /// Opens `path` and walks its history. Everything the walk reports
+    /// carries `generation`, so results of a walk superseded since can be
+    /// told from the new one's when they arrive (RepoSession::open).
+    void open(const QString& path, quint64 generation);
 
-    void rewalk(const gity::git::CommitFilter& filter);
+    void rewalk(const gity::git::CommitFilter& filter, quint64 generation);
     void setFilter(const gity::git::CommitFilter& filter);
     void loadDetail(const QString& oidHex, quint64 generation);
     void loadFileDiff(const QString& oidHex, const QString& path, quint64 generation);
@@ -101,9 +104,9 @@ public:
     void endUndo(const QString& verb, RepoState before, bool filesChanged);
 
 signals:
-    void opened(const gity::session::RepoInfo& info);
-    void refsReady(gity::session::RefSetPtr refs);
-    void chunkReady(gity::session::ChunkPtr chunk);
+    void opened(const gity::session::RepoInfo& info, quint64 generation);
+    void refsReady(gity::session::RefSetPtr refs, quint64 generation);
+    void chunkReady(gity::session::ChunkPtr chunk, quint64 generation);
     void detailReady(gity::session::DetailPtr detail, quint64 generation);
     void comparisonReady(gity::session::ComparisonPtr comparison, quint64 generation);
     void fileDiffReady(gity::session::FileDiffPtr diff, quint64 generation);
@@ -118,8 +121,9 @@ signals:
                           quint64 generation);
     void committed(const QString& summary);
     void commitFailed(const QString& message, const QString& detail);
-    void finished(quint64 commits, double firstChunkMs, double totalMs, bool cancelled);
-    void failed(const QString& message, const QString& detail);
+    void finished(quint64 commits, double firstChunkMs, double totalMs, bool cancelled,
+                  quint64 generation);
+    void failed(const QString& message, const QString& detail, quint64 generation);
     void networkStarted(const QString& verb);
     /// `percent` is -1 for phases git reports without one.
     void networkProgress(const QString& phase, int percent);

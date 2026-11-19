@@ -39,7 +39,7 @@ void RepoWorker::setFilter(const gity::git::CommitFilter& filter) {
     filter_ = filter;
 }
 
-void RepoWorker::rewalk(const gity::git::CommitFilter& filter) {
+void RepoWorker::rewalk(const gity::git::CommitFilter& filter, quint64 generation) {
     if (workdir_.isEmpty()) {
         return;
     }
@@ -47,10 +47,10 @@ void RepoWorker::rewalk(const gity::git::CommitFilter& filter) {
     // Re-opening is the whole walk again, which is the honest cost: a filtered
     // view is a different set of commits with different lanes, not the same
     // graph with rows hidden.
-    open(workdir_);
+    open(workdir_, generation);
 }
 
-void RepoWorker::open(const QString& path) {
+void RepoWorker::open(const QString& path, quint64 generation) {
     try {
         // One git_repository per worker thread. Nothing derived from it leaves
         // this function.
@@ -68,7 +68,7 @@ void RepoWorker::open(const QString& path) {
             QDir(workdirRaw != nullptr ? QString::fromUtf8(workdirRaw) : path).absolutePath();
         workdir_ = info.workdir;
         info.headRef = headRefName(repo);
-        emit opened(info);
+        emit opened(info, generation);
         undo_.load(workdir_, QString::fromUtf8(git_repository_path(repo)));
         // A merge left waiting when Gity last closed may have been finished
         // in a terminal since.
@@ -82,31 +82,33 @@ void RepoWorker::open(const QString& path) {
 
         // Refs before history: the sidebar is the first thing that can be
         // filled, and it is cheap next to the walk.
-        emit refsReady(std::make_shared<const gity::git::RefSet>(gity::git::loadRefs(repo)));
+        emit refsReady(std::make_shared<const gity::git::RefSet>(gity::git::loadRefs(repo)),
+                       generation);
         refreshStatus();
 
         gity::git::StreamOptions options;
         options.filter = filter_;
         options.cancel = &cancel_;
-        const auto stats =
-            gity::git::streamHistory(repo, options, [this](model::HistoryChunk&& chunk) {
+        const auto stats = gity::git::streamHistory(
+            repo, options, [this, generation](model::HistoryChunk&& chunk) {
                 if (cancel_.load(std::memory_order_relaxed)) {
                     return false;
                 }
-                emit chunkReady(std::make_shared<const model::HistoryChunk>(std::move(chunk)));
+                emit chunkReady(std::make_shared<const model::HistoryChunk>(std::move(chunk)),
+                                generation);
                 return true;
             });
 
         emit finished(static_cast<quint64>(stats.commits), stats.firstChunkMs, stats.totalMs,
-                      stats.cancelled);
+                      stats.cancelled, generation);
         // After the walk, not before it: setting up the watches walks the
         // directory tree, and the first rows of history matter more.
         watchRepository();
     } catch (const gity::git::GitException& e) {
         emit failed(QString::fromStdString(e.error().message),
-                    QString::fromStdString(e.error().raw));
+                    QString::fromStdString(e.error().raw), generation);
     } catch (const std::exception& e) {
-        emit failed(QString::fromUtf8(e.what()), {});
+        emit failed(QString::fromUtf8(e.what()), {}, generation);
     }
 }
 

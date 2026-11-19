@@ -1,6 +1,7 @@
-// Commands through a whole session — the request on the UI side, the worker
+// Requests through a whole session — the request on the UI side, the worker
 // running git — against real repositories, for what only shows end to end:
-// how a name typed into a dialog reaches git's argument list.
+// how a name typed into a dialog reaches git's argument list, and what a
+// superseded history walk still has on its way to the window.
 #include "TempRepo.h"
 
 #include "session/RepoSession.h"
@@ -8,6 +9,7 @@
 #include <gtest/gtest.h>
 
 #include <QEventLoop>
+#include <QThread>
 #include <QTimer>
 
 #include <functional>
@@ -122,4 +124,40 @@ TEST(SessionCommands, BranchesAndTagsStillCreateAndDelete) {
     EXPECT_TRUE(refExists(repo, QStringLiteral("refs/tags/v2")));
     EXPECT_TRUE(runEdit(session, [&] { session.requestDeleteTag(QStringLiteral("v2")); }).ok);
     EXPECT_FALSE(refExists(repo, QStringLiteral("refs/tags/v2")));
+}
+
+TEST(SessionCommands, ASupersededWalkSendsNothingIntoTheNewOne) {
+    // The window empties its model and then asks for a filtered walk. Rows
+    // the previous walk had already sent were still queued, and landed in
+    // the emptied model ahead of the new walk's.
+    TempRepo repo;
+    for (int i = 0; i < 5; ++i) {
+        repo.write("a.txt", std::to_string(i) + "\n");
+        repo.commitAll(QStringLiteral("commit %1").arg(i));
+    }
+
+    RepoSession session;
+    std::size_t rows = 0;
+    int finishes = 0;
+    QObject::connect(&session, &RepoSession::chunkReady, &session,
+                     [&](gity::session::ChunkPtr chunk) { rows += chunk->rowCount(); });
+    QEventLoop loop;
+    QObject::connect(&session, &RepoSession::finished, &loop, [&](quint64, double, double, bool) {
+        ++finishes;
+        loop.quit();
+    });
+
+    session.open(repo.dir());
+    // Long enough for the whole first walk to be sent, and to sit queued
+    // here, unread, as it would behind a busy window.
+    QThread::msleep(1000);
+    session.requestFilter(gity::git::CommitFilter{});
+    QTimer::singleShot(20000, &loop, &QEventLoop::quit);
+    loop.exec();
+    // Anything still to come from either walk.
+    QTimer::singleShot(300, &loop, &QEventLoop::quit);
+    loop.exec();
+
+    EXPECT_EQ(rows, 5u) << "rows from the first walk reached the second";
+    EXPECT_EQ(finishes, 1);
 }

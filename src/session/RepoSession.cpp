@@ -37,9 +37,25 @@ RepoSession::RepoSession(QObject* parent) : QObject(parent) {
     worker_->moveToThread(&thread_);
 
     connect(&thread_, &QThread::finished, worker_, &QObject::deleteLater);
-    connect(worker_, &RepoWorker::opened, this, &RepoSession::opened);
-    connect(worker_, &RepoWorker::refsReady, this, &RepoSession::refsReady);
-    connect(worker_, &RepoWorker::chunkReady, this, &RepoSession::chunkReady);
+    // A walk's results are dropped once a newer walk has been asked for. The
+    // window empties its model before it asks, so rows of the superseded
+    // walk still queued on their way here would otherwise land in the new
+    // model, mixed in with the new walk's.
+    connect(worker_, &RepoWorker::opened, this, [this](const RepoInfo& info, quint64 generation) {
+        if (generation == walkGeneration_) {
+            emit opened(info);
+        }
+    });
+    connect(worker_, &RepoWorker::refsReady, this, [this](RefSetPtr refs, quint64 generation) {
+        if (generation == walkGeneration_) {
+            emit refsReady(std::move(refs));
+        }
+    });
+    connect(worker_, &RepoWorker::chunkReady, this, [this](ChunkPtr chunk, quint64 generation) {
+        if (generation == walkGeneration_) {
+            emit chunkReady(std::move(chunk));
+        }
+    });
     connect(worker_, &RepoWorker::detailReady, this, [this](DetailPtr detail, quint64 generation) {
         // Drop results the user has already scrolled past.
         if (generation == detailGeneration_) {
@@ -117,8 +133,19 @@ RepoSession::RepoSession(QObject* parent) : QObject(parent) {
             });
     connect(worker_, &RepoWorker::committed, this, &RepoSession::committed);
     connect(worker_, &RepoWorker::commitFailed, this, &RepoSession::commitFailed);
-    connect(worker_, &RepoWorker::finished, this, &RepoSession::finished);
-    connect(worker_, &RepoWorker::failed, this, &RepoSession::failed);
+    connect(worker_, &RepoWorker::finished, this,
+            [this](quint64 commits, double firstChunkMs, double totalMs, bool cancelled,
+                   quint64 generation) {
+                if (generation == walkGeneration_) {
+                    emit finished(commits, firstChunkMs, totalMs, cancelled);
+                }
+            });
+    connect(worker_, &RepoWorker::failed, this,
+            [this](const QString& message, const QString& detail, quint64 generation) {
+                if (generation == walkGeneration_) {
+                    emit failed(message, detail);
+                }
+            });
 
     thread_.start();
     // Registered on the worker thread itself, since the flag is per thread.
@@ -156,10 +183,10 @@ void RepoSession::open(const QString& path) {
     // the new request run once the worker returns to the event loop. A walk
     // queued behind a newer one is skipped (see startWalk).
     const quint64 generation = ++walkGeneration_;
-    cancel_.store(true, std::memory_order_relaxed);
+    cancel_.store(true);
     postRead([this, path, generation] {
         if (startWalk(generation)) {
-            worker_->open(path);
+            worker_->open(path, generation);
         }
     });
 }
@@ -168,17 +195,23 @@ bool RepoSession::startWalk(quint64 generation) {
     // Lowered before the check, not after: a newer request raising cancel_
     // between the two would otherwise be undone here, and the older walk
     // would run to the end.
-    cancel_.store(false, std::memory_order_relaxed);
-    return generation == walkGeneration_.load(std::memory_order_relaxed);
+    //
+    // Sequentially consistent, here and where a request raises the flag: the
+    // two threads each write one of these and read the other, and with
+    // anything weaker this thread may read the generation from before the
+    // newer request while its own lowering lands after that request's
+    // raising — and the superseded walk would run to the end.
+    cancel_.store(false);
+    return generation == walkGeneration_.load();
 }
 
 void RepoSession::open(const QString& path, const gity::git::CommitFilter& filter) {
     const quint64 generation = ++walkGeneration_;
-    cancel_.store(true, std::memory_order_relaxed);
+    cancel_.store(true);
     postRead([this, path, filter, generation] {
         if (startWalk(generation)) {
             worker_->setFilter(filter);
-            worker_->open(path);
+            worker_->open(path, generation);
         }
     });
 }
@@ -446,10 +479,10 @@ void RepoSession::requestFilter(const gity::git::CommitFilter& filter) {
     // Cancels whatever walk is in flight: a filter typed while the previous
     // one is still streaming must not interleave two sets of rows.
     const quint64 generation = ++walkGeneration_;
-    cancel_.store(true, std::memory_order_relaxed);
+    cancel_.store(true);
     postRead([this, filter, generation] {
         if (startWalk(generation)) {
-            worker_->rewalk(filter);
+            worker_->rewalk(filter, generation);
         }
     });
 }

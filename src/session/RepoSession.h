@@ -265,6 +265,9 @@ public:
     void requestForcePush(const QString& branch, const QString& remote, const QString& remoteBranch,
                           const QString& leaseOid);
 
+    /// Stops the history walk running now. It still reports, with finished's
+    /// `cancelled` set, which is how the window learns it stopped — so this
+    /// does not supersede it the way a new open or filter does.
     void cancel();
 
 signals:
@@ -357,7 +360,8 @@ private:
     std::atomic<bool> networkBusy_{false};
     std::atomic<int> writesInFlight_{0};
     /// Bumped by every open and filter. A walk queued behind a newer one is
-    /// skipped outright rather than run to the end.
+    /// skipped outright rather than run to the end, and what a superseded
+    /// walk already sent is dropped when it arrives.
     std::atomic<quint64> walkGeneration_{0};
     // Atomic because the worker reads them too: a request already superseded
     // by the time the worker reaches it is skipped, not computed and dropped.
