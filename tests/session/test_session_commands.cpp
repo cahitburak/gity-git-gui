@@ -206,6 +206,42 @@ TEST(SessionCommands, CancelStopsAFetchTheWorkerHasNotReportedStartingYet) {
     EXPECT_LT(timer.elapsed(), 5000) << "the fetch ran to the end";
 }
 
+TEST(SessionCommands, ASecondCancelStopsTheFetchAskedForBetweenTheTwo) {
+    // Each cancel lowers the flag again once what was queued before it has
+    // run. The first one's lowering ran ahead of the second fetch, and
+    // undid the second cancel: that fetch ran to the end.
+    TempRepo remote;
+    remote.write("a.txt", "one\n");
+    remote.commitAll();
+    TempRepo repo;
+    repo.write("b.txt", "one\n");
+    repo.commitAll();
+    repo.git({"remote", "add", "origin", remote.dir()});
+    repo.git({"config", "remote.origin.uploadpack", "sleep 10; git-upload-pack"});
+
+    RepoSession session;
+    ASSERT_TRUE(openAndWait(session, repo));
+    int finished = 0;
+    QEventLoop loop;
+    QObject::connect(&session, &RepoSession::networkFinished, &loop,
+                     [&](const QString&, bool, const QString&, const QString&) {
+                         if (++finished == 2) {
+                             loop.quit();
+                         }
+                     });
+    QTimer::singleShot(30000, &loop, &QEventLoop::quit);
+    QElapsedTimer timer;
+    timer.start();
+    session.requestFetch(false);
+    session.cancelNetwork();
+    session.requestFetch(false);
+    session.cancelNetwork();
+    loop.exec();
+
+    ASSERT_EQ(finished, 2);
+    EXPECT_LT(timer.elapsed(), 8000) << "the second fetch ran to the end";
+}
+
 namespace {
 
 gity::session::PreviewPtr previewOf(RepoSession& session, gity::session::Preview::Kind kind) {

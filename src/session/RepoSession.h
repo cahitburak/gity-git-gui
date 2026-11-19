@@ -16,6 +16,7 @@
 #include <QThread>
 
 #include <atomic>
+#include <mutex>
 
 namespace gity::session {
 
@@ -358,6 +359,13 @@ private:
     /// a state nobody chose. Kept apart from cancel_, which every reopen
     /// raises: a reopen must not kill a fetch in flight.
     std::atomic<bool> stopNetwork_{false};
+    /// Counts cancels, so lowering stopNetwork_ after one leaves it raised
+    /// when another came since: two cancels with a fetch asked for between
+    /// them, and the first one's lowering ran ahead of that fetch. Under
+    /// cancelLock_, with the store, so neither can land between the other's
+    /// check and its store.
+    quint64 networkCancels_ = 0;
+    std::mutex cancelLock_;
     std::atomic<bool> networkBusy_{false};
     std::atomic<int> writesInFlight_{0};
     /// Bumped by every open and filter. A walk queued behind a newer one is

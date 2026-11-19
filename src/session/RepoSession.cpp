@@ -172,11 +172,23 @@ void RepoSession::cancelNetwork() {
     // fetch asked for a moment ago — and a tab closed straight after — would
     // run to the end. Raising the flag with nothing on the network costs
     // nothing; local commands never heed it.
-    stopNetwork_.store(true, std::memory_order_relaxed);
+    quint64 cancel = 0;
+    {
+        const std::lock_guard lock(cancelLock_);
+        cancel = ++networkCancels_;
+        stopNetwork_.store(true, std::memory_order_relaxed);
+    }
     // Lowered again once everything already queued has run, so the next
-    // fetch the user asks for is not cancelled too.
+    // fetch the user asks for is not cancelled too — unless it was, by a
+    // cancel since.
     QMetaObject::invokeMethod(
-        worker_, [this] { stopNetwork_.store(false, std::memory_order_relaxed); },
+        worker_,
+        [this, cancel] {
+            const std::lock_guard lock(cancelLock_);
+            if (networkCancels_ == cancel) {
+                stopNetwork_.store(false, std::memory_order_relaxed);
+            }
+        },
         Qt::QueuedConnection);
 }
 
