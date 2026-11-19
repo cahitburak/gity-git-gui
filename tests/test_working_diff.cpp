@@ -226,6 +226,37 @@ TEST(WorkingDiff, AFileEmptiedOnDiskStillHasSources) {
     EXPECT_TRUE(diff.newSource.empty());
 }
 
+TEST(WorkingDiff, AnIndexWrittenByAnotherProcessIsSeen) {
+    // Every index write goes through the git binary, and the repository
+    // handle lives as long as the session. Its index was read once, so a diff
+    // after `git add` still showed the change as unstaged.
+    Repo repo;
+    repo.write("Assets/Player.cs", "one\n");
+    repo.commitAll();
+    repo.write("Assets/Player.cs", "one\ntwo\n");
+
+    const auto before = gity::git::loadWorkingDiff(repo.get(), "Assets/Player.cs",
+                                                   gity::git::DiffSide::Unstaged, {});
+    ASSERT_EQ(before.hunks.size(), 1u);
+
+    // Another handle on the same repository stands in for `git add`.
+    git_repository* other = nullptr;
+    ASSERT_EQ(git_repository_open(&other, git_repository_workdir(repo.get())), 0);
+    git_index* index = nullptr;
+    ASSERT_EQ(git_repository_index(&index, other), 0);
+    ASSERT_EQ(git_index_add_bypath(index, "Assets/Player.cs"), 0);
+    ASSERT_EQ(git_index_write(index), 0);
+    git_index_free(index);
+    git_repository_free(other);
+
+    const auto unstaged = gity::git::loadWorkingDiff(repo.get(), "Assets/Player.cs",
+                                                     gity::git::DiffSide::Unstaged, {});
+    EXPECT_TRUE(unstaged.hunks.empty()) << "the change is staged now";
+    const auto staged =
+        gity::git::loadWorkingDiff(repo.get(), "Assets/Player.cs", gity::git::DiffSide::Staged, {});
+    EXPECT_EQ(staged.hunks.size(), 1u);
+}
+
 TEST(WorkingDiff, ABinaryFileHasNoSources) {
     Repo repo;
     repo.write("Assets/icon.bin", std::string("\x89PNG\0\0\x01", 7));

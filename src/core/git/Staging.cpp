@@ -33,7 +33,12 @@ FileDiff loadWorkingDiff(git_repository* repo, const std::string& path, DiffSide
     diffOptions.flags |= GIT_DIFF_DISABLE_PATHSPEC_MATCH;
 
     IndexHandle index;
-    check(git_repository_index(index.receive(), repo), "read the index");
+    check(git_repository_index(index.receive(), repo), "open the index");
+    // The index on disk, not the one the repository handle read when it was
+    // first asked: every write to it is made by the git binary. Given an index,
+    // libgit2's diffs use it as it is; only a status refreshes the shared one.
+    // Not forced, so an index that has not changed is not read again.
+    check(git_index_read(index.get(), 0), "read the index");
 
     DiffHandle diff;
     if (side == DiffSide::Unstaged) {
