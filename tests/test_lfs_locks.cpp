@@ -93,7 +93,7 @@ TEST(ParseLfsLocks, CharactersOutsideTheBmpAreDecoded) {
     // A surrogate pair is one character. Written half by half it would be
     // bytes no UTF-8 reader accepts.
     const auto locks =
-        parseLfsLocks(R"([{"id":"1","path":"Art/🎨.psd","owner":{"name":"x"},"locked_at":"t"}])");
+        parseLfsLocks(R"([{"id":"1","path":"Art/\uD83C\uDFA8.psd","owner":{"name":"x"},"locked_at":"t"}])");
     ASSERT_EQ(locks.size(), 1u);
     EXPECT_EQ(locks[0].path, "Art/\xF0\x9F\x8E\xA8.psd");
 }

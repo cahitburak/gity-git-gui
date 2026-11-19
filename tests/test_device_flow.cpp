@@ -179,10 +179,10 @@ TEST(ParsePollResponse, TheKeyInsideAnotherValueIsNotTheToken) {
 }
 
 TEST(ParseDeviceCode, UnicodeEscapesAreDecoded) {
-    // & is how some encoders write '&'; it was read as the letters u0026.
+    // \u0026 is how some encoders write '&'; it was read as the letters u0026.
     const DeviceCode code =
         parseDeviceCode(R"({"device_code":"a","user_code":"b",)"
-                        R"("verification_uri":"https://host/device?a=1&b=2","expires_in":900})");
+                        R"("verification_uri":"https://host/device?a=1\u0026b=2","expires_in":900})");
     EXPECT_EQ(code.verificationUrl, "https://host/device?a=1&b=2");
     EXPECT_EQ(code.expiresInSeconds, 900);
 }
