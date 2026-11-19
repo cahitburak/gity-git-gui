@@ -229,6 +229,34 @@ TEST(Conflicts, APathIntoGitOrThroughALinkOutIsRefused) {
     EXPECT_TRUE(QDir(outside.path()).isEmpty()) << "a file was written outside the repository";
 }
 
+TEST(Conflicts, ALinkIntoGitOrALinkLeadingNowhereIsRefused) {
+    // Resolved, "hooks" is inside the working copy: it is .git/hooks. And a
+    // link whose target does not exist looked like a folder not made yet.
+    TempRepo repo;
+    conflictedMerge(repo);
+    const QDir root(repo.dir());
+    ASSERT_TRUE(QFile::link(root.filePath(QStringLiteral(".git/hooks")),
+                            root.filePath(QStringLiteral("hooks"))));
+    ASSERT_TRUE(
+        QFile::link(root.filePath(QStringLiteral(".git")), root.filePath(QStringLiteral("g"))));
+    QTemporaryDir outside;
+    ASSERT_TRUE(outside.isValid());
+    ASSERT_TRUE(QFile::link(outside.filePath(QStringLiteral("missing")),
+                            root.filePath(QStringLiteral("dangling"))));
+
+    for (const QString& path : {QStringLiteral("hooks/post-commit"), QStringLiteral("g/config"),
+                                QStringLiteral("g/hooks/new/x"), QStringLiteral("dangling/x"),
+                                QStringLiteral("dangling/deeper/x")}) {
+        const Written refused = write(repo, [&path](RepoSession& session) {
+            session.requestSaveResolution(path, "#!/bin/sh\n", false);
+        });
+        EXPECT_TRUE(refused.arrived) << path.toStdString();
+        EXPECT_FALSE(refused.ok) << path.toStdString();
+    }
+    EXPECT_FALSE(QFileInfo::exists(repo.dir() + QStringLiteral("/.git/hooks/post-commit")));
+    EXPECT_TRUE(QDir(outside.path()).isEmpty());
+}
+
 TEST(Conflicts, AResolutionInANewFolderIsStillWritten) {
     // The checks above look at what exists; a folder the file is the first
     // thing in is not there yet.
