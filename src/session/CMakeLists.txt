@@ -35,6 +35,8 @@ add_library(gity_session STATIC
     WorkerNetwork.cpp
     WorkerPreview.cpp
     WorkerWorkingCopy.cpp
+    WorkdirPaths.cpp
+    WorkdirPaths.h
 )
 add_library(gity::session ALIAS gity_session)
 

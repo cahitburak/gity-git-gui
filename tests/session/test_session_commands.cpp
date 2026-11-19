@@ -127,6 +127,48 @@ TEST(SessionCommands, BranchesAndTagsStillCreateAndDelete) {
     EXPECT_FALSE(refExists(repo, QStringLiteral("refs/tags/v2")));
 }
 
+TEST(SessionCommands, DiscardingBeforeTheFirstCommitRemovesWhatWasStaged) {
+    // `restore --source=HEAD` has no HEAD to read before the first commit,
+    // and refused every staged file.
+    TempRepo repo;
+    repo.write("staged.txt", "new\n");
+    repo.git({"add", "staged.txt"});
+    repo.write("loose.txt", "untracked\n");
+
+    RepoSession session;
+    // There is no history to walk yet, so no walk to wait for: the discard
+    // is queued behind the open, which is enough.
+    session.open(repo.dir());
+    const Outcome outcome = runEdit(session, [&] {
+        session.requestDiscardPaths({QStringLiteral("staged.txt"), QStringLiteral("loose.txt")});
+    });
+    ASSERT_TRUE(outcome.arrived);
+    EXPECT_TRUE(outcome.ok) << outcome.message.toStdString();
+    EXPECT_FALSE(QFileInfo::exists(repo.dir() + QStringLiteral("/staged.txt")));
+    EXPECT_FALSE(QFileInfo::exists(repo.dir() + QStringLiteral("/loose.txt")));
+    EXPECT_FALSE(repo.inIndex(QStringLiteral("staged.txt")));
+}
+
+TEST(SessionCommands, DiscardingANewStagedFileAfterTheFirstCommitStillWorks) {
+    TempRepo repo;
+    repo.write("a.txt", "one\n");
+    repo.commitAll();
+    repo.write("a.txt", "two\n");
+    repo.write("staged.txt", "new\n");
+    repo.git({"add", "staged.txt"});
+
+    RepoSession session;
+    ASSERT_TRUE(openAndWait(session, repo));
+    const Outcome outcome = runEdit(session, [&] {
+        session.requestDiscardPaths({QStringLiteral("a.txt"), QStringLiteral("staged.txt")});
+    });
+    ASSERT_TRUE(outcome.arrived);
+    EXPECT_TRUE(outcome.ok) << outcome.message.toStdString();
+    EXPECT_EQ(repo.read("a.txt"), "one\n");
+    EXPECT_FALSE(QFileInfo::exists(repo.dir() + QStringLiteral("/staged.txt")));
+    EXPECT_FALSE(repo.inIndex(QStringLiteral("staged.txt")));
+}
+
 TEST(SessionCommands, CancelStopsAFetchTheWorkerHasNotReportedStartingYet) {
     // Closing a tab cancels its network command at once — before the
     // worker's "started" has come back. That used to be ignored, and the

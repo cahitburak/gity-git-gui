@@ -4,6 +4,7 @@
 
 #include "IndexWrites.h"
 #include "RepoWatcher.h"
+#include "WorkdirPaths.h"
 
 #include <QDir>
 #include <QFile>
@@ -152,9 +153,21 @@ void RepoWorker::discardPaths(const QStringList& paths) {
         // --literal-pathspecs: these are file names, not patterns. Read as a
         // glob, discarding `[id].tsx` also reverts `d.tsx` — measured, and
         // with nothing to undo it.
-        QStringList args{QStringLiteral("--literal-pathspecs"), QStringLiteral("restore"),
-                         QStringLiteral("--source=HEAD"),       QStringLiteral("--staged"),
-                         QStringLiteral("--worktree"),          QStringLiteral("--")};
+        //
+        // Before the first commit there is no HEAD to restore from, and
+        // `restore --source=HEAD` refuses outright. Everything staged then
+        // is new, and returning it to "the last commit" means removing it
+        // from the index and the disk, which is what `rm -f` does.
+        const bool unborn = git_repository_head_unborn(repo_.get()) == 1;
+        QStringList args{QStringLiteral("--literal-pathspecs")};
+        if (unborn) {
+            args << QStringLiteral("rm") << QStringLiteral("-q") << QStringLiteral("-f")
+                 << QStringLiteral("--ignore-unmatch");
+        } else {
+            args << QStringLiteral("restore") << QStringLiteral("--source=HEAD")
+                 << QStringLiteral("--staged") << QStringLiteral("--worktree");
+        }
+        args << QStringLiteral("--");
         args += tracked;
         const GitResult result = GitProcess::run(workdir_, args, 120000);
         if (!result.ok()) {
@@ -172,9 +185,14 @@ void RepoWorker::discardPaths(const QStringList& paths) {
     // and saying "discarded" about it would be false. A directory is never
     // removed wholesale — status lists one only when it holds a repository
     // of its own, whose history `git clean` also refuses to delete.
+    //
+    // Deleted by Gity rather than git, so held to the rule git keeps: nothing
+    // through a link out of the working copy, nothing inside .git. The paths
+    // come from the status, which keeps to that already; this is the check
+    // at the point of deleting.
     QStringList stuck;
     for (const QString& path : untracked) {
-        if (!QFile::remove(QDir(workdir_).filePath(path))) {
+        if (!deletableInWorkdir(workdir_, path) || !QFile::remove(QDir(workdir_).filePath(path))) {
             stuck << path;
         }
     }

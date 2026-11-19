@@ -8,6 +8,7 @@
 #include "RepoWorker.h"
 
 #include "IndexWrites.h"
+#include "WorkdirPaths.h"
 #include "core/git/Conflict.h"
 
 #include <QDir>
@@ -16,20 +17,6 @@
 #include <QSaveFile>
 
 namespace gity::session {
-namespace {
-
-/// A path the UI got from the status: relative, inside the working copy.
-/// Checked anyway, since it is about to be written to.
-bool insideWorkdir(const QString& workdir, const QString& path) {
-    if (path.isEmpty() || QDir::isAbsolutePath(path)) {
-        return false;
-    }
-    const QString root = QDir(workdir).canonicalPath();
-    const QString full = QDir::cleanPath(QDir(root).filePath(path));
-    return full.startsWith(root + QLatin1Char('/'));
-}
-
-} // namespace
 
 void RepoWorker::loadConflict(const QString& path, quint64 generation) {
     if (!repo_) {
@@ -48,7 +35,10 @@ void RepoWorker::saveResolution(const QString& path, const QByteArray& content, 
     if (!repo_) {
         return;
     }
-    if (!insideWorkdir(workdir_, path)) {
+    // A path the UI got from the status, checked anyway since it is about to
+    // be written to — and written by Gity, not by git, which would refuse a
+    // path into .git or through a link out of the working copy itself.
+    if (!writableInWorkdir(workdir_, path)) {
         emit conflictWriteFinished(path, false, tr("Not a file in this repository: %1").arg(path));
         return;
     }
