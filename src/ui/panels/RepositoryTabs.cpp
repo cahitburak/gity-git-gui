@@ -1,5 +1,7 @@
 #include "RepositoryTabs.h"
 
+#include "ui/panels/Confirm.h"
+
 #include <QDir>
 #include <QHBoxLayout>
 #include <QTabBar>
@@ -74,23 +76,45 @@ void RepositoryTabs::open(const QString& path, const QString& parentName) {
         return;
     }
 
-    const QString name = QDir(path).dirName();
     QVariantMap record;
     record.insert(kPathKey, canonical(path));
     record.insert(kParentKey, parentName);
 
     suppress_ = true;
-    const int index = bar_->addTab(name);
+    const int index = bar_->addTab(QDir(path).dirName());
     bar_->setTabData(index, record);
-    bar_->setTabToolTip(
-        index, parentName.isEmpty()
-                   ? QDir::toNativeSeparators(path)
-                   : tr("%1 — submodule of %2").arg(QDir::toNativeSeparators(path), parentName));
+    describe(index, path, parentName);
     bar_->setCurrentIndex(index);
     suppress_ = false;
 
     updateClosable();
     setVisible(true);
+    emit tabsChanged();
+}
+
+void RepositoryTabs::describe(int index, const QString& path, const QString& parentName) {
+    bar_->setTabText(index, QDir(path).dirName());
+    bar_->setTabToolTip(
+        index,
+        plainToolTip(
+            parentName.isEmpty()
+                ? QDir::toNativeSeparators(path)
+                : tr("%1 — submodule of %2").arg(QDir::toNativeSeparators(path), parentName)));
+}
+
+bool RepositoryTabs::contains(const QString& path) const {
+    return indexOf(path) >= 0;
+}
+
+void RepositoryTabs::rekey(const QString& from, const QString& to) {
+    const int index = indexOf(from);
+    if (index < 0 || to.isEmpty()) {
+        return;
+    }
+    QVariantMap record = bar_->tabData(index).toMap();
+    record.insert(kPathKey, canonical(to));
+    bar_->setTabData(index, record);
+    describe(index, to, record.value(kParentKey).toString());
     emit tabsChanged();
 }
 

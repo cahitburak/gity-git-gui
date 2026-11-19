@@ -250,6 +250,34 @@ void MainWindow::refreshContributors() {
 }
 
 void MainWindow::onOpened(const gity::session::RepoInfo& info) {
+    // Opened through a subfolder or a symlink, a repository settles on its
+    // workdir, and every refresh after this opens it by that spelling. Its
+    // tab, its session and what its tab was showing are found by it from
+    // now on: otherwise the first refresh found no tab, opened a second one,
+    // and closing the first retired the session on screen.
+    using gity::ui::RepositoryTabs;
+    const QString tabPath = repoTabs_->currentPath();
+    if (!info.workdir.isEmpty() && !tabPath.isEmpty() &&
+        RepositoryTabs::canonical(tabPath) != RepositoryTabs::canonical(info.workdir)) {
+        if (repoTabs_->contains(info.workdir)) {
+            // Already open in a tab of its own: that one is brought forward
+            // and this one closed — after this signal has returned, since
+            // closing it destroys the session sending it.
+            const QString workdir = info.workdir;
+            QTimer::singleShot(0, this, [this, tabPath, workdir] {
+                openRepository(workdir);
+                repoTabs_->close(tabPath);
+            });
+            return;
+        }
+        sessionPaths_.insert(RepositoryTabs::canonical(info.workdir), sessions_.currentPath());
+        if (viewStates_.contains(RepositoryTabs::canonical(tabPath))) {
+            viewStates_.insert(RepositoryTabs::canonical(info.workdir),
+                               viewStates_.take(RepositoryTabs::canonical(tabPath)));
+        }
+        repoTabs_->rekey(tabPath, info.workdir);
+    }
+
     repoLabel_->setText(QStringLiteral("%1  ·  %2").arg(info.workdir, info.headRef));
     currentWorkdir_ = info.workdir;
     conflicts_->setRepository(info.workdir, QDir(info.workdir).dirName());
@@ -506,8 +534,12 @@ void MainWindow::reportBackgroundNetwork(const QString& path, const QString& ver
                              12000);
 }
 
+QString MainWindow::sessionPathFor(const QString& path) const {
+    return sessionPaths_.value(gity::ui::RepositoryTabs::canonical(path), path);
+}
+
 void MainWindow::activateSession(const QString& path) {
-    if (!sessions_.activate(path)) {
+    if (!sessions_.activate(sessionPathFor(path))) {
         return;
     }
     // Nothing is known about the arriving repository until it reports.
@@ -516,8 +548,10 @@ void MainWindow::activateSession(const QString& path) {
 }
 
 void MainWindow::retireSession(const QString& path) {
-    viewStates_.remove(gity::ui::RepositoryTabs::canonical(path));
-    sessions_.retire(path);
+    const QString key = gity::ui::RepositoryTabs::canonical(path);
+    viewStates_.remove(key);
+    sessions_.retire(sessionPathFor(path));
+    sessionPaths_.remove(key);
 }
 
 void MainWindow::closeEvent(QCloseEvent* event) {

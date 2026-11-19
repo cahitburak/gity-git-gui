@@ -34,6 +34,12 @@ public:
     /// close button this may remove the last tab, leaving none.
     void close(const QString& path);
 
+    /// Whether `path` has a tab, without making it current.
+    [[nodiscard]] bool contains(const QString& path) const;
+    /// Moves `from`'s tab to `to`: a repository opened through a subfolder or
+    /// a symlink, once it is known where its working copy really is.
+    void rekey(const QString& from, const QString& to);
+
     [[nodiscard]] QString currentPath() const;
     /// The repository the current tab is a submodule of, by name. Empty for a
     /// repository opened on its own.
@@ -63,6 +69,8 @@ signals:
 private:
     [[nodiscard]] int indexOf(const QString& path) const;
     [[nodiscard]] QString pathAt(int index) const;
+    /// The tab's name and tooltip, for its path and parent.
+    void describe(int index, const QString& path, const QString& parentName);
     void removeAt(int index);
     /// The last tab cannot be closed: the window would be left showing a
     /// repository with no tab to say which.

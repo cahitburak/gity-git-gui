@@ -197,6 +197,10 @@ private:
     void activateSession(const QString& path);
     /// Closes `path`'s session and forgets what its tab was showing.
     void retireSession(const QString& path);
+    /// The path `path`'s session was made under: the spelling it was opened
+    /// by, which differs from its workdir when that was a subfolder or a
+    /// symlink.
+    [[nodiscard]] QString sessionPathFor(const QString& path) const;
     /// The network actions and Cancel button, for the session on screen.
     void syncNetworkState();
     /// A repository not on screen finished a fetch, pull or push.
@@ -314,6 +318,9 @@ private:
     };
 
     QHash<QString, ViewState> viewStates_;
+    /// By workdir, canonically: the path its session was made under, where
+    /// the two differ (sessionPathFor).
+    QHash<QString, QString> sessionPaths_;
     /// The working copy as last reported, for questions a dialog must ask.
     gity::session::StatusPtr currentStatus_;
 
