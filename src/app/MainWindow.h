@@ -210,6 +210,9 @@ private:
     /// subfolder or a symlink; empty otherwise. The inverse of
     /// sessionPathFor.
     [[nodiscard]] QString workdirOpenedAs(const QString& path) const;
+    /// The workdir of the session made under `sessionPath`, as far as it is
+    /// known: sessionPath itself unless it was a subfolder or a symlink.
+    [[nodiscard]] QString workdirOfSession(const QString& sessionPath) const;
     /// The network actions and Cancel button, for the session on screen.
     void syncNetworkState();
     /// A repository not on screen finished a fetch, pull or push.
@@ -328,8 +331,9 @@ private:
     /// the two differ (sessionPathFor).
     QHash<QString, QString> sessionPaths_;
     /// A quit was cancelled for conflict choices not saved in a repository
-    /// not on screen: the conflict window opens on them once it has opened.
-    bool openUnsavedConflictsOnOpen_ = false;
+    /// not on screen: the conflict window opens on them once that one has
+    /// opened. By workdir, as the conflict window names it.
+    QString openUnsavedConflictsIn_;
     /// The working copy as last reported, for questions a dialog must ask.
     gity::session::StatusPtr currentStatus_;
 

@@ -38,8 +38,15 @@ void MainWindow::connectConflicts() {
             &ConflictWindow::setConflict);
     connect(sessions_.relay(), &RepoSession::conflictWriteFinished, this,
             [this](const QString& path, bool ok, const QString& message) {
-                conflicts_->writeFinished(path, ok, message);
+                conflicts_->writeFinished(workdirOfSession(sessions_.currentPath()), path, ok,
+                                          message);
                 statusBar()->showMessage(message, ok ? 6000 : 0);
+            });
+    // One asked for before its tab was left: settled all the same, or the
+    // next write of that file is taken for this one.
+    connect(&sessions_, &gity::session::SessionHub::backgroundConflictWriteFinished, this,
+            [this](const QString& session, const QString& path, bool ok, const QString& message) {
+                conflicts_->writeFinished(workdirOfSession(session), path, ok, message);
             });
     connect(sessions_.relay(), &RepoSession::operationChanged, conflicts_,
             [this](int operation, const QString& noun) {
@@ -54,8 +61,11 @@ void MainWindow::connectConflicts() {
             &MainWindow::openConflicts);
     connect(changes_, &gity::ui::WorkingCopyPanel::takeSideRequested, this,
             [this](const QString& path, bool ours) {
-                session()->requestResolveWithSide(path, ours ? RepoSession::ConflictSide::Ours
-                                                             : RepoSession::ConflictSide::Theirs);
+                // Through the conflict window, which keeps count of the
+                // writes of each file it hears finish.
+                conflicts_->resolveWithSide(
+                    path, static_cast<int>(ours ? RepoSession::ConflictSide::Ours
+                                                : RepoSession::ConflictSide::Theirs));
             });
 }
 

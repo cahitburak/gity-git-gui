@@ -156,6 +156,8 @@ void ConflictWindow::setRepository(const QString& workdir, const QString& name) 
     name_ = name;
     current_.clear();
     conflicted_.clear();
+    statusKnown_ = false;
+    unsavedWanted_ = false;
     files_->clear();
     setNotice({}, false);
     setWindowTitle(name.isEmpty() ? tr("Resolve Conflicts")
@@ -182,6 +184,7 @@ void ConflictWindow::setStatus(session::StatusPtr status) {
         }
     }
     conflicted_ = now;
+    statusKnown_ = true;
     filesHeader_->setText(now.isEmpty() ? tr("Conflicted files")
                                         : tr("Conflicted files · %1").arg(now.size()));
     {
@@ -228,6 +231,11 @@ void ConflictWindow::setStatus(session::StatusPtr status) {
                      "not saved were set aside.")
                       .arg(lost.join(QStringLiteral(", "))),
                   false);
+    }
+    if (unsavedWanted_) {
+        unsavedWanted_ = false;
+        openUnsaved();
+        return;
     }
     if (now.contains(current_)) {
         return;
@@ -289,6 +297,21 @@ void ConflictWindow::openFile(const QString& path) {
 }
 
 void ConflictWindow::openUnsaved() {
+    // Which files are conflicted is not known yet — the repository has only
+    // just opened — so which of them is unsaved cannot be told either. Shown
+    // now, the window said nothing was conflicted, and the status then
+    // picked the first file, not the unsaved one.
+    if (!workdir_.isEmpty() && !statusKnown_) {
+        unsavedWanted_ = true;
+        if (isMinimized()) {
+            showNormal();
+        }
+        show();
+        raise();
+        activateWindow();
+        editor_->showMessage(name_, tr("Reading which files are conflicted…"));
+        return;
+    }
     if (showing(current_) && editor_->dirty()) {
         openFile(current_);
         return;
@@ -372,11 +395,29 @@ void ConflictWindow::setConflict(const QString& path, session::ConflictPtr confl
     editor_->showConflict(std::move(conflict), std::move(kept), std::move(written));
 }
 
-void ConflictWindow::writeFinished(const QString& path, bool ok, const QString& message) {
+void ConflictWindow::resolveWithSide(const QString& path, int side) {
+    writes_[keyFor(workdir_, path)].append(Write{Pending::Side, std::nullopt});
+    emit sideRequested(path, side);
+}
+
+void ConflictWindow::writeFinished(const QString& workdir, const QString& path, bool ok,
+                                   const QString& message) {
+    // The repository by the spelling its writes and choices are kept under:
+    // the session reporting it may spell it differently.
+    const bool here = !workdir_.isEmpty() && sameDirectory(workdir, workdir_);
+    QString repository = here ? workdir_ : workdir;
+    if (!here) {
+        for (auto it = writes_.cbegin(); it != writes_.cend(); ++it) {
+            if (sameDirectory(workdirOf(it.key()), workdir)) {
+                repository = workdirOf(it.key());
+                break;
+            }
+        }
+    }
     // The oldest write of this file is the one finishing, whichever file is
     // shown now: it is settled for its own file.
     Write write;
-    if (const auto found = writes_.find(keyFor(workdir_, path)); found != writes_.end()) {
+    if (const auto found = writes_.find(keyFor(repository, path)); found != writes_.end()) {
         if (!found->isEmpty()) {
             write = found->takeFirst();
         }
@@ -384,11 +425,14 @@ void ConflictWindow::writeFinished(const QString& path, bool ok, const QString& 
             writes_.erase(found);
         }
     }
-    setNotice(message, !ok);
+    if (here) {
+        setNotice(message, !ok);
+    }
     if (!ok) {
         return;
     }
-    auto& inRepo = kept_[workdir_];
+    auto& inRepo = kept_[repository];
+    const bool shown = here && showing(path);
     switch (write.kind) {
     case Pending::Save:
         if (!write.choices) {
@@ -396,7 +440,7 @@ void ConflictWindow::writeFinished(const QString& path, bool ok, const QString& 
         }
         // Kept, so the file comes back with these choices if shown again:
         // the versions git holds still have every conflict open.
-        if (showing(path)) {
+        if (shown) {
             // Changed since they were sent, the editor still says so.
             editor_->markSaved(*write.choices);
             inRepo.insert(path, Kept{*write.choices, write.choices, false});
@@ -413,7 +457,7 @@ void ConflictWindow::writeFinished(const QString& path, bool ok, const QString& 
         // The same versions, and the choices gone with the file's content —
         // and not brought back by leaving the file while it was written.
         inRepo.remove(path);
-        if (path == current_) {
+        if (here && path == current_) {
             editor_->showMessage(path, tr("Reading the versions git kept…"));
             emit conflictRequested(path);
         }
@@ -422,7 +466,7 @@ void ConflictWindow::writeFinished(const QString& path, bool ok, const QString& 
         // The status that follows moves on to the next file; until then
         // what is shown is what was written.
         inRepo.remove(path);
-        if (showing(path) && write.choices) {
+        if (shown && write.choices) {
             editor_->markSaved(*write.choices);
         }
         break;

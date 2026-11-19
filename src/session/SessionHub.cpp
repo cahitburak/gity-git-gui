@@ -83,6 +83,12 @@ void SessionHub::reportInBackground(const RepoSession* session, const QString& k
             emit backgroundCloneFinished(cloned);
         }
     });
+    connect(session, &RepoSession::conflictWriteFinished, this,
+            [this, session, key](const QString& file, bool ok, const QString& message) {
+                if (session != current_) {
+                    emit backgroundConflictWriteFinished(key, file, ok, message);
+                }
+            });
 }
 
 void SessionHub::retire(const QString& path) {

@@ -315,9 +315,14 @@ void MainWindow::onOpened(const gity::session::RepoInfo& info) {
     repoLabel_->setText(QStringLiteral("%1  ·  %2").arg(info.workdir, info.headRef));
     currentWorkdir_ = info.workdir;
     conflicts_->setRepository(info.workdir, QDir(info.workdir).dirName());
-    if (openUnsavedConflictsOnOpen_) {
-        openUnsavedConflictsOnOpen_ = false;
-        conflicts_->openUnsaved();
+    // Only for the repository it was asked for: another opened first — the
+    // one asked for failed, or a tab was clicked meanwhile — is not it.
+    if (!openUnsavedConflictsIn_.isEmpty()) {
+        if (RepositoryTabs::canonical(openUnsavedConflictsIn_) ==
+            RepositoryTabs::canonical(info.workdir)) {
+            conflicts_->openUnsaved();
+        }
+        openUnsavedConflictsIn_.clear();
     }
     sessions_.markOpened();
     syncNetworkState();
@@ -581,6 +586,11 @@ QString MainWindow::sessionPathFor(const QString& path) const {
     return sessionPaths_.value(gity::ui::RepositoryTabs::canonical(path), path);
 }
 
+QString MainWindow::workdirOfSession(const QString& sessionPath) const {
+    const QString workdir = workdirOpenedAs(sessionPath);
+    return workdir.isEmpty() ? sessionPath : workdir;
+}
+
 QString MainWindow::workdirOpenedAs(const QString& path) const {
     const QString wanted = gity::ui::RepositoryTabs::canonical(path);
     for (auto it = sessionPaths_.cbegin(); it != sessionPaths_.cend(); ++it) {
@@ -673,7 +683,7 @@ void MainWindow::closeEvent(QCloseEvent* event) {
                                          gity::ui::RepositoryTabs::canonical(currentWorkdir_)) {
                 conflicts_->openUnsaved();
             } else {
-                openUnsavedConflictsOnOpen_ = true;
+                openUnsavedConflictsIn_ = unsaved;
                 openRepository(unsaved);
             }
             event->ignore();

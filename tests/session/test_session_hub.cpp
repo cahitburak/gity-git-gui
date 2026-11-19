@@ -112,6 +112,29 @@ TEST(SessionHub, ARepositoryOffScreenStillReportsItsNetworkOutcome) {
     EXPECT_EQ(relayed.count(), 1);
 }
 
+TEST(SessionHub, AConflictWriteOffScreenIsStillReported) {
+    // The conflict window counts the writes it asked for; one finishing
+    // after its tab was left, and not heard of, was taken for the next.
+    SessionHub hub;
+    const QString a = QDir::tempPath() + QStringLiteral("/gity-hub-a");
+    hub.activate(a);
+    RepoSession* first = hub.current();
+    hub.activate(QDir::tempPath() + QStringLiteral("/gity-hub-b"));
+
+    Spy background;
+    QObject::connect(&hub, &SessionHub::backgroundConflictWriteFinished, &hub,
+                     [&background](const QString& path, const QString& file, bool, const QString&) {
+                         background.calls << QStringList{path, file};
+                     });
+    emit first->conflictWriteFinished(QStringLiteral("f.txt"), true, QStringLiteral("Saved"));
+    ASSERT_EQ(background.count(), 1);
+    EXPECT_EQ(background.calls.at(0).at(0), SessionHub::keyFor(a));
+    EXPECT_EQ(background.calls.at(0).at(1), QStringLiteral("f.txt"));
+
+    emit hub.current()->conflictWriteFinished(QStringLiteral("g.txt"), true, {});
+    EXPECT_EQ(background.count(), 1) << "the one on screen reports through the relay";
+}
+
 TEST(SessionHub, RetiringTheSessionOnScreenFallsBackToTheRelay) {
     SessionHub hub;
     const QString path = QDir::tempPath() + QStringLiteral("/gity-hub-a");

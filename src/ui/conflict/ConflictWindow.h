@@ -43,7 +43,14 @@ public:
     void openUnsaved();
 
     void setConflict(const QString& path, session::ConflictPtr conflict, const QString& problem);
-    void writeFinished(const QString& path, bool ok, const QString& message);
+    /// A write of `path` in the repository at `workdir` finished — the one
+    /// shown or another.
+    void writeFinished(const QString& workdir, const QString& path, bool ok,
+                       const QString& message);
+    /// Resolves `path` of the repository shown with a whole side, asked for
+    /// somewhere other than this window: as if asked for here, so the write
+    /// is known when it finishes.
+    void resolveWithSide(const QString& path, int side);
 
     /// Choices made and not written, in any repository.
     [[nodiscard]] bool hasUnsaved() const;
@@ -109,6 +116,10 @@ private:
     QString name_;
     QString current_;
     QStringList conflicted_;
+    /// A status has come in for the repository shown since it was set.
+    bool statusKnown_ = false;
+    /// openUnsaved() was asked for before it had: it runs when it does.
+    bool unsavedWanted_ = false;
     git::Operation operation_ = git::Operation::None;
     QString noun_;
     /// Per repository and file, by keyFor(): the writes under way, oldest

@@ -73,6 +73,10 @@ signals:
                                    const QString& summary);
     /// A clone started from a repository no longer on screen finished.
     void backgroundCloneFinished(const QString& clonedPath);
+    /// A conflict write in a repository no longer on screen finished: what
+    /// asked for it is still waiting to hear.
+    void backgroundConflictWriteFinished(const QString& path, const QString& file, bool ok,
+                                         const QString& message);
 
 private:
     void stopForwarding();
