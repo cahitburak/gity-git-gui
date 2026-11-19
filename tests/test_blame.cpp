@@ -94,6 +94,27 @@ TEST(Blame, StopsAtAMalformedTail) {
     EXPECT_EQ(blame.lines[0].text, "kept");
 }
 
+TEST(Blame, QuotedFileNamesAreUnquoted) {
+    // git quotes a name holding a tab, a quote or a backslash whatever
+    // core.quotePath says, and with it on — the default — escapes every byte
+    // past ASCII in octal. Taken as it was, the name was not a path in the
+    // repository.
+    const std::string output = kB +
+                               " 1 1 1\n"
+                               "author Bo\n"
+                               "summary Rename\n"
+                               "previous " +
+                               kA +
+                               " \"old\\tname \\\"q\\\" back\\\\slash.txt\"\n"
+                               "filename \"caf\\303\\251 menu.txt\"\n"
+                               "\tline\n";
+    const gity::git::Blame blame = gity::git::parseBlamePorcelain(output);
+    ASSERT_EQ(blame.commits.size(), 1u);
+    EXPECT_EQ(blame.commits[0].path, "caf\xC3\xA9 menu.txt");
+    EXPECT_EQ(blame.commits[0].previousId, kA);
+    EXPECT_EQ(blame.commits[0].previousPath, "old\tname \"q\" back\\slash.txt");
+}
+
 TEST(Blame, EmptyOutputIsAnEmptyFile) {
     const gity::git::Blame blame = gity::git::parseBlamePorcelain("");
     EXPECT_TRUE(blame.commits.empty());

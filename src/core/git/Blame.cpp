@@ -25,6 +25,60 @@ std::string_view field(std::string_view& line) {
     return word;
 }
 
+/// A path as git writes it in porcelain output: as it is, or in double
+/// quotes with C escapes when it holds a quote, a backslash or a control
+/// character — and, unless core.quotePath is off, any byte past ASCII, as
+/// three octal digits.
+std::string unquoted(std::string_view text) {
+    if (text.size() < 2 || text.front() != '"' || text.back() != '"') {
+        return std::string(text);
+    }
+    const std::string_view inside = text.substr(1, text.size() - 2);
+    const auto octal = [](char c) { return c >= '0' && c <= '7'; };
+    std::string out;
+    for (std::size_t i = 0; i < inside.size(); ++i) {
+        if (inside[i] != '\\' || i + 1 == inside.size()) {
+            out += inside[i];
+            continue;
+        }
+        const char escaped = inside[++i];
+        switch (escaped) {
+        case 'a':
+            out += '\a';
+            break;
+        case 'b':
+            out += '\b';
+            break;
+        case 'f':
+            out += '\f';
+            break;
+        case 'n':
+            out += '\n';
+            break;
+        case 'r':
+            out += '\r';
+            break;
+        case 't':
+            out += '\t';
+            break;
+        case 'v':
+            out += '\v';
+            break;
+        default:
+            if (i + 2 < inside.size() && octal(escaped) && octal(inside[i + 1]) &&
+                octal(inside[i + 2])) {
+                out += static_cast<char>(((escaped - '0') << 6) | ((inside[i + 1] - '0') << 3) |
+                                         (inside[i + 2] - '0'));
+                i += 2;
+            } else {
+                out += escaped; // \" and \\, and anything git does not write
+            }
+            break;
+        }
+    }
+    return out;
+}
+
 } // namespace
 
 Blame parseBlamePorcelain(std::string_view output) {
@@ -78,10 +132,10 @@ Blame parseBlamePorcelain(std::string_view output) {
         } else if (key == "summary") {
             commit.summary = rest;
         } else if (key == "filename") {
-            commit.path = rest;
+            commit.path = unquoted(rest);
         } else if (key == "previous") {
             commit.previousId = field(rest);
-            commit.previousPath = rest;
+            commit.previousPath = unquoted(rest);
         }
     }
     return blame;
