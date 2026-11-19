@@ -7,6 +7,8 @@
 // combination — so the only test that could have found it is one that asks
 // libgit2. Writes to the index go through git and are tested with the session
 // layer (tests/session).
+#include "TempDir.h"
+
 #include "core/git/Staging.h"
 
 #include <gtest/gtest.h>
@@ -25,11 +27,7 @@ class Repo {
 public:
     Repo() {
         git_libgit2_init();
-        path_ =
-            fs::temp_directory_path() /
-            ("gity-diff-test-" + std::to_string(::testing::UnitTest::GetInstance()->random_seed()) +
-             "-" + std::to_string(counter_++));
-        fs::remove_all(path_);
+        path_ = gity::test::freshTempDir("diff-test");
         fs::create_directories(path_ / "Assets");
 
         // The function, not GIT_REPOSITORY_INIT_OPTIONS_INIT: on libgit2 1.7 the
@@ -100,7 +98,6 @@ public:
 private:
     git_repository* repo_ = nullptr;
     fs::path path_;
-    static inline int counter_ = 0;
 };
 
 } // namespace

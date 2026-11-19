@@ -2,6 +2,8 @@
 // file instead of a image, so every caller has to be able to tell the
 // difference — and real Unity projects have both side by side.
 
+#include "TempDir.h"
+
 #include "core/git/BlobReader.h"
 
 #include <gtest/gtest.h>
@@ -67,11 +69,7 @@ TEST(BlobReader, SimilarPrefixIsNotAPointer) {
 class WorktreeFiles : public ::testing::Test {
 protected:
     void SetUp() override {
-        base_ =
-            fs::temp_directory_path() /
-            ("gity-blob-test-" + std::to_string(::testing::UnitTest::GetInstance()->random_seed()) +
-             "-" + ::testing::UnitTest::GetInstance()->current_test_info()->name());
-        fs::remove_all(base_);
+        base_ = gity::test::freshTempDir("blob-test");
         fs::create_directories(base_ / "work" / "inside");
         fs::create_directories(base_ / "outside");
         write(base_ / "work" / "inside" / "file.txt", "in");

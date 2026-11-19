@@ -1,5 +1,7 @@
 // Built on a real repository, because what is under test is how libgit2
 // reports a symbolic <remote>/HEAD while iterating branches.
+#include "TempDir.h"
+
 #include "core/git/Refs.h"
 
 #include <gtest/gtest.h>
@@ -23,11 +25,7 @@ const gity::git::RefEntry* find(const std::vector<gity::git::RefEntry>& entries,
 
 TEST(LoadRefs, MarksTheBranchTheRemoteHeadNames) {
     git_libgit2_init();
-    const fs::path path =
-        fs::temp_directory_path() /
-        ("gity-refs-test-" + std::to_string(::testing::UnitTest::GetInstance()->random_seed()));
-    fs::remove_all(path);
-    fs::create_directories(path);
+    const fs::path path = gity::test::freshTempDir("refs-test");
 
     git_repository* repo = nullptr;
     // The function, not the INIT macro, which leaves a field out on libgit2 1.7.

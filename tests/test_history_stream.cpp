@@ -1,4 +1,6 @@
 // The history walk against a real repository.
+#include "TempDir.h"
+
 #include "core/git/HistoryStream.h"
 
 #include <gtest/gtest.h>
@@ -22,10 +24,7 @@ class LinearRepo {
 public:
     explicit LinearRepo(int count) {
         git_libgit2_init();
-        path_ = fs::temp_directory_path() /
-                ("gity-history-test-" +
-                 std::to_string(::testing::UnitTest::GetInstance()->random_seed()));
-        fs::remove_all(path_);
+        path_ = gity::test::freshTempDir("history-test");
         git_repository_init_options options{};
         git_repository_init_options_init(&options, GIT_REPOSITORY_INIT_OPTIONS_VERSION);
         options.flags |= GIT_REPOSITORY_INIT_MKPATH;
@@ -131,10 +130,7 @@ public:
 
     FileRepo() {
         git_libgit2_init();
-        path_ =
-            fs::temp_directory_path() /
-            ("gity-path-test-" + std::to_string(::testing::UnitTest::GetInstance()->random_seed()));
-        fs::remove_all(path_);
+        path_ = gity::test::freshTempDir("path-test");
         EXPECT_EQ(git_repository_init(&repo_, path_.string().c_str(), 0), 0);
         EXPECT_EQ(git_signature_new(&who_, "Test", "test@invalid", 1700000000, 0), 0);
     }

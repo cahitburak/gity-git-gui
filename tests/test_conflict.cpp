@@ -1,4 +1,6 @@
 // Reading a conflicted file's versions out of the index.
+#include "TempDir.h"
+
 #include "core/git/Conflict.h"
 
 #include <git2.h>
@@ -18,10 +20,7 @@ class ConflictRepo {
 public:
     ConflictRepo() {
         git_libgit2_init();
-        path_ = fs::temp_directory_path() /
-                ("gity-conflict-test-" +
-                 std::to_string(::testing::UnitTest::GetInstance()->random_seed()));
-        fs::remove_all(path_);
+        path_ = gity::test::freshTempDir("conflict-test");
         EXPECT_EQ(git_repository_init(&repo_, path_.string().c_str(), 0), 0);
     }
 
