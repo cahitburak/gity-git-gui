@@ -26,6 +26,7 @@ bool readStringOrNull(Scanner& scanner, std::string* out) {
 /// The owner object, of which only the name is wanted. Null and `{}` are an
 /// owner nobody named.
 bool readOwner(Scanner& scanner, std::string* name) {
+    name->clear(); // a later "owner" replaces an earlier one, null included
     if (scanner.takeNull()) {
         return true;
     }

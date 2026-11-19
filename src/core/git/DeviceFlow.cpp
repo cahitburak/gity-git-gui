@@ -46,7 +46,11 @@ std::string formDecode(std::string_view text) {
 /// `application/x-www-form-urlencoded` unless asked for JSON, and returns JSON
 /// elsewhere. Accepting both means the flow does not break on a provider that
 /// ignores the Accept header — which GitHub historically did.
-std::string valueOf(std::string_view body, std::string_view key) {
+///
+/// In JSON, a value that is not a string — false, a number, an object — is
+/// none, unless `number` asks for a number: "access_token": false was read as
+/// the token "false", and the flow ended as if granted.
+std::string valueOf(std::string_view body, std::string_view key, bool number = false) {
     // JSON: a member of the top-level object, read with a scanner rather than
     // found by searching for "key": a string value that happens to read
     // "access_token", or a URL in an error description holding
@@ -68,11 +72,14 @@ std::string valueOf(std::string_view body, std::string_view key) {
             if (name == key) {
                 // Strings come with their escapes decoded — a provider may
                 // write the verification URL as "https:\/\/github.com\/…",
-                // or an '&' as &. JSON's null is no value, not the four
-                // letters: an error reply with "access_token": null would
-                // otherwise be stored as the token "null".
+                // or an '&' as \u0026. JSON's null is no value, not the
+                // four letters: an error reply with "access_token": null
+                // would otherwise be stored as the token "null".
                 std::string value;
-                return scanner.readScalar(&value) ? value : std::string();
+                const bool read =
+                    number ? scanner.readScalar(&value) && value != "true" && value != "false"
+                           : scanner.readString(&value);
+                return read ? value : std::string();
             }
             if (!scanner.skipValue() || !scanner.take(',')) {
                 return {};
@@ -97,7 +104,7 @@ std::string valueOf(std::string_view body, std::string_view key) {
 }
 
 int intValue(std::string_view body, std::string_view key, int fallback) {
-    const std::string text = valueOf(body, key);
+    const std::string text = valueOf(body, key, true);
     if (text.empty()) {
         return fallback;
     }

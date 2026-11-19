@@ -178,11 +178,20 @@ TEST(ParsePollResponse, TheKeyInsideAnotherValueIsNotTheToken) {
     EXPECT_TRUE(result.accessToken.empty());
 }
 
+TEST(ParsePollResponse, ATokenThatIsNotAStringIsNoToken) {
+    auto result = parsePollResponse(R"({"access_token":false,"error":"authorization_pending"})");
+    EXPECT_EQ(result.state, PollState::Pending);
+    EXPECT_TRUE(result.accessToken.empty());
+    result = parsePollResponse(R"({"access_token":12345,"error":"slow_down"})");
+    EXPECT_EQ(result.state, PollState::SlowDown);
+    EXPECT_TRUE(result.accessToken.empty());
+}
+
 TEST(ParseDeviceCode, UnicodeEscapesAreDecoded) {
     // \u0026 is how some encoders write '&'; it was read as the letters u0026.
-    const DeviceCode code =
-        parseDeviceCode(R"({"device_code":"a","user_code":"b",)"
-                        R"("verification_uri":"https://host/device?a=1\u0026b=2","expires_in":900})");
+    const DeviceCode code = parseDeviceCode(
+        R"({"device_code":"a","user_code":"b",)"
+        R"("verification_uri":"https://host/device?a=1\u0026b=2","expires_in":900})");
     EXPECT_EQ(code.verificationUrl, "https://host/device?a=1&b=2");
     EXPECT_EQ(code.expiresInSeconds, 900);
 }
