@@ -58,7 +58,11 @@ private:
     QString username_;
     QString clientId_;
     int elapsedSeconds_ = 0;
-    bool cancelled_ = false;
+    /// Which flow is current. Bumped by every start and cancel; a reply, a
+    /// poll or a store that belongs to an earlier flow is ignored when it
+    /// lands. A single "cancelled" flag, cleared again by the next start,
+    /// let the first flow's replies drive the second.
+    quint64 flow_ = 0;
 };
 
 } // namespace gity::session

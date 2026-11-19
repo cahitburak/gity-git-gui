@@ -56,7 +56,7 @@ void BrowserSignIn::setEndpointsOverride(const git::DeviceFlowEndpoints& endpoin
 }
 
 void BrowserSignIn::cancel() {
-    cancelled_ = true;
+    ++flow_;
     pollTimer_->stop();
 }
 
@@ -66,7 +66,8 @@ void BrowserSignIn::start(git::Provider provider, const QString& host, const QSt
     username_ = username;
     clientId_ = clientId;
     elapsedSeconds_ = 0;
-    cancelled_ = false;
+    const quint64 flow = ++flow_;
+    pollTimer_->stop();
 
     endpoints_ = override_.valid() ? override_ : git::endpointsFor(provider, host.toStdString());
     if (!endpoints_.valid()) {
@@ -86,9 +87,9 @@ void BrowserSignIn::start(git::Provider provider, const QString& host, const QSt
         formBody({{QStringLiteral("client_id"), clientId_},
                   {QStringLiteral("scope"), QString::fromStdString(endpoints_.scope)}}));
 
-    connect(reply, &QNetworkReply::finished, this, [this, reply] {
+    connect(reply, &QNetworkReply::finished, this, [this, reply, flow] {
         reply->deleteLater();
-        if (cancelled_) {
+        if (flow != flow_) {
             return;
         }
         if (reply->error() != QNetworkReply::NoError) {
@@ -121,9 +122,7 @@ void BrowserSignIn::start(git::Provider provider, const QString& host, const QSt
 }
 
 void BrowserSignIn::poll() {
-    if (cancelled_) {
-        return;
-    }
+    const quint64 flow = flow_;
     elapsedSeconds_ += code_.intervalSeconds;
     if (code_.expiresInSeconds > 0 && elapsedSeconds_ > code_.expiresInSeconds) {
         emit finished(false, tr("The sign-in code expired before it was approved."));
@@ -137,9 +136,9 @@ void BrowserSignIn::poll() {
                   {QStringLiteral("grant_type"),
                    QStringLiteral("urn:ietf:params:oauth:grant-type:device_code")}}));
 
-    connect(reply, &QNetworkReply::finished, this, [this, reply] {
+    connect(reply, &QNetworkReply::finished, this, [this, reply, flow] {
         reply->deleteLater();
-        if (cancelled_) {
+        if (flow != flow_) {
             return;
         }
         // A poll that fails at the transport level is retried rather than
@@ -213,10 +212,10 @@ void BrowserSignIn::storeCredential(const QString& token) {
     // The thread object cleans itself up; the report goes through `this` as
     // context, so if the panel has gone by then it is simply not delivered.
     connect(store, &QThread::finished, store, &QObject::deleteLater);
-    connect(store, &QThread::finished, this, [this, result] {
+    connect(store, &QThread::finished, this, [this, result, flow = flow_] {
         // A cancel this late cannot take the token back — the helper already
         // has it — but there is nobody left waiting for the message.
-        if (cancelled_) {
+        if (flow != flow_) {
             return;
         }
         if (!result->ok()) {
