@@ -21,6 +21,8 @@ namespace gity::ui {
 namespace syntax {
 namespace {
 
+#ifdef GITY_HAVE_SYNTAX_HIGHLIGHTING
+
 /// Past these a file is drawn plain: colouring it would hold up the window
 /// for longer than the colours are worth.
 constexpr std::size_t kMaxBytes = std::size_t{2} << 20;
@@ -29,8 +31,6 @@ constexpr std::size_t kMaxLines = 60000;
 /// a minified line of a megabyte is regular expressions run over a megabyte,
 /// on the window's thread, for colours nobody reads.
 constexpr std::size_t kMaxLineLength = 8192;
-
-#ifdef GITY_HAVE_SYNTAX_HIGHLIGHTING
 
 namespace kh = KSyntaxHighlighting;
 
