@@ -17,8 +17,9 @@ A review of the whole codebase, and what it found fixed. Details are in the comm
   commands can be cancelled; quitting during a commit or rebase asks, and waits for it.
 * **Changes made outside Gity are noticed** — edits, commits and checkouts — on Linux as they
   happen, elsewhere when the window is brought forward.
-* **Tokens stay off screen** in the command log, git's errors and the remotes dialog; prompts and
-  commit subjects are shown as text, never as markup.
+* **Tokens stay off screen** in the command log, git's errors, the remotes dialog and submodule
+  tooltips; prompts, commit subjects, branch, tag and file names and what a server says back are
+  shown as text, never as markup.
 * Crashes fixed: filtered history, an absurd progress line from a server, and two dialogs that held
   pointers into data a refresh could replace.
 * The sidebar, the welcome screen's recent list and the commit menu work from the keyboard, and
@@ -28,7 +29,7 @@ A review of the whole codebase, and what it found fixed. Details are in the comm
   start with `#`, and more.
 * CI packages releases (AppImage, macOS disk image, Windows zip) into a draft release on a tag, and
   checks sanitizers, versions, desktop metadata and formatting. Tests now include real
-  repositories driven through `git`: 306 in all, up from 187.
+  repositories driven through `git`: 307 in all, up from 187.
 * The two largest files are split up — the main window and the repository session — with no change
   in behaviour.
 * **History of a file or folder, and blame.** Right-click a file in a commit, a comparison or the
