@@ -42,10 +42,12 @@ public:
     [[nodiscard]] RepoSession* current() const noexcept { return current_; }
 
     /// Makes `path`'s session the one on screen, creating it on first use.
-    /// False when it already was.
+    /// False when it already was. A session retired but still finishing its
+    /// work is taken back rather than a second one started beside it.
     bool activate(const QString& path);
     /// Drops `path`'s session: a network command is stopped, anything else
-    /// is let finish first, and the session is destroyed once idle.
+    /// is let finish first, and the session is destroyed once idle. It
+    /// reports nothing more meanwhile.
     void retire(const QString& path);
 
     /// The session on screen has opened its repository.
@@ -57,7 +59,8 @@ public:
     [[nodiscard]] QString currentPath() const;
 
     /// Repositories git is still changing — open ones by folder name, closed
-    /// ones as "a closed tab" — for asking before quitting.
+    /// ones as "a closed tab", and a clone started with no repository open —
+    /// for asking before quitting.
     [[nodiscard]] QStringList busyRepositories() const;
 
     /// How sessions are keyed: the same directory reaches here spelled more
@@ -73,11 +76,19 @@ signals:
 
 private:
     void stopForwarding();
+    /// Reports `session`'s network outcomes while another is on screen.
+    void reportInBackground(const RepoSession* session, const QString& key);
+
+    /// A session closed while still busy, and the key it was open under.
+    struct Retiring {
+        QString key;
+        std::unique_ptr<RepoSession> session;
+    };
 
     RepoSession relay_;
     std::map<QString, std::unique_ptr<RepoSession>> sessions_;
     /// Closed while still busy; destroyed once they are idle.
-    std::vector<std::unique_ptr<RepoSession>> retiring_;
+    std::vector<Retiring> retiring_;
     QTimer* reaper_ = nullptr;
     RepoSession* current_ = &relay_;
     /// Sessions that have opened their repository at least once.

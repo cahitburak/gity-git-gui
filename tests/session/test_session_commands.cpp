@@ -8,6 +8,7 @@
 
 #include <gtest/gtest.h>
 
+#include <QElapsedTimer>
 #include <QEventLoop>
 #include <QThread>
 #include <QTimer>
@@ -124,6 +125,43 @@ TEST(SessionCommands, BranchesAndTagsStillCreateAndDelete) {
     EXPECT_TRUE(refExists(repo, QStringLiteral("refs/tags/v2")));
     EXPECT_TRUE(runEdit(session, [&] { session.requestDeleteTag(QStringLiteral("v2")); }).ok);
     EXPECT_FALSE(refExists(repo, QStringLiteral("refs/tags/v2")));
+}
+
+TEST(SessionCommands, CancelStopsAFetchTheWorkerHasNotReportedStartingYet) {
+    // Closing a tab cancels its network command at once — before the
+    // worker's "started" has come back. That used to be ignored, and the
+    // fetch ran to the end.
+    TempRepo remote;
+    remote.write("a.txt", "one\n");
+    remote.commitAll();
+    TempRepo repo;
+    repo.write("b.txt", "one\n");
+    repo.commitAll();
+    repo.git({"remote", "add", "origin", remote.dir()});
+    // A remote that takes its time to answer.
+    repo.git({"config", "remote.origin.uploadpack", "sleep 10; git-upload-pack"});
+
+    RepoSession session;
+    ASSERT_TRUE(openAndWait(session, repo));
+    bool arrived = false;
+    bool ok = true;
+    QEventLoop loop;
+    QObject::connect(&session, &RepoSession::networkFinished, &loop,
+                     [&](const QString&, bool succeeded, const QString&, const QString&) {
+                         arrived = true;
+                         ok = succeeded;
+                         loop.quit();
+                     });
+    QTimer::singleShot(20000, &loop, &QEventLoop::quit);
+    QElapsedTimer timer;
+    timer.start();
+    session.requestFetch(false);
+    session.cancelNetwork();
+    loop.exec();
+
+    ASSERT_TRUE(arrived);
+    EXPECT_FALSE(ok);
+    EXPECT_LT(timer.elapsed(), 5000) << "the fetch ran to the end";
 }
 
 TEST(SessionCommands, ASupersededWalkSendsNothingIntoTheNewOne) {

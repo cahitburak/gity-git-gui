@@ -167,9 +167,11 @@ RepoSession::~RepoSession() {
 }
 
 void RepoSession::cancelNetwork() {
-    if (!networkBusy()) {
-        return;
-    }
+    // Not conditional on networkBusy(): that is only set once the worker has
+    // started the command and its networkStarted has come back here, so a
+    // fetch asked for a moment ago — and a tab closed straight after — would
+    // run to the end. Raising the flag with nothing on the network costs
+    // nothing; local commands never heed it.
     stopNetwork_.store(true, std::memory_order_relaxed);
     // Lowered again once everything already queued has run, so the next
     // fetch the user asks for is not cancelled too.

@@ -131,6 +131,87 @@ TEST(SessionHub, RetiringTheSessionOnScreenFallsBackToTheRelay) {
     EXPECT_EQ(relayed.count(), 0);
 }
 
+namespace {
+
+/// A repository whose commits take a while: a pre-commit hook that sleeps,
+/// so a session committing in it stays busy long enough to be closed.
+void makeCommitsSlow(const TempRepo& repo) {
+    repo.write(".git/hooks/pre-commit", "#!/bin/sh\nsleep 2\n");
+    QFile::setPermissions(repo.dir() + QStringLiteral("/.git/hooks/pre-commit"),
+                          QFileDevice::ReadOwner | QFileDevice::WriteOwner | QFileDevice::ExeOwner);
+}
+
+/// Opens the session on screen and waits until it reports.
+bool openCurrent(SessionHub& hub, const TempRepo& repo) {
+    bool opened = false;
+    QEventLoop loop;
+    const auto connection = QObject::connect(hub.relay(), &RepoSession::finished, &loop,
+                                             [&](quint64, double, double, bool) {
+                                                 opened = true;
+                                                 loop.quit();
+                                             });
+    QTimer::singleShot(10000, &loop, &QEventLoop::quit);
+    hub.current()->open(repo.dir());
+    loop.exec();
+    QObject::disconnect(connection);
+    return opened;
+}
+
+} // namespace
+
+TEST(SessionHub, ATabReopenedWhileItsSessionIsStillBusyGetsThatSessionBack) {
+    // Two sessions on one repository would each think it was the only one
+    // changing it.
+    TempRepo repo;
+    repo.write("a.txt", "one\n");
+    repo.commitAll();
+    makeCommitsSlow(repo);
+    repo.write("a.txt", "two\n");
+    repo.git({"add", "a.txt"});
+
+    SessionHub hub;
+    hub.activate(repo.dir());
+    ASSERT_TRUE(openCurrent(hub, repo));
+    QPointer<RepoSession> session = hub.current();
+    session->requestCommit(QStringLiteral("slow"));
+    ASSERT_TRUE(session->busy());
+
+    hub.retire(repo.dir());
+    ASSERT_FALSE(session.isNull()) << "a busy session is kept until it is idle";
+    EXPECT_FALSE(hub.busyRepositories().isEmpty());
+
+    EXPECT_TRUE(hub.activate(repo.dir()));
+    EXPECT_EQ(hub.current(), session.data());
+    EXPECT_TRUE(hub.currentNeverOpened()) << "the window opens it again, as any new tab";
+}
+
+TEST(SessionHub, AClosedTabReportsNothingMore) {
+    TempRepo repo;
+    repo.write("a.txt", "one\n");
+    repo.commitAll();
+    makeCommitsSlow(repo);
+    repo.write("a.txt", "two\n");
+    repo.git({"add", "a.txt"});
+
+    SessionHub hub;
+    hub.activate(repo.dir());
+    ASSERT_TRUE(openCurrent(hub, repo));
+    QPointer<RepoSession> session = hub.current();
+    session->requestCommit(QStringLiteral("slow"));
+    hub.retire(repo.dir());
+    ASSERT_FALSE(session.isNull());
+
+    Spy background;
+    QObject::connect(&hub, &SessionHub::backgroundNetworkFinished, &hub,
+                     [&background](const QString& path, const QString& verb, bool, const QString&) {
+                         background.calls << QStringList{path, verb};
+                     });
+    // What a fetch stopped by closing the tab reports as it ends.
+    emit session->networkFinished(QStringLiteral("Fetch"), false,
+                                  QStringLiteral("git was stopped before it finished"), {});
+    EXPECT_EQ(background.count(), 0);
+}
+
 TEST(SessionHub, ARealOpenArrivesThroughTheRelay) {
     TempRepo repo;
     repo.write("a.txt", "one\n");

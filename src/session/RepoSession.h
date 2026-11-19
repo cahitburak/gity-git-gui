@@ -46,8 +46,9 @@ public:
         return networkBusy_.load(std::memory_order_relaxed);
     }
 
-    /// Stops the network command running now, and any queued behind it.
-    /// Local commands are never interrupted.
+    /// Stops the network command running now, and any already asked for —
+    /// even one the worker has not reached yet. Local commands are never
+    /// interrupted.
     void cancelNetwork();
     /// As open, walking with `filter` — a different repository brings its own
     /// filter rather than inheriting the one being left.

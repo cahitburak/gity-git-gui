@@ -4,6 +4,8 @@
 #include <QMetaMethod>
 #include <QTimer>
 
+#include <algorithm>
+
 namespace gity::session {
 
 SessionHub::SessionHub(QObject* parent) : QObject(parent) {
@@ -11,7 +13,8 @@ SessionHub::SessionHub(QObject* parent) : QObject(parent) {
     reaper_ = new QTimer(this);
     reaper_->setInterval(500);
     connect(reaper_, &QTimer::timeout, this, [this] {
-        std::erase_if(retiring_, [](const auto& session) { return !session->busy(); });
+        std::erase_if(retiring_,
+                      [](const Retiring& retiring) { return !retiring.session->busy(); });
         if (retiring_.empty()) {
             reaper_->stop();
         }
@@ -30,24 +33,21 @@ bool SessionHub::activate(const QString& path) {
     const QString key = keyFor(path);
     auto found = sessions_.find(key);
     if (found == sessions_.end()) {
-        auto created = std::make_unique<RepoSession>();
-        const RepoSession* raw = created.get();
-        // Work started in a repository keeps going when another tab is
-        // brought forward; its outcome is still worth a word.
-        connect(
-            created.get(), &RepoSession::networkFinished, this,
-            [this, raw, key](const QString& verb, bool ok, const QString& summary, const QString&) {
-                if (raw != current_) {
-                    emit backgroundNetworkFinished(key, verb, ok, summary);
-                }
-            });
-        connect(created.get(), &RepoSession::cloneFinished, this,
-                [this, raw](const QString& cloned) {
-                    if (raw != current_) {
-                        emit backgroundCloneFinished(cloned);
-                    }
-                });
-        found = sessions_.emplace(key, std::move(created)).first;
+        // Reopened while its last session is still finishing a commit or a
+        // rebase step: that session comes back. A second one beside it would
+        // run its commands against the same repository at the same time, and
+        // neither would know the other was busy.
+        std::unique_ptr<RepoSession> session;
+        const auto retiring = std::find_if(retiring_.begin(), retiring_.end(),
+                                           [&key](const Retiring& r) { return r.key == key; });
+        if (retiring != retiring_.end()) {
+            session = std::move(retiring->session);
+            retiring_.erase(retiring);
+        } else {
+            session = std::make_unique<RepoSession>();
+        }
+        reportInBackground(session.get(), key);
+        found = sessions_.emplace(key, std::move(session)).first;
     }
     if (found->second.get() == current_) {
         return false;
@@ -68,14 +68,35 @@ bool SessionHub::activate(const QString& path) {
     return true;
 }
 
+void SessionHub::reportInBackground(const RepoSession* session, const QString& key) {
+    // Work started in a repository keeps going when another tab is brought
+    // forward; its outcome is still worth a word.
+    connect(
+        session, &RepoSession::networkFinished, this,
+        [this, session, key](const QString& verb, bool ok, const QString& summary, const QString&) {
+            if (session != current_) {
+                emit backgroundNetworkFinished(key, verb, ok, summary);
+            }
+        });
+    connect(session, &RepoSession::cloneFinished, this, [this, session](const QString& cloned) {
+        if (session != current_) {
+            emit backgroundCloneFinished(cloned);
+        }
+    });
+}
+
 void SessionHub::retire(const QString& path) {
     const auto found = sessions_.find(keyFor(path));
     if (found == sessions_.end()) {
         return;
     }
+    const QString key = found->first;
     std::unique_ptr<RepoSession> session = std::move(found->second);
     sessions_.erase(found);
     opened_.remove(session.get());
+    // Its tab is gone: the fetch stopped below must not come back as "Fetch
+    // failed" about a repository no longer open.
+    disconnect(session.get(), nullptr, this, nullptr);
     if (session.get() == current_) {
         stopForwarding();
         current_ = &relay_;
@@ -86,7 +107,7 @@ void SessionHub::retire(const QString& path) {
     if (!session->busy()) {
         return; // destroyed here, idle
     }
-    retiring_.push_back(std::move(session));
+    retiring_.push_back({key, std::move(session)});
     reaper_->start();
 }
 
@@ -114,10 +135,15 @@ QStringList SessionHub::busyRepositories() const {
             busy << QDir(path).dirName();
         }
     }
-    for (const auto& session : retiring_) {
-        if (session->busy()) {
+    for (const Retiring& retiring : retiring_) {
+        if (retiring.session->busy()) {
             busy << tr("a closed tab");
         }
+    }
+    // A clone asked for from the Welcome screen runs on the relay itself.
+    // Quitting stops it half way, which leaves a partial folder behind.
+    if (relay_.busy()) {
+        busy << tr("the repository being cloned");
     }
     return busy;
 }

@@ -100,6 +100,18 @@ void RepoWorker::runFetch(bool withSubmodules) {
         QStringList failed;
         int fetched = 0;
         for (const QString& path : std::as_const(paths)) {
+            // Cancelled: each fetch left would only start and be stopped at
+            // once, and be listed as failing when nothing went wrong with it.
+            if (GitProcess::aborting()) {
+                emit networkFinished(
+                    verb, false,
+                    QObject::tr("Stopped. The repository was fetched (%1), but not all of its "
+                                "submodules.")
+                        .arg(summary),
+                    errorOutput);
+                refreshStatus();
+                return;
+            }
             const QString dir = QDir(workdir_).filePath(path.trimmed());
             const GitResult sub = GitProcess::runStreaming(
                 dir, fetchArgs(dir),
