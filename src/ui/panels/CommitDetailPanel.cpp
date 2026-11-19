@@ -131,9 +131,19 @@ void ChangedFilesList::selectPath(const QString& path) {
 }
 
 void ChangedFilesList::contextMenuEvent(QContextMenuEvent* event) {
-    QTreeWidgetItem* item = itemAt(viewport()->mapFrom(this, event->pos()));
+    // From the Menu key or Shift+F10, the file with focus, and the menu by
+    // it: the event's position is then nowhere in particular.
+    const bool keyboard = event->reason() == QContextMenuEvent::Keyboard;
+    QTreeWidgetItem* item =
+        keyboard ? currentItem() : itemAt(viewport()->mapFrom(this, event->pos()));
     if (item == nullptr) {
         return;
+    }
+    QPoint at = event->globalPos();
+    if (keyboard) {
+        scrollToItem(item);
+        const QRect row = visualItemRect(item);
+        at = viewport()->mapToGlobal(QPoint(row.left() + 24, row.center().y()));
     }
     const QString path = item->data(0, kPathRole).toString();
     if (path.isEmpty()) {
@@ -151,7 +161,7 @@ void ChangedFilesList::contextMenuEvent(QContextMenuEvent* event) {
     menu.addSeparator();
     QAction* copy = menu.addAction(tr("Copy Path"));
 
-    QAction* chosen = menu.exec(event->globalPos());
+    QAction* chosen = menu.exec(at);
     if (chosen == nullptr) {
         return;
     }

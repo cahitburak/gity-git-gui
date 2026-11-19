@@ -184,9 +184,18 @@ RefsSidebar::RefsSidebar(QWidget* parent) : QTreeWidget(parent) {
 }
 
 void RefsSidebar::contextMenuEvent(QContextMenuEvent* event) {
-    QTreeWidgetItem* item = itemAt(event->pos());
+    // From the Menu key or Shift+F10, the row with focus, and the menu by it:
+    // the event's position is then nowhere in particular.
+    const bool keyboard = event->reason() == QContextMenuEvent::Keyboard;
+    QTreeWidgetItem* item = keyboard ? currentItem() : itemAt(event->pos());
     if (item == nullptr) {
         return;
+    }
+    QPoint at = event->globalPos();
+    if (keyboard) {
+        scrollToItem(item);
+        const QRect row = visualItemRect(item);
+        at = viewport()->mapToGlobal(QPoint(row.left() + 24, row.center().y()));
     }
     const QVariant kindValue = item->data(0, kKindRole);
     if (!kindValue.isValid()) {
@@ -218,7 +227,7 @@ void RefsSidebar::contextMenuEvent(QContextMenuEvent* event) {
         describeCommand(dropTag, tr("Delete the tag here. A pushed copy stays on the remote."),
                         QStringLiteral("tag --delete %1").arg(name));
 
-        QAction* picked = tagMenu.exec(event->globalPos());
+        QAction* picked = tagMenu.exec(at);
         if (picked == visit) {
             emit checkoutRefRequested(name);
         } else if (picked == pushTag) {
@@ -244,7 +253,7 @@ void RefsSidebar::contextMenuEvent(QContextMenuEvent* event) {
         describeCommand(drop, tr("Throw the stash away."),
                         QStringLiteral("stash drop %1").arg(name));
 
-        QAction* picked = stashMenu.exec(event->globalPos());
+        QAction* picked = stashMenu.exec(at);
         if (picked == pop) {
             emit stashApplyRequested(name, true);
         } else if (picked == apply) {
@@ -367,7 +376,7 @@ void RefsSidebar::contextMenuEvent(QContextMenuEvent* event) {
                        "the reflog holds them."),
                     QStringLiteral("branch -d %1").arg(name));
 
-    QAction* chosen = menu.exec(event->globalPos());
+    QAction* chosen = menu.exec(at);
     if (chosen == nullptr) {
         return;
     }
