@@ -12,6 +12,7 @@
 #include <QMouseEvent>
 #include <QPainter>
 #include <QScrollBar>
+#include <QTextDocument>
 #include <QToolTip>
 
 #include <algorithm>
@@ -63,10 +64,13 @@ void BlameView::setBlame(session::BlamePtr blame, const QString& path) {
                 label.shortId = QString::fromStdString(commit.id).left(7);
                 label.author = author;
                 label.date = when.toString(QStringLiteral("yyyy-MM-dd"));
-                label.tooltip =
+                // Made rich text on purpose, escaped: left plain, a tooltip
+                // whose first line looks like markup — a summary of
+                // "<b>…" — is taken for it and rendered.
+                label.tooltip = Qt::convertFromPlainText(
                     QStringLiteral("%1\n%2  ·  %3  ·  %4")
                         .arg(QString::fromStdString(commit.summary), author,
-                             when.toString(QStringLiteral("yyyy-MM-dd hh:mm")), label.shortId);
+                             when.toString(QStringLiteral("yyyy-MM-dd hh:mm")), label.shortId));
             }
             labels_.push_back(std::move(label));
         }
@@ -185,6 +189,9 @@ void BlameView::paintEvent(QPaintEvent* event) {
     const int width = viewport()->width();
     const auto count = static_cast<qsizetype>(blame_->lines.size());
     const qsizetype first = std::max<qsizetype>(0, (scroll + event->rect().top()) / h);
+    // The view's first row, not the first repainted: a repaint of part of
+    // the view, under a menu that closed, would name a commit mid-run.
+    const qsizetype top = std::max<qsizetype>(0, scroll / h);
     const qsizetype last = std::min<qsizetype>(count - 1, (scroll + event->rect().bottom()) / h);
 
     painter.fillRect(0, 0, textLeft, viewport()->height(), theme.gutterBg);
@@ -216,7 +223,7 @@ void BlameView::paintEvent(QPaintEvent* event) {
         // The commit is named at the top of its run, and again at the top of
         // the view when a run starts above it, so no visible line is
         // anonymous.
-        if (runStart || i == first) {
+        if (runStart || i == top) {
             const int baseline = y + (h + fm.ascent() - fm.descent()) / 2;
             int x = 8;
             if (who.uncommitted) {
@@ -272,8 +279,11 @@ void BlameView::contextMenuEvent(QContextMenuEvent* event) {
     if (row < 0) {
         return;
     }
-    const auto& line = blame_->lines[static_cast<std::size_t>(row)];
-    const auto& commit = blame_->commits[line.commit];
+    // Held, not referred to: the menu runs its own event loop, and a blame
+    // that arrives meanwhile replaces this one and could free it.
+    const session::BlamePtr blame = blame_;
+    const auto& line = blame->lines[static_cast<std::size_t>(row)];
+    const auto& commit = blame->commits[line.commit];
     const Label& who = labels_[line.commit];
     highlighted_ = line.commit;
     viewport()->update();
