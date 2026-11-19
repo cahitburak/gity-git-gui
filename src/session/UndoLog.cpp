@@ -4,6 +4,7 @@
 
 #include <QDir>
 #include <QFile>
+#include <QFileInfo>
 #include <QJsonArray>
 #include <QJsonDocument>
 #include <QJsonObject>
@@ -119,12 +120,19 @@ public:
         // A lock left by a crashed Gity is stale after this long; nothing
         // legitimately holds it for more than a restore takes.
         lock_.setStaleLockTime(10 * 60 * 1000);
-        if (!lock_.tryLock(10000)) {
+        locked_ = lock_.tryLock(10000);
+        if (!locked_) {
             qWarning("gity: the undo log is locked by another process; going ahead without it");
         }
     }
 
+    /// Recording goes ahead without the lock — an entry lost to a race is
+    /// better than one never written — but a restore does not: two at once
+    /// would both move the files.
+    [[nodiscard]] bool locked() const { return locked_; }
+
 private:
+    bool locked_ = false;
     QLockFile lock_;
 };
 
@@ -247,13 +255,18 @@ RepoState UndoLog::capture(bool withWorktree, bool worktreeClean) const {
     if (worktreeClean) {
         // Nothing uncommitted: the working copy is HEAD's tree, and hashing
         // every file to learn that would be waste.
-        if (!state.headOid.isEmpty()) {
-            state.worktreeTree =
-                firstLine(GitProcess::run(workdir_, {QStringLiteral("rev-parse"),
-                                                     state.headOid + QStringLiteral("^{tree}")}));
+        // Checked: rev-parse echoes an argument it cannot resolve, and that
+        // echo is not a tree anything can be restored to.
+        const GitResult tree =
+            !state.headOid.isEmpty()
+                ? GitProcess::run(workdir_,
+                                  {QStringLiteral("rev-parse"), QStringLiteral("--verify"),
+                                   state.headOid + QStringLiteral("^{tree}")})
+                : GitProcess::runWithInput(workdir_, {QStringLiteral("mktree")}, QByteArray());
+        if (tree.ok()) {
+            state.worktreeTree = firstLine(tree);
         } else {
-            state.worktreeTree = firstLine(
-                GitProcess::runWithInput(workdir_, {QStringLiteral("mktree")}, QByteArray()));
+            state.valid = false;
         }
         state.indexTree = state.worktreeTree;
         return state;
@@ -518,6 +531,10 @@ UndoLog::Outcome UndoLog::restore(std::vector<UndoEntry>& from, std::vector<Undo
         return {false, QObject::tr("Finish or abandon the operation in progress first.")};
     }
     const LogLock lock(gitDir_);
+    if (!lock.locked()) {
+        return {false, QObject::tr("Another Gity window is changing this repository's undo "
+                                   "history. Nothing was changed; try again in a moment.")};
+    }
     read();
     if (from.empty() || from.back().pending) {
         return {false, QObject::tr("Nothing to undo.")};
@@ -617,9 +634,17 @@ UndoLog::Outcome UndoLog::restore(std::vector<UndoEntry>& from, std::vector<Undo
     // that newer state: rolling the files back under it would make the new
     // commit look like uncommitted changes. HEAD and files are left alone.
     const std::string headBranch = entry.after.headRef.toStdString();
-    const bool headSkipped =
+    const bool headBranchSkipped =
         !headBranch.empty() &&
         std::find(plan.skipped.begin(), plan.skipped.end(), headBranch) != plan.skipped.end();
+    // The same goes for HEAD itself having moved: switched to another branch,
+    // or detached somewhere else, in a terminal. The files are that other
+    // branch's now, and the operation's own tree has nothing to say about
+    // them; the refs it moved are still put back.
+    const bool headMoved =
+        leaving.headRef != entry.after.headRef ||
+        (entry.after.headRef.isEmpty() && leaving.headOid != entry.after.headOid);
+    const bool headSkipped = headBranchSkipped || headMoved;
 
     // HEAD, when the operation moved it: back onto the branch it was on, or
     // back to the commit it was detached at.
@@ -628,17 +653,22 @@ UndoLog::Outcome UndoLog::restore(std::vector<UndoEntry>& from, std::vector<Undo
     } else if (entry.before.headRef != entry.after.headRef ||
                (entry.before.headRef.isEmpty() && entry.before.headOid != entry.after.headOid)) {
         GitResult moved;
+        bool attempted = false;
         if (!entry.before.headRef.isEmpty()) {
+            attempted = true;
             moved =
                 GitProcess::run(workdir_, {QStringLiteral("symbolic-ref"), QStringLiteral("-m"),
                                            reason, QStringLiteral("HEAD"), entry.before.headRef});
         } else if (!entry.before.headOid.isEmpty()) {
+            attempted = true;
             moved =
                 GitProcess::run(workdir_, {QStringLiteral("update-ref"),
                                            QStringLiteral("--no-deref"), QStringLiteral("-m"),
                                            reason, QStringLiteral("HEAD"), entry.before.headOid});
         }
-        if (moved.started && !moved.ok()) {
+        // A git that could not even start counts as a failure too: carrying
+        // on would restore the files under a HEAD still pointing elsewhere.
+        if (attempted && !moved.ok()) {
             rollBack();
             return {false, QObject::tr("Could not move HEAD back: %1. Nothing was changed.")
                                .arg(moved.firstProblemLine())};
@@ -674,23 +704,35 @@ UndoLog::Outcome UndoLog::restore(std::vector<UndoEntry>& from, std::vector<Undo
         const GitResult links =
             GitProcess::run(workdir_, {QStringLiteral("ls-tree"), QStringLiteral("-r"),
                                        QStringLiteral("-z"), entry.before.worktreeTree});
-        for (const QString& line : links.output.split(QChar('\0'), Qt::SkipEmptyParts)) {
+        const QStringList entries =
+            links.ok() ? links.output.split(QChar('\0'), Qt::SkipEmptyParts) : QStringList();
+        for (const QString& line : entries) {
             // "160000 commit <oid>\t<path>"
             if (!line.startsWith(QStringLiteral("160000 commit "))) {
                 continue;
             }
             const QString oid = line.section(QChar(' '), 2, 2).section(QChar('\t'), 0, 0);
             const QString path = QDir(workdir_).filePath(line.section(QChar('\t'), 1));
-            if (!QDir(path).exists()) {
+            // Only a submodule with a repository of its own: an uninitialised
+            // one is an empty directory, and git run there finds the parent
+            // repository instead — and would check *that* out at this commit.
+            if (!QFileInfo::exists(QDir(path).filePath(QStringLiteral(".git")))) {
                 continue;
             }
-            const QString now =
-                GitProcess::run(path, {QStringLiteral("rev-parse"), QStringLiteral("HEAD")})
-                    .output.trimmed();
-            const bool clean =
-                GitProcess::run(path, {QStringLiteral("status"), QStringLiteral("--porcelain")})
-                    .output.trimmed()
-                    .isEmpty();
+            const GitResult head =
+                GitProcess::run(path, {QStringLiteral("rev-parse"), QStringLiteral("HEAD")});
+            const GitResult status =
+                GitProcess::run(path, {QStringLiteral("status"), QStringLiteral("--porcelain")});
+            // Not knowing is not the same as clean: a status that failed says
+            // nothing about whether a checkout would overwrite work.
+            if (!head.ok() || !status.ok()) {
+                problems << QObject::tr("the submodule %1 could not be read, so it was left "
+                                        "where it is")
+                                .arg(line.section(QChar('\t'), 1));
+                continue;
+            }
+            const QString now = head.output.trimmed();
+            const bool clean = status.output.trimmed().isEmpty();
             if (now != oid && clean) {
                 static_cast<void>(
                     GitProcess::run(path, {QStringLiteral("checkout"), QStringLiteral("-q"),
@@ -743,9 +785,11 @@ UndoLog::Outcome UndoLog::restore(std::vector<UndoEntry>& from, std::vector<Undo
         }
         message += QObject::tr(" Left alone because they changed since: %1.")
                        .arg(names.join(QStringLiteral(", ")));
-        if (headSkipped) {
-            message += QObject::tr(" The working copy was left as it is.");
-        }
+    }
+    if (headMoved) {
+        message += QObject::tr(" HEAD has moved since, so the working copy was left as it is.");
+    } else if (headSkipped) {
+        message += QObject::tr(" The working copy was left as it is.");
     }
     if (!problems.isEmpty()) {
         message += QObject::tr(" But %1.").arg(problems.join(QStringLiteral("; ")));

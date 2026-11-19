@@ -238,3 +238,69 @@ TEST(UndoLog, ALockedIndexStopsTheUndoBeforeAnythingMoves) {
     EXPECT_EQ(repo.head(), second) << "the branch moved although the undo refused";
     EXPECT_EQ(log.undoLabel(), QStringLiteral("Commit"));
 }
+
+TEST(UndoLog, UndoingAfterASwitchInATerminalLeavesThatBranchsFilesAlone) {
+    // The commit is undone on main, but the working copy now belongs to
+    // another branch: rolling the files back to main's old tree would make
+    // that branch's own commit look like uncommitted deletions.
+    TempRepo repo;
+    repo.write("a.txt", "one\n");
+    repo.commitAll();
+    const QString base = repo.head();
+    repo.git({"branch", "other"});
+
+    UndoLog log;
+    log.load(repo.dir(), gitDir(repo));
+    RepoState before = begin(log);
+    repo.write("a.txt", "two\n");
+    repo.commitAll("second");
+    log.record(QStringLiteral("Commit"), std::move(before), false, false);
+
+    // In a terminal: over to the other branch, and a commit there.
+    repo.git({"switch", "-q", "other"});
+    repo.write("c.txt", "other's work\n");
+    repo.commitAll("on other");
+    const QString otherTip = repo.head();
+
+    const auto outcome = log.undo(false, true);
+    ASSERT_TRUE(outcome.ok) << outcome.message.toStdString();
+    EXPECT_EQ(repo.git({"rev-parse", "refs/heads/main"}).output.trimmed(), base);
+    EXPECT_EQ(repo.git({"symbolic-ref", "HEAD"}).output.trimmed(),
+              QStringLiteral("refs/heads/other"));
+    EXPECT_EQ(repo.head(), otherTip);
+    EXPECT_EQ(repo.read("c.txt"), "other's work\n");
+    EXPECT_TRUE(repo.git({"status", "--porcelain"}).output.trimmed().isEmpty())
+        << repo.git({"status", "--porcelain"}).output.toStdString();
+}
+
+TEST(UndoLog, AnUninitialisedSubmoduleIsNotMistakenForTheRepositoryAroundIt) {
+    // An uninitialised submodule is an empty directory. git run inside it
+    // finds the parent repository instead, and "putting the submodule back"
+    // checked the parent out at the submodule's commit.
+    TempRepo repo;
+    repo.write("a.txt", "one\n");
+    repo.commitAll();
+    const QString base = repo.head();
+    repo.write("a.txt", "two\n");
+    repo.commitAll("second");
+    // A gitlink naming a commit the parent happens to have, and no
+    // repository on disk for it.
+    repo.git({"update-index", "--add", "--cacheinfo", QStringLiteral("160000,%1,sub").arg(base)});
+    ASSERT_TRUE(QDir(repo.dir()).mkpath(QStringLiteral("sub")));
+    repo.git({"commit", "-q", "-m", "add a submodule"});
+    const QString withSubmodule = repo.head();
+
+    UndoLog log;
+    log.load(repo.dir(), gitDir(repo));
+    RepoState before = begin(log);
+    repo.write("a.txt", "three\n");
+    repo.commitAll("third");
+    log.record(QStringLiteral("Commit"), std::move(before), false, false);
+
+    const auto outcome = log.undo(false, true);
+    ASSERT_TRUE(outcome.ok) << outcome.message.toStdString();
+    EXPECT_EQ(repo.git({"symbolic-ref", "HEAD"}).output.trimmed(),
+              QStringLiteral("refs/heads/main"));
+    EXPECT_EQ(repo.head(), withSubmodule);
+    EXPECT_EQ(repo.read("a.txt"), "two\n");
+}
