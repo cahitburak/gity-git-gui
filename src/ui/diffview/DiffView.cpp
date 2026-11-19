@@ -318,7 +318,12 @@ void DiffView::setDiff(FileDiffPtr diff, session::HunkStagingPtr staging) {
 
 void DiffView::clearDiff() {
     diff_.reset();
+    // The colours go with the diff: kept, they held a large file's spans
+    // until the next diff was painted.
     spansReady_ = false;
+    oldSpans_.reset();
+    newSpans_.reset();
+    lineSpans_.clear();
     selection_.clear();
     anchorRow_ = -1;
     cursorRow_ = -1;
@@ -427,8 +432,10 @@ void DiffView::rebuildRows() {
         for (std::uint32_t l = 0; l < hunk.lineCount; ++l) {
             const std::uint32_t lineIndex = hunk.firstLine + l;
             rows_.push_back(Row{false, lineIndex});
+            // In columns as drawn, not bytes: a tab-indented line is wider
+            // than its bytes, and was cut off at the end of the scroll.
             longestLine_ =
-                std::max<int>(longestLine_, static_cast<int>(diff_->lines[lineIndex].textLength));
+                std::max(longestLine_, codeLineColumns(diff_->lineText(diff_->lines[lineIndex])));
         }
     }
     updateScrollBars();
@@ -659,11 +666,17 @@ void DiffView::paintRow(QPainter& painter, const Row& row, int y, int gutter) co
     painter.setPen(theme.text);
     // Only as much of the line as can reach the viewport. A minified file is
     // one line of a megabyte, and converting and laying out all of it for
-    // every repaint of every row made scrolling past it crawl. Bytes are an
-    // over-estimate of characters, so this never cuts short what is visible.
+    // every repaint of every row made scrolling past it crawl. A character
+    // takes up to four bytes, so four bytes a column are kept — a line of
+    // Cyrillic or CJK was cut off part way across the view — and the cut is
+    // made between characters, not inside one. A tab takes more columns
+    // than its byte, so it only ever keeps more.
     auto text = diff_->lineText(line);
-    const std::size_t reach = static_cast<std::size_t>((xScroll + width) / std::max(1, digit)) + 64;
+    std::size_t reach = (static_cast<std::size_t>((xScroll + width) / std::max(1, digit)) + 64) * 4;
     if (text.size() > reach) {
+        while (reach > 0 && (static_cast<unsigned char>(text[reach]) & 0xC0) == 0x80) {
+            --reach;
+        }
         text = text.substr(0, reach);
     }
     // Nor what is scrolled off to the left: far right in a minified line,

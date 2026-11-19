@@ -123,7 +123,7 @@ private:
     };
 
     mutable std::vector<HunkButtons> hunkButtons_;
-    int longestLine_ = 0; ///< In characters, for the horizontal range.
+    int longestLine_ = 0; ///< In columns, tabs expanded, for the horizontal range.
 
     /// Colours each line from the side it belongs to: a deletion from the
     /// old file, everything else from the new. Done on the first paint of a
