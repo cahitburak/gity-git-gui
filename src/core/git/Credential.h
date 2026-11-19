@@ -25,14 +25,16 @@ struct Credential {
 /// host (with port), and — only when `useHttpPath` is set, as git itself does
 /// — the path. A username in the URL is carried over, since it selects which
 /// stored credential answers. False for URLs with no credential to speak of:
-/// SSH, local paths, file://.
+/// SSH, local paths, file:// — and for one whose fields, once decoded, hold a
+/// newline or NUL (see isWritable).
 [[nodiscard]] bool credentialForUrl(std::string_view url, bool useHttpPath, Credential* out);
 
 /// Parses `git credential fill` output. Unknown keys are ignored.
 [[nodiscard]] Credential parseCredential(std::string_view text);
 
 /// The request or record to write to `git credential`, blank-line terminated.
-/// Empty fields are left out.
+/// Empty fields are left out. A credential that is not isWritable comes out
+/// as the blank line alone, which git rejects for having no host.
 [[nodiscard]] std::string serializeCredential(const Credential& credential);
 
 /// git refuses a newline or NUL in any field — and a newline would let one

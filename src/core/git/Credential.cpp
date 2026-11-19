@@ -79,6 +79,13 @@ bool credentialForUrl(std::string_view url, bool useHttpPath, Credential* out) {
     if (useHttpPath) {
         credential.path = std::string(path);
     }
+    // Decoding is what makes this needed: me%0Ahost=other.example decodes to
+    // a second line, which `git credential fill` would read as a field of its
+    // own and answer with the other host's secret. git itself refuses such a
+    // URL, so it has no credential to look up here either.
+    if (!isWritable(credential)) {
+        return false;
+    }
     if (out != nullptr) {
         *out = std::move(credential);
     }
@@ -123,6 +130,13 @@ Credential parseCredential(std::string_view text) {
 }
 
 std::string serializeCredential(const Credential& credential) {
+    // Not one field of a record that could smuggle in another. The blank line
+    // alone is a request with no host, which git refuses outright — where
+    // dropping only the bad field would widen an erase to every account on
+    // the host.
+    if (!isWritable(credential)) {
+        return "\n";
+    }
     std::string out;
     const auto field = [&out](std::string_view key, const std::string& value) {
         if (!value.empty()) {
