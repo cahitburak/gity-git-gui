@@ -638,12 +638,14 @@ UndoLog::Outcome UndoLog::restore(std::vector<UndoEntry>& from, std::vector<Undo
         !headBranch.empty() &&
         std::find(plan.skipped.begin(), plan.skipped.end(), headBranch) != plan.skipped.end();
     // The same goes for HEAD itself having moved: switched to another branch,
-    // or detached somewhere else, in a terminal. The files are that other
-    // branch's now, and the operation's own tree has nothing to say about
-    // them; the refs it moved are still put back.
+    // detached somewhere else, or a commit made on the same branch, in a
+    // terminal. The files are that newer state's now, and the operation's own
+    // tree has nothing to say about them; the refs it moved are still put
+    // back. The commit has to be looked for here too: an operation that did
+    // not move the branch — a discard, a stash, a tag — leaves it out of the
+    // plan, so the check above never sees it move.
     const bool headMoved =
-        leaving.headRef != entry.after.headRef ||
-        (entry.after.headRef.isEmpty() && leaving.headOid != entry.after.headOid);
+        leaving.headRef != entry.after.headRef || leaving.headOid != entry.after.headOid;
     const bool headSkipped = headBranchSkipped || headMoved;
 
     // HEAD, when the operation moved it: back onto the branch it was on, or

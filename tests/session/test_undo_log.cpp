@@ -273,6 +273,32 @@ TEST(UndoLog, UndoingAfterASwitchInATerminalLeavesThatBranchsFilesAlone) {
         << repo.git({"status", "--porcelain"}).output.toStdString();
 }
 
+TEST(UndoLog, UndoingADiscardAfterACommitInATerminalLeavesThatCommitsFilesAlone) {
+    // A discard moves no branch, so the branch moving afterwards was not in
+    // the plan: the files were rolled back to before the commit, under it.
+    TempRepo repo;
+    repo.write("a.txt", "one\n");
+    repo.commitAll();
+
+    UndoLog log;
+    log.load(repo.dir(), gitDir(repo));
+    repo.write("a.txt", "edited\n");
+    RepoState before = begin(log);
+    repo.git({"checkout", "-q", "--", "a.txt"});
+    log.record(QStringLiteral("Discard"), std::move(before), true, false);
+
+    repo.write("c.txt", "terminal\n");
+    repo.commitAll("in a terminal");
+    const QString tip = repo.head();
+
+    const auto outcome = log.undo(false, true);
+    ASSERT_TRUE(outcome.ok) << outcome.message.toStdString();
+    EXPECT_EQ(repo.head(), tip);
+    EXPECT_EQ(repo.read("c.txt"), "terminal\n");
+    EXPECT_TRUE(repo.git({"status", "--porcelain"}).output.trimmed().isEmpty())
+        << repo.git({"status", "--porcelain"}).output.toStdString();
+}
+
 TEST(UndoLog, AnUninitialisedSubmoduleIsNotMistakenForTheRepositoryAroundIt) {
     // An uninitialised submodule is an empty directory. git run inside it
     // finds the parent repository instead, and "putting the submodule back"
