@@ -375,22 +375,30 @@ void MainWindow::onFailed(const QString& message, const QString& detail) {
     // A repository that never opened leaves no tab and no session behind:
     // otherwise its tab stays, and the toolbar acts on whatever was open
     // before — a repository no longer on screen.
+    const auto report = [this, message, detail] {
+        gity::ui::showPlainMessage(this, QMessageBox::Warning, tr("Could not open repository"),
+                                   message, QMessageBox::Ok, QMessageBox::NoButton, detail);
+    };
     if (sessions_.currentNeverOpened()) {
         const QString failedPath = sessions_.currentPath();
         currentWorkdir_.clear();
+        repoLabel_->setText(tr("No repository open"));
         // After this signal has returned: the session sending it is about to
-        // be destroyed, and must not be while it is still emitting.
-        QTimer::singleShot(0, this, [this, failedPath] {
+        // be destroyed, and must not be while it is still emitting. The
+        // message waits too — a dialog's own event loop runs timers, and
+        // shown here it destroyed the session under the signal anyway.
+        QTimer::singleShot(0, this, [this, failedPath, report] {
             repoTabs_->close(failedPath); // may bring another tab forward
             retireSession(failedPath);
             if (repoTabs_->count() == 0) {
                 tabs_->setCurrentIndex(ScreenWelcome);
             }
+            report();
         });
+        return;
     }
     repoLabel_->setText(currentWorkdir_.isEmpty() ? tr("No repository open") : repoLabel_->text());
-    gity::ui::showPlainMessage(this, QMessageBox::Warning, tr("Could not open repository"), message,
-                               QMessageBox::Ok, QMessageBox::NoButton, detail);
+    report();
 }
 
 void MainWindow::onStatusReady(gity::session::StatusPtr status) {
